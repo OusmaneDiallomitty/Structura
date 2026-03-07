@@ -28,17 +28,17 @@ WORKDIR /app
 # Installer dumb-init pour gérer les signaux correctement
 RUN apk add --no-cache dumb-init
 
-# Copier les dépendances du builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-
-# Copier les fichiers de config
-COPY package*.json ./
-
 # Créer un utilisateur non-root pour la sécurité
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001
+
+# Copier les dépendances du builder avec les bonnes permissions
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
+
+# Copier les fichiers de config
+COPY --chown=nestjs:nodejs package*.json ./
 
 USER nestjs
 
