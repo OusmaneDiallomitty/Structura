@@ -22,8 +22,8 @@ const SUBJECTS = [
   "Autre",
 ];
 
-const CONTACT_EMAIL = "support@structura.app";
-const WHATSAPP_NUMBER = "22400000000"; // A remplacer par le vrai numéro
+const CONTACT_EMAIL = "ousmanedmitty@gmail.com";
+const WHATSAPP_NUMBER = "224613508278";
 
 export default function ContactPage() {
   const [form, setForm] = useState({
@@ -129,7 +129,7 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-blue-900">Email</p>
-                    <p className="text-sm text-blue-700">{CONTACT_EMAIL}</p>
+                    <p className="text-sm text-blue-700 break-all">{CONTACT_EMAIL}</p>
                     <p className="text-xs text-blue-600 mt-1">Réponse sous 24h ouvrées</p>
                   </div>
                 </a>

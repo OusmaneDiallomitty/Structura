@@ -11,18 +11,14 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Installer les dépendances
-RUN npm ci --only=production && \
-    npm cache clean --force
+# Installer TOUTES les dépendances (devDeps nécessaires pour le build TypeScript)
+RUN npm ci
 
 # Copier le code source
 COPY . .
 
-# Générer le client Prisma
-RUN npx prisma generate
-
-# Build TypeScript
-RUN npm run build
+# Générer le client Prisma + Build TypeScript
+RUN npx prisma generate && npm run build
 
 # Stage 2: Runtime
 FROM node:22-alpine
@@ -39,7 +35,6 @@ COPY --from=builder /app/prisma ./prisma
 
 # Copier les fichiers de config
 COPY package*.json ./
-COPY .env.production .env
 
 # Créer un utilisateur non-root pour la sécurité
 RUN addgroup -g 1001 -S nodejs && \
@@ -54,8 +49,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Utiliser dumb-init pour lancer l'app
 ENTRYPOINT ["dumb-init", "--"]
 
-# Démarrer l'application
-CMD ["node", "dist/main.js"]
+# Appliquer les migrations Prisma puis démarrer
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
 
 # Expose le port
 EXPOSE 3001

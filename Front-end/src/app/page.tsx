@@ -137,6 +137,7 @@ export default function Home() {
               <MagneticButton
                 strength={0.2}
                 radius={50}
+                onClick={() => router.push("/contact")}
               >
                 <Button
                   size="lg"
@@ -496,7 +497,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                onClick={() => router.push("/login")}
+                onClick={() => router.push("/contact")}
                 className="h-12 px-8 border-gray-300"
               >
                 Contacter l'équipe

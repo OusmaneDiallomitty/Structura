@@ -143,8 +143,8 @@ export default function PaymentsPage() {
         {[
           { label: 'Total transactions',  value: loading ? '…' : String(result?.meta.total ?? 0),  cls: 'text-gray-900'    },
           { label: 'Encaissé (page)',      value: loading ? '…' : fmtGNF(successTotal),             cls: 'text-emerald-700' },
-          { label: 'En attente',          value: loading ? '…' : String(pendingCount),              cls: 'text-amber-700'   },
-          { label: 'Échoués / Annulés',   value: loading ? '…' : String(failedCount),              cls: 'text-red-600'     },
+          { label: 'En attente (page)',    value: loading ? '…' : String(pendingCount),              cls: 'text-amber-700'   },
+          { label: 'Échoués / Ann. (page)',value: loading ? '…' : String(failedCount),             cls: 'text-red-600'     },
         ].map(({ label, value, cls }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4">
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">{label}</p>

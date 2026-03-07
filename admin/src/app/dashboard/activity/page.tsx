@@ -67,7 +67,7 @@ export default function ActivityPage() {
   }, [page, limit, tenantId]);
 
   useEffect(() => {
-    getTenants({ limit: 200 }).then((r) => setTenants(r.data)).catch(() => {});
+    getTenants({ limit: 500 }).then((r) => setTenants(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -165,7 +165,7 @@ export default function ActivityPage() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log, idx) => (
+                {logs.map((log) => (
                   <tr key={log.id}
                     className="border-b border-gray-50 last:border-0 hover:bg-slate-50/60 transition">
                     <td className="px-5 py-3.5"><ActionBadge action={log.action} /></td>

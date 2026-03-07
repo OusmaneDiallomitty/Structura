@@ -3,15 +3,16 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Check, X, Building2, Zap, Crown, ChevronDown,
+  Check, X, Zap, Crown, ChevronDown,
   ArrowRight, Shield, Wifi, Users, FileText,
-  BarChart3, Download, Upload, Globe,
+  BarChart3, Download, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { APP_NAME } from "@/lib/constants";
+import { EnhancedNavigation } from "@/components/layout/EnhancedNavigation";
+import { Logo } from "@/components/ui/Logo";
 
 // ─── Données plans ────────────────────────────────────────────────────────────
 
@@ -177,7 +178,6 @@ function FeatureCell({ value }: { value: boolean | string }) {
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function TarifsPage() {
-  const router = useRouter();
   const [annual, setAnnual]         = useState(false);
   const [openFaq, setOpenFaq]       = useState<number | null>(null);
 
@@ -185,56 +185,7 @@ export default function TarifsPage() {
     <div className="min-h-screen bg-white">
 
       {/* ── Navigation ─────────────────────────────────────────────────────── */}
-      <nav className="fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200/50 shadow-sm">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-white" />
-              </div>
-              <span className="text-xl font-semibold text-gray-900">{APP_NAME}</span>
-            </Link>
-
-            {/* Liens nav */}
-            <div className="hidden md:flex items-center gap-8">
-              {[
-                { href: "/#features",  label: "Fonctionnalités" },
-                { href: "/#solutions", label: "Solutions"        },
-                { href: "/tarifs",     label: "Tarifs"           },
-                { href: "/#contact",   label: "Contact"          },
-              ].map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`text-sm transition-colors ${
-                    link.href === "/tarifs"
-                      ? "text-indigo-600 font-medium"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </div>
-
-            {/* CTA */}
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" onClick={() => router.push("/login")} className="text-sm hidden sm:inline-flex">
-                Connexion
-              </Button>
-              <Button
-                onClick={() => router.push("/register")}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm"
-              >
-                Commencer
-              </Button>
-            </div>
-
-          </div>
-        </div>
-      </nav>
+      <EnhancedNavigation />
 
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
       <section className="pt-28 pb-16 px-4 text-center">
@@ -604,11 +555,8 @@ export default function TarifsPage() {
       <footer className="border-t border-gray-200 py-10 px-4">
         <div className="container mx-auto max-w-5xl">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-base font-semibold text-gray-900">{APP_NAME}</span>
+            <Link href="/">
+              <Logo variant="dark" size="sm" />
             </Link>
             <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500">
               <Link href="/"        className="hover:text-gray-900 transition-colors">Accueil</Link>

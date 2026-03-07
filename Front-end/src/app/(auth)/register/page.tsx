@@ -48,8 +48,10 @@ export default function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Sélection de pays → dérive le préfixe téléphonique et le placeholder de ville
+  // Sélection de pays → dérive le placeholder de ville
   const [selectedCountryCode, setSelectedCountryCode] = useState<string>("");
+  // Préfixe téléphonique — indépendant du pays de l'école (synchro auto, mais modifiable)
+  const [phoneCountryCode, setPhoneCountryCode] = useState<string>("");
   const [localPhone, setLocalPhone] = useState<string>("");
   const [countryOpen, setCountryOpen] = useState(false);
 
@@ -88,15 +90,20 @@ export default function RegisterPage() {
   const acceptTerms = watch("acceptTerms");
   const acceptPrivacy = watch("acceptPrivacy");
 
-  // Données du pays sélectionné (devise, préfixe, ville par défaut)
-  const activeCountry = getCountryData(selectedCountryCode);
-  const phonePrefix   = activeCountry?.phonePrefix ?? "+";
+  // Données du pays sélectionné (devise, ville par défaut)
+  const activeCountry   = getCountryData(selectedCountryCode);
   const cityPlaceholder = activeCountry?.defaultCity ?? "Votre ville";
+  // Préfixe effectif — basé sur le pays du téléphone (indépendant)
+  const effectivePhonePrefix = getCountryData(phoneCountryCode)?.phonePrefix ?? "+";
 
-  /** Quand le pays change : préfixe tél + auto-remplit la ville capitale */
+  /** Quand le pays de l'école change : auto-remplit la ville + synchronise le préfixe tél si pas encore défini */
   const handleCountryChange = (value: string) => {
     setValue("country", value, { shouldValidate: true });
     setSelectedCountryCode(value);
+    // Synchronise le préfixe téléphonique seulement si l'utilisateur ne l'a pas changé manuellement
+    if (!phoneCountryCode) {
+      setPhoneCountryCode(value);
+    }
     setLocalPhone("");
     setValue("phone", "", { shouldValidate: false });
     // Auto-remplir la ville avec la capitale du pays (modifiable par l'utilisateur)
@@ -106,13 +113,20 @@ export default function RegisterPage() {
     }
   };
 
+  /** Quand le pays du numéro de téléphone change indépendamment */
+  const handlePhoneCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newCode = e.target.value;
+    setPhoneCountryCode(newCode);
+    const prefix = getCountryData(newCode)?.phonePrefix ?? "+";
+    setValue("phone", prefix + localPhone, { shouldValidate: localPhone.length > 0 });
+  };
+
   /** Quand les chiffres du téléphone changent : combine préfixe + chiffres */
   const handleLocalPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Garder uniquement les chiffres, supprimer les zéros en tête
     const digits = e.target.value.replace(/\D/g, "").replace(/^0+/, "");
     setLocalPhone(digits);
-    const prefix = getCountryData(selectedCountryCode)?.phonePrefix ?? "+";
-    setValue("phone", prefix + digits, { shouldValidate: digits.length > 0 });
+    setValue("phone", effectivePhonePrefix + digits, { shouldValidate: digits.length > 0 });
   };
 
   // Calcul de la force du mot de passe
@@ -339,20 +353,31 @@ export default function RegisterPage() {
                         errors.phone
                           ? "border-red-400 focus-within:ring-2 focus-within:ring-red-400/20"
                           : "border-gray-300 hover:border-indigo-400 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20"
-                      } ${!selectedCountryCode || isLoading ? "opacity-60" : ""}`}
+                      }`}
                     >
-                      {/* Préfixe pays */}
-                      <span className="flex items-center px-3 bg-gray-50 border-r border-gray-200 text-sm font-semibold text-gray-700 shrink-0 min-w-[56px] justify-center select-none">
-                        {phonePrefix}
-                      </span>
+                      {/* Sélecteur de préfixe pays (indépendant du pays de l'école) */}
+                      <select
+                        value={phoneCountryCode}
+                        onChange={handlePhoneCountryChange}
+                        disabled={isLoading}
+                        title="Indicatif pays du téléphone"
+                        className="h-full px-2 bg-gray-50 border-r border-gray-200 text-sm font-semibold text-gray-700 shrink-0 outline-none cursor-pointer hover:bg-gray-100 transition-colors"
+                      >
+                        <option value="" disabled>+</option>
+                        {COUNTRIES.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.phonePrefix} {c.value !== "OTHER" ? `(${c.label})` : ""}
+                          </option>
+                        ))}
+                      </select>
                       {/* Saisie des chiffres */}
                       <input
                         id="phone"
                         type="tel"
                         inputMode="numeric"
                         autoComplete="tel"
-                        disabled={isLoading || !selectedCountryCode}
-                        placeholder={selectedCountryCode ? "XXXXXXXXX" : "Choisissez d'abord un pays"}
+                        disabled={isLoading || !phoneCountryCode}
+                        placeholder={phoneCountryCode ? "XXXXXXXXX" : "Choisissez l'indicatif →"}
                         value={localPhone}
                         onChange={handleLocalPhoneChange}
                         aria-invalid={errors.phone ? "true" : "false"}
@@ -360,6 +385,9 @@ export default function RegisterPage() {
                         className="flex-1 px-3 bg-transparent outline-none text-sm placeholder:text-gray-400 disabled:cursor-not-allowed"
                       />
                     </div>
+                    <p className="text-xs text-gray-400">
+                      Indicatif différent de votre pays d'école ? Changez-le ici.
+                    </p>
                     {errors.phone && (
                       <p
                         id="phone-error"
