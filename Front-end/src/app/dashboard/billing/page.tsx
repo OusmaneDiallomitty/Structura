@@ -27,7 +27,10 @@ import {
   AlertCircle,
   Calendar,
   CreditCard,
+  FlaskConical,
 } from 'lucide-react';
+
+const IS_BETA = process.env.NEXT_PUBLIC_BETA_MODE === 'true';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -116,6 +119,10 @@ export default function BillingPage() {
   }, [loadStatus]);
 
   const handleUpgrade = (plan: 'PRO' | 'PRO_PLUS') => {
+    if (IS_BETA) {
+      toast.info('Le paiement sera disponible prochainement. Profitez de votre accès bêta gratuit !');
+      return;
+    }
     setSelectedPlan(plan);
     setShowUpgradeDialog(true);
   };
@@ -177,6 +184,20 @@ export default function BillingPage() {
           Gérez votre plan et accédez à toutes les fonctionnalités de Structura
         </p>
       </div>
+
+      {/* Bannière bêta */}
+      {IS_BETA && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <FlaskConical className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-blue-800">Vous êtes en période bêta — Accès gratuit</p>
+            <p className="text-sm text-blue-700 mt-0.5">
+              Toutes les fonctionnalités sont disponibles gratuitement pendant cette période de test.
+              Le paiement sera activé prochainement. Merci de tester Structura et de nous faire vos retours !
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Plan actuel */}
       <div className="border rounded-xl p-6 space-y-4 bg-card">
@@ -267,6 +288,7 @@ export default function BillingPage() {
             note="5 utilisateurs max · Historique illimité"
             savingsLabel="2 mois offerts"
             onUpgrade={() => handleUpgrade('PRO')}
+            betaMode={IS_BETA && !isPlanPro && !isPlanProPlus}
           />
 
           {/* Plan PRO+ */}
@@ -284,6 +306,7 @@ export default function BillingPage() {
             note="Équipe illimitée · Tout inclus"
             savingsLabel="3 mois offerts"
             onUpgrade={() => handleUpgrade('PRO_PLUS')}
+            betaMode={IS_BETA && !isPlanProPlus}
           />
 
         </div>
@@ -417,7 +440,7 @@ function UsageStat({ label, current, limit }: {
 function PlanCard({
   name, theme, icon, monthlyPrice, annualPrice, isCurrent, isLower,
   highlighted = false, isFree = false, features, featureLabels,
-  note, savingsLabel, onUpgrade,
+  note, savingsLabel, onUpgrade, betaMode = false,
 }: {
   name: string;
   theme: 'gray' | 'blue' | 'purple';
@@ -433,6 +456,7 @@ function PlanCard({
   note?: string;
   savingsLabel?: string;
   onUpgrade: () => void;
+  betaMode?: boolean;
 }) {
   const themes = {
     gray: {
@@ -534,6 +558,7 @@ function PlanCard({
           {isCurrent    ? '✓ Plan actuel'
           : isLower     ? '✓ Déjà inclus'
           : isFree      ? 'Votre plan gratuit'
+          : betaMode    ? '🕐 Bientôt disponible'
           : `→ Passer au ${name}`}
         </button>
       </div>

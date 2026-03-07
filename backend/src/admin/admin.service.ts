@@ -515,6 +515,11 @@ export class AdminService {
 
     const updated = await this.prisma.tenant.update({ where: { id }, data, select: TENANT_LIST_SELECT });
 
+    // Invalider le cache du plan si le plan a changé
+    if (dto.subscriptionPlan !== undefined) {
+      await this.cacheService.del(`plan:${id}`);
+    }
+
     this.audit({ action: 'UPDATE_TENANT', actorEmail: adminEmail, tenantId: id, tenantName: updated.name, details: data });
     this.invalidateAdminCaches();
     return updated;

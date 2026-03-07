@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { DjomyService } from '../djomy/djomy.service';
+import { CacheService } from '../cache/cache.service';
 import {
   PLAN_LIMITS,
   PLAN_NAMES,
@@ -51,7 +52,13 @@ export class SubscriptionsService {
     private readonly prisma: PrismaService,
     private readonly djomy: DjomyService,
     private readonly config: ConfigService,
+    private readonly cache: CacheService,
   ) {}
+
+  // Invalider le cache du plan pour ce tenant (appelé après chaque changement de plan)
+  private async invalidatePlanCache(tenantId: string) {
+    await this.cache.del(`plan:${tenantId}`);
+  }
 
   // ─────────────────────────────────────────────
   // CHECKOUT — Créer un paiement d'abonnement
@@ -294,6 +301,7 @@ export class SubscriptionsService {
       }),
     ]);
 
+    await this.invalidatePlanCache(subPayment.tenantId);
     this.logger.log(
       `✅ Plan ${subPayment.plan} activé — tenant: ${subPayment.tenantId} | jusqu'au: ${periodEnd.toISOString()}`,
     );
@@ -369,6 +377,7 @@ export class SubscriptionsService {
             }),
           ]).catch(() => {}); // Silencieux si déjà activé (race condition)
 
+          await this.invalidatePlanCache(subPayment.tenantId);
           this.logger.log(`✅ Plan ${subPayment.plan} activé via verify — tenant: ${subPayment.tenantId}`);
           return { success: true, plan: subPayment.plan, period: subPayment.period, amount: subPayment.amount };
         }
@@ -414,11 +423,11 @@ export class SubscriptionsService {
       new Date(tenant.currentPeriodEnd) < new Date();
 
     if (isExpired) {
-      // Rétrograder vers FREE si période expirée
       await this.prisma.tenant.update({
         where: { id: tenantId },
         data: { subscriptionPlan: 'FREE', subscriptionStatus: 'EXPIRED' },
       });
+      await this.invalidatePlanCache(tenantId);
     }
 
     const effectivePlan = isExpired ? Plan.FREE : plan;
