@@ -24,8 +24,8 @@ for (const envPath of possiblePaths) {
 }
 
 if (!loaded) {
-  console.error('❌ Could not find .env file in any of the expected locations!');
-  process.exit(1);
+  // En production (Render, Docker), les variables viennent de l'environnement — pas de .env
+  console.log('ℹ️ No .env file found — using environment variables directly (production mode)');
 }
 
 // Vérifier que les variables critiques existent
