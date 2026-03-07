@@ -1,0 +1,391 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  SUSPENDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  OVERDUE
+  CANCELLED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  PRO_PLUS
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+model Tenant {
+  id         String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name       String
+  type       String
+  subdomain  String?      @unique
+  country    String       @default("Guinea")
+  city       String?
+  address    String?
+  phone      String?
+  email      String?
+  logo       String?
+  isActive   Boolean      @default(true)
+
+  // Subscription fields
+  subscriptionPlan      SubscriptionPlan   @default(FREE)
+  subscriptionStatus    SubscriptionStatus @default(ACTIVE)
+  trialEndsAt           DateTime?
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  djomyCustomerId       String?            @unique
+
+  // Configuration des frais de scolarité (partagée entre tous les utilisateurs du tenant)
+  feeConfig        Json?   // { mode, globalFee, byLevel: {level: amount}, byClass: {classId: amount} }
+  paymentFrequency String? // "monthly" | "quarterly" | "annual"
+  schoolCalendar   Json?   // { startMonth: string, durationMonths: number }
+
+  // Préférences de notifications (email via Resend)
+  notifMonthlyReport    Boolean            @default(true)  // Rapport mensuel des paiements
+  notifOverdueAlert     Boolean            @default(true)  // Alerte élèves en retard de paiement
+
+  // Cached counters for performance (updated by triggers/cron)
+  currentStudentCount   Int                @default(0)
+  currentClassCount     Int                @default(0)
+  currentUserCount      Int                @default(1)
+
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @default(now()) @updatedAt
+
+  academicYears         AcademicYear[]
+  attendance            Attendance[]
+  classes               Class[]
+  classSubjects         ClassSubject[]
+  grades                Grade[]
+  payments              Payment[]
+  students              Student[]
+  users                 User[]
+  subscriptionHistory   SubscriptionHistory[]
+  subscriptionPayments  SubscriptionPayment[]
+  trimesterLocks        TrimesterLock[]
+
+  @@map("tenants")
+}
+
+model AcademicYear {
+  id             String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name           String    // "2026-2027"
+  startDate      DateTime? // Optionnel : date exacte d'ouverture
+  endDate        DateTime? // Optionnel : date exacte de fermeture
+  startMonth     String?   // "Octobre" — mois de rentrée
+  durationMonths Int?      // 9 — durée en mois (définit T1/T2/T3)
+  isCurrent      Boolean   @default(false)
+  isArchived     Boolean   @default(false)
+  tenantId       String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classes     Class[]
+  students    Student[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isCurrent])
+  @@map("academic_years")
+}
+
+model User {
+  id                      String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email                   String
+  password                String
+  firstName               String
+  lastName                String
+  phone                   String?
+  avatar                  String?
+  role                    String    @default("TEACHER")
+  permissions             Json?     // null = utiliser les défauts du rôle
+  tenantId                String
+  emailVerified           Boolean   @default(false)
+  emailVerificationToken  String?   @unique
+  emailVerificationExpiry DateTime?
+  passwordResetToken      String?   @unique
+  passwordResetExpiry     DateTime?
+  onboardingCompleted     Boolean   @default(false)
+  mustChangePassword      Boolean   @default(false)
+  isActive                Boolean   @default(true)
+  lastLoginAt             DateTime?
+  // Affectation classes+matières pour les professeurs
+  // Exemple : [{"classId":"abc","subjects":["Français","Histoire"]}]
+  classAssignments        Json?
+  // OneSignal push subscription ID (stocké lors de l'abonnement aux notifications)
+  pushSubscriptionId      String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @default(now()) @updatedAt
+  tenant                  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  taughtClasses           Class[]   @relation("TeacherClasses")
+
+  // Un même email peut exister dans plusieurs tenants distincts (prof enseignant dans 2 écoles).
+  // Au sein d'un même tenant, l'email reste unique.
+  @@unique([email, tenantId])
+  @@index([email])                              // index pour la performance du login (recherche par email)
+  @@index([tenantId], map: "idx_users_tenantId")
+  @@map("users")
+}
+
+model Student {
+  id             String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  matricule      String
+  firstName      String
+  lastName       String
+  dateOfBirth    DateTime?
+  gender         String?
+  photo          String?
+  classId        String
+  academicYearId String?
+  parentName       String?
+  parentPhone      String?
+  parentEmail      String?
+  parentProfession String?
+  address          String?
+  status         StudentStatus  @default(ACTIVE)
+  paymentStatus  PaymentStatus  @default(PENDING)
+  tenantId       String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+
+  attendances    Attendance[]
+  grades         Grade[]
+  payments       Payment[]
+  class          Class          @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  academicYear   AcademicYear?  @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenantId, matricule])
+  @@index([classId], map: "idx_students_classId")
+  @@index([matricule], map: "idx_students_matricule")
+  @@index([tenantId], map: "idx_students_tenantId")
+  @@index([tenantId, classId])
+  @@index([tenantId, status])    // Comptage élèves actifs (dashboard)
+  @@index([tenantId, gender])    // Statistiques genre par tenant
+  @@index([academicYearId])
+  @@map("students")
+}
+
+model Class {
+  id             String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name           String
+  level          String
+  section        String?
+  order          Int           @default(0) // Ordre d'affichage (CP1=1, CP2=2, ..., 12ème=12)
+  capacity       Int           @default(30)
+  studentCount   Int           @default(0)
+  teacherId      String?
+  teacherName    String?
+  room           String?
+  academicYear   String        @default("2024-2025") // Deprecated: use academicYearId
+  academicYearId String?
+  tenantId       String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @default(now()) @updatedAt
+
+  attendances    Attendance[]
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grades         Grade[]
+  students       Student[]
+  subjects       ClassSubject[]
+  academicYearRel AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  teacher        User?         @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: SetNull)
+
+  @@index([academicYearId])
+  @@index([teacherId])
+  @@map("classes")
+}
+
+/// Matières configurées par classe — partagées entre tous les utilisateurs du tenant
+model ClassSubject {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId     String
+  tenantId    String
+  name        String
+  coefficient Int      @default(1)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, name])
+  @@index([classId])
+  @@index([tenantId])
+  @@map("class_subjects")
+}
+
+model Attendance {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  date      DateTime
+  status    String
+  notes     String?
+  markedBy  String
+  studentId String
+  classId   String
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  class     Class    @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([studentId, date])
+  @@index([tenantId, date])    // Requêtes dashboard "présences du jour / du mois"
+  @@index([tenantId, status])  // Filtrage par statut (present/absent)
+  @@map("attendances")
+}
+
+model Payment {
+  id            String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  amount        Float
+  currency      String    @default("GNF")
+  method        String
+  status        String    @default("paid")
+  receiptNumber String
+  description   String?
+  dueDate       DateTime?
+  paidDate      DateTime?
+  academicYear  String?
+  term          String?
+  studentId     String
+  tenantId      String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  student       Student   @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenantId, receiptNumber])
+  @@index([tenantId])
+  @@index([tenantId, createdAt(sort: Desc)])  // Requêtes revenus mensuels + paiements récents
+  @@index([tenantId, status])                 // Filtrage paiements en attente / payés
+  @@map("payments")
+}
+
+model Grade {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  subject      String
+  score        Float
+  maxScore     Float    @default(20)
+  coefficient  Float?   @default(1)
+  term         String
+  academicYear String   @default("2024-2025")
+  teacherId    String?
+  teacherName  String?
+  notes        String?
+  studentId    String
+  classId      String
+  tenantId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  class        Class    @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([studentId, subject, term, academicYear])
+  @@index([tenantId, classId])
+  @@map("grades")
+}
+
+/// Verrou de trimestre — empêche la génération de bulletins tant que le trimestre n'est pas validé
+model TrimesterLock {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId      String
+  tenantId     String
+  trimester    String   // "Trimestre 1" | "Trimestre 2" | "Trimestre 3"
+  academicYear String   // "2025-2026"
+  lockedAt     DateTime @default(now())
+  lockedByName String?  // Nom de l'utilisateur qui a validé
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, trimester, academicYear, tenantId])
+  @@index([classId])
+  @@index([tenantId])
+  @@map("trimester_locks")
+}
+
+/// Journal d'audit immuable — toutes les actions admin et événements plateforme
+model AuditLog {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  action     String   // NEW_TENANT | SUSPEND | ACTIVATE | DELETE | IMPERSONATE | PAYMENT_FAILED | LOGIN_ADMIN
+  actorEmail String?  // Email de l'admin qui a déclenché l'action
+  actorId    String?  // ID de l'admin
+  tenantId   String?  // Tenant concerné (null si action globale)
+  tenantName String?  // Nom du tenant (dénormalisé pour perf lecture)
+  details    Json?    // Métadonnées contextuelles
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([tenantId])
+  @@map("audit_logs")
+}
+
+model SubscriptionHistory {
+  id            String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId      String
+  plan          SubscriptionPlan
+  status        SubscriptionStatus
+  startDate     DateTime
+  endDate       DateTime?
+  amount        Float?
+  currency      String             @default("GNF")
+  paymentMethod String?
+  paymentId     String?            // ID transaction Djomy
+  invoiceUrl    String?
+  notes         String?
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+
+  @@index([tenantId], map: "idx_subscription_history_tenantId")
+  @@map("subscription_history")
+}
+
+/// Paiements d'abonnement via Djomy — trace complète de chaque transaction
+model SubscriptionPayment {
+  id                       String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId                 String
+  djomyTransactionId       String?  @unique   // UUID retourné par Djomy
+  merchantPaymentReference String   @unique   // Notre référence interne (SUB-{tenantId}-{ts})
+  amount                   Float
+  currency                 String   @default("GNF")
+  status                   String   @default("CREATED") // CREATED | PENDING | SUCCESS | FAILED | CANCELLED
+  plan                     String   // PRO | PRO_PLUS
+  period                   String   // monthly | annual
+  paymentMethod            String?  // OM | MOMO | CARD | etc.
+  payerIdentifier          String?  // Numéro Orange Money / MTN du payeur
+  webhookEventId           String?  @unique // eventId Djomy pour dédoublonnage
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("subscription_payments")
+}

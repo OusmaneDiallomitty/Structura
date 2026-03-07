@@ -1,0 +1,323 @@
+// Prisma Schema - Structura Multi-Tenant
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// MULTI-TENANT MODELS
+// ============================================
+
+// Organisation (École, Commerce, etc.)
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String   // "École Primaire Conakry"
+  type        String   // "school", "business", "service"
+  subdomain   String?  @unique // "ecole-conakry" (pour structura.app)
+  country     String   @default("Guinea")
+  city        String?
+  address     String?
+  phone       String?
+  email       String?
+  logo        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  students    Student[]
+  classes     Class[]
+  payments    Payment[]
+  attendance  Attendance[]
+  grades      Grade[]
+
+  @@index([subdomain])
+  @@index([type])
+  @@map("tenants")
+}
+
+// ============================================
+// USER & AUTH
+// ============================================
+
+model User {
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  password            String   // Hashed with bcrypt
+  firstName           String
+  lastName            String
+  phone               String?
+  avatar              String?
+  role                Role     @default(TEACHER)
+  
+  // Multi-tenant
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Status
+  emailVerified       Boolean  @default(false)
+  onboardingCompleted Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  lastLoginAt         DateTime?
+  
+  // Timestamps
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([email])
+  @@index([tenantId])
+  @@index([role])
+  @@map("users")
+}
+
+enum Role {
+  DIRECTOR      // Directeur - Accès total
+  ACCOUNTANT    // Comptable - Gestion financière
+  TEACHER       // Enseignant - Gestion des notes et présences
+  SUPERVISOR    // Surveillant - Gestion des présences
+  SECRETARY     // Secrétaire - Gestion administrative
+  ADMIN         // Admin système
+}
+
+// ============================================
+// STUDENTS
+// ============================================
+
+model Student {
+  id            String    @id @default(cuid())
+  matricule     String    @unique // Numéro d'identification unique
+  firstName     String
+  lastName      String
+  dateOfBirth   DateTime?
+  gender        String?   // "M", "F"
+  photo         String?
+  
+  // Class
+  classId       String
+  class         Class     @relation(fields: [classId], references: [id])
+  
+  // Parent/Guardian Info
+  parentName    String?
+  parentPhone   String?
+  parentEmail   String?
+  address       String?
+  
+  // Status
+  status        StudentStatus @default(ACTIVE)
+  paymentStatus PaymentStatus @default(PENDING)
+  
+  // Multi-tenant
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  attendances   Attendance[]
+  payments      Payment[]
+  grades        Grade[]
+
+  @@index([matricule])
+  @@index([classId])
+  @@index([tenantId])
+  @@index([status])
+  @@map("students")
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  TRANSFERRED
+  EXPELLED
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  OVERDUE
+  PARTIAL
+}
+
+// ============================================
+// CLASSES
+// ============================================
+
+model Class {
+  id           String   @id @default(cuid())
+  name         String   // "6ème A", "CM2 B"
+  level        String   // "Maternelle", "Primaire", "Secondaire", "Lycée"
+  section      String?  // "A", "B", "C"
+  capacity     Int      @default(30)
+  studentCount Int      @default(0)
+  
+  // Teacher
+  teacherId    String?
+  teacherName  String?
+  
+  // Room
+  room         String?
+  
+  // Academic Year
+  academicYear String   @default("2024-2025")
+  
+  // Multi-tenant
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  students     Student[]
+  attendances  Attendance[]
+  grades       Grade[]
+
+  @@index([tenantId])
+  @@index([level])
+  @@index([academicYear])
+  @@map("classes")
+}
+
+// ============================================
+// ATTENDANCE (Présences)
+// ============================================
+
+model Attendance {
+  id        String           @id @default(cuid())
+  date      DateTime
+  status    AttendanceStatus
+  notes     String?
+  markedBy  String           // User ID or name
+  
+  // Student
+  studentId String
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  // Class
+  classId   String
+  class     Class            @relation(fields: [classId], references: [id])
+  
+  // Multi-tenant
+  tenantId  String
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([studentId, date])
+  @@index([studentId])
+  @@index([classId])
+  @@index([tenantId])
+  @@index([date])
+  @@map("attendances")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+// ============================================
+// PAYMENTS (Paiements)
+// ============================================
+
+model Payment {
+  id            String        @id @default(cuid())
+  amount        Float
+  currency      String        @default("GNF") // Franc Guinéen
+  method        PaymentMethod
+  status        String        @default("paid") // "paid", "pending", "cancelled"
+  
+  // Receipt
+  receiptNumber String        @unique
+  description   String?
+  
+  // Dates
+  dueDate       DateTime?
+  paidDate      DateTime?
+  
+  // Academic Period
+  academicYear  String?
+  term          String?       // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  
+  // Student
+  studentId     String
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  // Multi-tenant
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([studentId])
+  @@index([tenantId])
+  @@index([status])
+  @@index([receiptNumber])
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CHECK
+}
+
+// ============================================
+// GRADES (Notes)
+// ============================================
+
+model Grade {
+  id           String   @id @default(cuid())
+  subject      String   // "Mathématiques", "Français", "Sciences"
+  score        Float    // Note obtenue
+  maxScore     Float    @default(20) // Note maximale
+  coefficient  Float?   @default(1)
+  
+  // Academic Period
+  term         String   // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  academicYear String   @default("2024-2025")
+  
+  // Teacher
+  teacherId    String?
+  teacherName  String?
+  notes        String?  // Commentaires du professeur
+  
+  // Student
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  // Class
+  classId      String
+  class        Class    @relation(fields: [classId], references: [id])
+  
+  // Multi-tenant
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([studentId, subject, term, academicYear])
+  @@index([studentId])
+  @@index([classId])
+  @@index([tenantId])
+  @@index([term])
+  @@map("grades")
+}

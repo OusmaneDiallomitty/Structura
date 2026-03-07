@@ -1,0 +1,35 @@
+{
+  "name": "structura-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Structura — Panneau d'administration plateforme (Super Admin)",
+  "scripts": {
+    "dev":       "next dev -p 3002 --turbo",
+    "dev:clean": "node -e \"const fs=require('fs');try{fs.rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev -p 3002 --turbo",
+    "build":     "next build",
+    "preview":   "next build && next start -p 3002",
+    "start":     "next start -p 3002",
+    "lint":      "next lint"
+  },
+  "dependencies": {
+    "next":    "14.2.29",
+    "react":   "^18.3.1",
+    "react-dom": "^18.3.1",
+    "clsx":    "^2.1.1",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.477.0",
+    "recharts": "^2.13.3",
+    "sonner":  "^1.7.4"
+  },
+  "devDependencies": {
+    "@types/node":    "^20.17.30",
+    "@types/react":   "^18.3.21",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer":   "^10.4.21",
+    "eslint":         "^8.57.1",
+    "eslint-config-next": "14.2.29",
+    "postcss":        "^8.5.3",
+    "tailwindcss":    "^3.4.17",
+    "typescript":     "^5.8.2"
+  }
+}

@@ -1,0 +1,35 @@
+# Secrets - NE JAMAIS COMMITTER
+.env
+.env.local
+.env.*.local
+.env.docker
+
+# Dépendances
+node_modules/
+
+# Build
+.next/
+dist/
+out/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Fichiers problématiques Windows
+nul
+backend/nul
+
+# Claude Code (settings locaux)
+.claude/settings.local.json
+
+# Tests
+coverage/
