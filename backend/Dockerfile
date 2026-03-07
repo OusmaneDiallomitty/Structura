@@ -25,8 +25,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Installer dumb-init pour gérer les signaux correctement
-RUN apk add --no-cache dumb-init
+# Installer dumb-init + OpenSSL (requis par Prisma sur Alpine)
+RUN apk add --no-cache dumb-init openssl
 
 # Créer un utilisateur non-root pour la sécurité
 RUN addgroup -g 1001 -S nodejs && \
