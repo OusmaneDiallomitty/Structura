@@ -161,8 +161,8 @@ export class DashboardService {
       },
     });
 
-    const present = attendances.filter(a => a.status === 'present').length;
-    const absent = attendances.filter(a => a.status === 'absent').length;
+    const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'present').length;
+    const absent  = attendances.filter(a => a.status === 'ABSENT'  || a.status === 'absent').length;
 
     return {
       total: attendances.length,
@@ -276,7 +276,7 @@ export class DashboardService {
 
     if (attendances.length === 0) return 0;
 
-    const present = attendances.filter(a => a.status === 'present').length;
+    const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'present').length;
     return (present / attendances.length) * 100;
   }
 
@@ -528,8 +528,8 @@ export class DashboardService {
           },
         });
 
-        const present = attendances.filter(a => a.status === 'present').length;
-        const absent = attendances.filter(a => a.status === 'absent').length;
+        const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'present').length;
+        const absent  = attendances.filter(a => a.status === 'ABSENT'  || a.status === 'absent').length;
 
         return {
           month: month.toLocaleDateString('fr-FR', { month: 'short' }),
