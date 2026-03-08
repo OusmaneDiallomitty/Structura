@@ -192,7 +192,7 @@ export function Sidebar() {
             
             <Logo variant="dark" size="sm" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground truncate font-medium" title={user?.schoolName}>
+              <p className="text-xs text-muted-foreground truncate font-medium" title={user?.schoolName ?? undefined}>
                 {user?.schoolName || ''}
               </p>
             </div>
