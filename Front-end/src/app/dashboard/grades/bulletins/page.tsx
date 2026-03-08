@@ -531,7 +531,7 @@ function BulletinsContent() {
             classes.map(async (cls) => {
               try {
                 const lock = await checkTrimesterLock(token!, cls.id, trimester, academicYear);
-                if (lock?.isLocked) locked.push(cls.id);
+                if (lock) locked.push(cls.id);
               } catch { /* ignorer */ }
             })
           );
