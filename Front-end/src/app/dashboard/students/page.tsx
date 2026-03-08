@@ -260,6 +260,9 @@ export default function StudentsPage() {
     }
   }, [currentPage, totalPages]);
 
+  // Droits paiement : directeur, comptable, secrétaire uniquement
+  const canViewPayments = user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary';
+
   // Stats
   const totalStudents = students.length;
   const paidStudents = students.filter((s) => s.paymentStatus === "paid").length;
@@ -753,7 +756,7 @@ export default function StudentsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className={`grid gap-4 ${canViewPayments ? 'md:grid-cols-4' : 'md:grid-cols-1 max-w-xs'}`}>
         <Card className="border-l-4 border-l-blue-500">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -764,39 +767,43 @@ export default function StudentsPage() {
             <div className="text-2xl font-bold">{totalStudents}</div>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Paiements à Jour
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{paidStudents}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {totalStudents > 0 ? ((paidStudents / totalStudents) * 100).toFixed(0) : 0}% du total
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              En Attente
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pendingStudents}</div>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-red-500">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              En Retard
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{lateStudents}</div>
-          </CardContent>
-        </Card>
+        {canViewPayments && (
+          <>
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Paiements à Jour
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{paidStudents}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {totalStudents > 0 ? ((paidStudents / totalStudents) * 100).toFixed(0) : 0}% du total
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-amber-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  En Attente
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{pendingStudents}</div>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-red-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  En Retard
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{lateStudents}</div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Filters & Table */}
@@ -872,17 +879,19 @@ export default function StudentsPage() {
                   )}
                 </SelectContent>
               </Select>
-              <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-                <SelectTrigger className="w-full md:w-52">
-                  <SelectValue placeholder="Statut paiement" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous les statuts</SelectItem>
-                  <SelectItem value="paid">À jour</SelectItem>
-                  <SelectItem value="pending">En attente</SelectItem>
-                  <SelectItem value="late">En retard</SelectItem>
-                </SelectContent>
-              </Select>
+              {canViewPayments && (
+                <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                  <SelectTrigger className="w-full md:w-52">
+                    <SelectValue placeholder="Statut paiement" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les statuts</SelectItem>
+                    <SelectItem value="paid">À jour</SelectItem>
+                    <SelectItem value="pending">En attente</SelectItem>
+                    <SelectItem value="late">En retard</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
@@ -942,17 +951,19 @@ export default function StudentsPage() {
                     </TableHead>
                     <TableHead>Parent</TableHead>
                     <TableHead>Contact</TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort("paymentStatus")}
-                    >
-                      <div className="flex items-center gap-2">
-                        Paiement
-                        {sortField === "paymentStatus" && (
-                          sortOrder === "asc" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
+                    {canViewPayments && (
+                      <TableHead
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort("paymentStatus")}
+                      >
+                        <div className="flex items-center gap-2">
+                          Paiement
+                          {sortField === "paymentStatus" && (
+                            sortOrder === "asc" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+                          )}
+                        </div>
+                      </TableHead>
+                    )}
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -960,7 +971,7 @@ export default function StudentsPage() {
                   {paginatedStudents.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={8}
+                        colSpan={canViewPayments ? 8 : 7}
                         className="text-center py-8 text-muted-foreground"
                       >
                         Aucun élève trouvé
@@ -1011,7 +1022,9 @@ export default function StudentsPage() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell>{getPaymentBadge(student.paymentStatus || "pending")}</TableCell>
+                        {canViewPayments && (
+                          <TableCell>{getPaymentBadge(student.paymentStatus || "pending")}</TableCell>
+                        )}
                         <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1155,10 +1168,12 @@ export default function StudentsPage() {
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </div>
-                            <div className="col-span-2">
-                              <p className="text-muted-foreground text-xs mb-1">Paiement</p>
-                              {getPaymentBadge(student.paymentStatus || "pending")}
-                            </div>
+                            {canViewPayments && (
+                              <div className="col-span-2">
+                                <p className="text-muted-foreground text-xs mb-1">Paiement</p>
+                                {getPaymentBadge(student.paymentStatus || "pending")}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </CardContent>
