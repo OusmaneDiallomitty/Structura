@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Sparkles, Calendar, GraduationCap, Users } from 'lucide-react';
 import { useOnboarding } from '@/hooks/use-onboarding';
-import { useRouter } from 'next/navigation';
 
 interface OnboardingModalProps {
   onComplete: () => void;
@@ -18,14 +17,11 @@ interface OnboardingModalProps {
  */
 export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalProps) {
   const { markOnboardingComplete } = useOnboarding();
-  const router = useRouter();
 
   async function handleStart() {
     try {
       await markOnboardingComplete();
-      onComplete();
-      // Rediriger vers le dashboard pour créer l'année
-      router.push('/dashboard');
+      onComplete(); // handleOnboardingComplete dans dashboard/page.tsx → /dashboard/classes
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
       onComplete();
@@ -43,11 +39,11 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-8 relative border"
+        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-4 sm:p-8 relative border max-h-[90vh] overflow-y-auto"
       >
         <button
           onClick={handleSkip}
