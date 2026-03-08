@@ -64,6 +64,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useOnline } from "@/hooks/use-online";
+import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getClassById } from "@/lib/api/classes.service";
 import { getStudents, deleteStudent } from "@/lib/api/students.service";
@@ -103,6 +104,10 @@ export default function ClassDetailPage() {
   const router = useRouter();
   const isOnline = useOnline();
   const classId = params.id as string;
+
+  const { user } = useAuth();
+  const isDirector = user?.role === 'director';
+  const canViewPayments = user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary';
 
   const [classData, setClassData] = useState<ClassDetail | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -299,18 +304,20 @@ export default function ClassDetailPage() {
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Exporter</span>
           </Button>
-          <EditClassDialog
-            classItem={{
-              id: classData.id,
-              name: classData.name,
-              level: classData.level,
-              section: classData.section,
-              capacity: classData.capacity,
-              studentCount: studentCount,
-              teacherName: classData.teacherName,
-            }}
-            onSuccess={loadData}
-          />
+          {isDirector && (
+            <EditClassDialog
+              classItem={{
+                id: classData.id,
+                name: classData.name,
+                level: classData.level,
+                section: classData.section,
+                capacity: classData.capacity,
+                studentCount: studentCount,
+                teacherName: classData.teacherName,
+              }}
+              onSuccess={loadData}
+            />
+          )}
           <Button size="sm" asChild className="gap-1.5">
             <Link href={`/dashboard/students/add?classId=${classId}`}>
               <UserPlus className="h-4 w-4" />
@@ -374,30 +381,32 @@ export default function ClassDetailPage() {
         </Card>
       </div>
 
-      {/* ── Résumé paiements ── */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-emerald-50/50">
-          <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 flex-shrink-0" />
-          <div>
-            <p className="text-xs text-muted-foreground">À jour</p>
-            <p className="text-lg font-bold text-emerald-700">{paidCount}</p>
+      {/* ── Résumé paiements — directeur/comptable/secrétaire uniquement ── */}
+      {canViewPayments && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-emerald-50/50">
+            <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">À jour</p>
+              <p className="text-lg font-bold text-emerald-700">{paidCount}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-amber-50/50">
+            <div className="h-2.5 w-2.5 rounded-full bg-amber-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">En attente</p>
+              <p className="text-lg font-bold text-amber-700">{pendingCount}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-red-50/50">
+            <div className="h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">En retard</p>
+              <p className="text-lg font-bold text-red-700">{lateCount}</p>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-amber-50/50">
-          <div className="h-2.5 w-2.5 rounded-full bg-amber-500 flex-shrink-0" />
-          <div>
-            <p className="text-xs text-muted-foreground">En attente</p>
-            <p className="text-lg font-bold text-amber-700">{pendingCount}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2.5 rounded-lg border px-4 py-3 bg-red-50/50">
-          <div className="h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-xs text-muted-foreground">En retard</p>
-            <p className="text-lg font-bold text-red-700">{lateCount}</p>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ── Liste élèves ── */}
       <Card>
@@ -426,18 +435,20 @@ export default function ClassDetailPage() {
                 className="pl-10"
               />
             </div>
-            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-              <SelectTrigger className="w-full sm:w-52">
-                <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
-                <SelectValue placeholder="Statut paiement" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                <SelectItem value="paid">À jour</SelectItem>
-                <SelectItem value="pending">En attente</SelectItem>
-                <SelectItem value="late">En retard</SelectItem>
-              </SelectContent>
-            </Select>
+            {canViewPayments && (
+              <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                <SelectTrigger className="w-full sm:w-52">
+                  <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <SelectValue placeholder="Statut paiement" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les statuts</SelectItem>
+                  <SelectItem value="paid">À jour</SelectItem>
+                  <SelectItem value="pending">En attente</SelectItem>
+                  <SelectItem value="late">En retard</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardHeader>
 
@@ -472,7 +483,7 @@ export default function ClassDetailPage() {
                       <TableHead>Matricule</TableHead>
                       <TableHead>Genre</TableHead>
                       <TableHead>Parent</TableHead>
-                      <TableHead>Paiement</TableHead>
+                      {canViewPayments && <TableHead>Paiement</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -524,11 +535,13 @@ export default function ClassDetailPage() {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={`text-xs ${payment.className}`}>
-                              {payment.label}
-                            </Badge>
-                          </TableCell>
+                          {canViewPayments && (
+                            <TableCell>
+                              <Badge variant="outline" className={`text-xs ${payment.className}`}>
+                                {payment.label}
+                              </Badge>
+                            </TableCell>
+                          )}
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
@@ -541,14 +554,16 @@ export default function ClassDetailPage() {
                                   <Edit2 className="h-4 w-4" />
                                 </Link>
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => setStudentToDelete(student)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {isDirector && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => setStudentToDelete(student)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -582,9 +597,11 @@ export default function ClassDetailPage() {
                         <p className="font-medium truncate">{student.name}</p>
                         <p className="text-xs text-muted-foreground font-mono">{student.matricule}</p>
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <Badge variant="outline" className={`text-xs ${payment.className}`}>
-                            {payment.label}
-                          </Badge>
+                          {canViewPayments && (
+                            <Badge variant="outline" className={`text-xs ${payment.className}`}>
+                              {payment.label}
+                            </Badge>
+                          )}
                           {student.gender && (
                             <span className="text-xs text-muted-foreground">
                               {student.gender === "M" ? "♂ Garçon" : "♀ Fille"}
@@ -615,12 +632,14 @@ export default function ClassDetailPage() {
                               <Edit2 className="h-4 w-4 mr-2" /> Modifier
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setStudentToDelete(student)}
-                            className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" /> Supprimer
-                          </DropdownMenuItem>
+                          {isDirector && (
+                            <DropdownMenuItem
+                              onClick={() => setStudentToDelete(student)}
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" /> Supprimer
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
