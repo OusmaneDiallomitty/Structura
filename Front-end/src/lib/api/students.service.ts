@@ -83,7 +83,9 @@ export async function getStudents(token: string, filters?: StudentFilters): Prom
     throw new Error(error.message || 'Failed to fetch students');
   }
 
-  return response.json() as Promise<BackendStudent[]>;
+  const result = await response.json();
+  // Le backend retourne { data, total, page, limit } — on extrait le tableau
+  return Array.isArray(result) ? result : (result.data ?? []);
 }
 
 /**
