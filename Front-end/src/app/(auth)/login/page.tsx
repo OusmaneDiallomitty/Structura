@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,6 +35,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('revoked') === '1') {
+      toast.success('Votre session a été révoquée avec succès. Reconnectez-vous.', { duration: 8000 });
+    } else if (params.get('revoke_error') === '1') {
+      toast.error('Lien de révocation invalide ou expiré.', { duration: 6000 });
+    }
+  }, []);
 
   const {
     register,

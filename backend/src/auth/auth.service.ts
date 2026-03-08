@@ -151,7 +151,7 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, loginContext?: { ip: string; userAgent: string }) {
     // Récupérer tous les comptes associés à cet email (peut en exister plusieurs
     // si un utilisateur enseigne dans plusieurs établissements).
     const candidates = await this.prisma.user.findMany({
@@ -197,6 +197,9 @@ export class AuthService {
     const tokens = await this.generateTokens(matchedUser);
     const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
 
+    // Détecter si une session active existait déjà (connexion depuis un autre appareil)
+    const hadActiveSession = !!matchedUser.currentSessionId;
+
     // Stocker sessionId + hash refresh token + date de connexion en une seule requête
     await this.prisma.user.update({
       where: { id: matchedUser.id },
@@ -206,6 +209,24 @@ export class AuthService {
         refreshTokenHash: refreshHash,
       },
     });
+
+    // Si l'utilisateur avait une session active → envoyer alerte email (fire-and-forget)
+    if (hadActiveSession && loginContext) {
+      const revokeToken = crypto.randomUUID();
+      const revokeKey = `revoke:${revokeToken}`;
+      // Stocker userId dans Redis — TTL 24h
+      this.cacheService.set(revokeKey, { userId: matchedUser.id }, 86400).catch(() => {});
+      const revokeUrl = `${this.configService.get('FRONTEND_URL')}/security/revoke?token=${revokeToken}`;
+      const loginTime = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
+      this.emailService.sendNewLoginNotificationEmail(
+        matchedUser.email,
+        matchedUser.firstName,
+        loginContext.ip,
+        loginContext.userAgent,
+        revokeUrl,
+        loginTime,
+      ).catch(() => {});
+    }
 
     return {
       user: {
@@ -240,6 +261,30 @@ export class AuthService {
       where: { id: userId },
       data: { currentSessionId: null, refreshTokenHash: null },
     });
+  }
+
+  /**
+   * Révocation de session via lien email (Option A — "Ce n'était pas moi").
+   * Le token est à usage unique, stocké dans Redis avec TTL 24h.
+   */
+  async revokeSession(token: string): Promise<void> {
+    if (!token || token.length < 10) {
+      throw new UnauthorizedException('Token de révocation invalide');
+    }
+    const key = `revoke:${token}`;
+    const stored = await this.cacheService.get<{ userId: string }>(key);
+    if (!stored?.userId) {
+      throw new UnauthorizedException('Token de révocation invalide ou expiré');
+    }
+    // Usage unique — supprimer immédiatement
+    await this.cacheService.del(key);
+    // Révoquer la session
+    await this.prisma.user.update({
+      where: { id: stored.userId },
+      data: { currentSessionId: null, refreshTokenHash: null },
+    });
+    // Log audit
+    this.logSecurityEvent('SESSION_REVOKED_BY_EMAIL', null, null, `Session révoquée via lien email pour userId: ${stored.userId}`).catch(() => {});
   }
 
   /**

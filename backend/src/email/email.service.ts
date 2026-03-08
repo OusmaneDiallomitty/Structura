@@ -438,4 +438,102 @@ export class EmailService {
       </html>
     `;
   }
+
+  /**
+   * Alerte nouvelle connexion depuis un autre appareil
+   */
+  async sendNewLoginNotificationEmail(
+    email: string,
+    firstName: string,
+    ip: string,
+    userAgent: string,
+    revokeUrl: string,
+    loginTime: string,
+  ): Promise<void> {
+    try {
+      await this.send(
+        email,
+        '⚠️ Nouvelle connexion détectée sur votre compte Structura',
+        this.getNewLoginNotificationTemplate(firstName, ip, userAgent, revokeUrl, loginTime),
+      );
+      this.logger.log(`Email alerte connexion envoyé à ${email}`);
+    } catch (error) {
+      this.logger.error(`Échec envoi alerte connexion à ${email}`, error?.body || error);
+    }
+  }
+
+  private getNewLoginNotificationTemplate(
+    firstName: string,
+    ip: string,
+    userAgent: string,
+    revokeUrl: string,
+    loginTime: string,
+  ): string {
+    return `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Nouvelle connexion détectée</title>
+      </head>
+      <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 0;">
+          <tr>
+            <td align="center">
+              <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <tr>
+                  <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 40px 40px 30px; text-align: center;">
+                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">Structura</h1>
+                    <p style="margin: 10px 0 0; color: #fef3c7; font-size: 16px;">⚠️ Alerte de sécurité</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 40px;">
+                    <h2 style="margin: 0 0 20px; color: #111827; font-size: 22px; font-weight: 600;">Bonjour ${firstName},</h2>
+                    <p style="margin: 0 0 20px; color: #4b5563; font-size: 16px; line-height: 1.6;">
+                      Une <strong>nouvelle connexion</strong> a été détectée sur votre compte Structura.
+                    </p>
+                    <div style="margin: 0 0 30px; padding: 20px; background-color: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;">
+                      <p style="margin: 0 0 10px; color: #92400e; font-size: 14px; font-weight: 600;">Détails de la connexion :</p>
+                      <p style="margin: 0 0 6px; color: #4b5563; font-size: 14px;">🕐 <strong>Date :</strong> ${loginTime}</p>
+                      <p style="margin: 0 0 6px; color: #4b5563; font-size: 14px;">🌐 <strong>Adresse IP :</strong> ${ip}</p>
+                      <p style="margin: 0; color: #4b5563; font-size: 14px;">💻 <strong>Appareil :</strong> ${userAgent}</p>
+                    </div>
+                    <p style="margin: 0 0 10px; color: #4b5563; font-size: 16px; line-height: 1.6;">
+                      <strong>C'était vous ?</strong> Vous pouvez ignorer cet email en toute sécurité.
+                    </p>
+                    <p style="margin: 0 0 30px; color: #4b5563; font-size: 16px; line-height: 1.6;">
+                      <strong>Ce n'était pas vous ?</strong> Cliquez immédiatement sur le bouton ci-dessous pour sécuriser votre compte :
+                    </p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center" style="padding: 10px 0 30px;">
+                          <a href="${revokeUrl}" style="display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);">
+                            🔒 Ce n'était pas moi — Sécuriser mon compte
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="margin-top: 10px; padding: 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px;">
+                      <p style="margin: 0; color: #991b1b; font-size: 13px; line-height: 1.6;">
+                        Ce lien expire dans <strong>24 heures</strong>. En cliquant dessus, la session en cours sera immédiatement révoquée et vous devrez vous reconnecter.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color: #f9fafb; padding: 30px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+                    <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px;">© ${new Date().getFullYear()} Structura. Tous droits réservés.</p>
+                    <p style="margin: 0; color: #9ca3af; font-size: 12px;">Plateforme de gestion scolaire moderne</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+  }
 }

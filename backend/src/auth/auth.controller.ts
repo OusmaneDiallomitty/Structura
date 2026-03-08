@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Body, Get, Patch, UseGuards, UseInterceptors, UploadedFile, Request, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Delete, Body, Get, Query, Patch, UseGuards, UseInterceptors, UploadedFile, Request, Req, HttpCode, HttpStatus, BadRequestException, Redirect } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
@@ -41,8 +41,24 @@ export class AuthController {
   // 5 tentatives de connexion max par minute par IP (anti brute-force)
   @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Post('login')
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: any) {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'IP inconnue';
+    const userAgent = (req.headers['user-agent'] || 'Appareil inconnu').substring(0, 120);
+    return this.authService.login(loginDto, { ip, userAgent });
+  }
+
+  // Révocation de session via lien email ("Ce n'était pas moi") — sans JWT
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Get('revoke-session')
+  @Redirect()
+  async revokeSession(@Query('token') token: string, @Req() req: any) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    try {
+      await this.authService.revokeSession(token);
+      return { url: `${frontendUrl}/login?revoked=1` };
+    } catch {
+      return { url: `${frontendUrl}/login?revoke_error=1` };
+    }
   }
 
   // Déconnexion — invalide la session immédiatement côté serveur
