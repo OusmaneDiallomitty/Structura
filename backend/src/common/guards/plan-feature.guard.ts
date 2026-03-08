@@ -26,6 +26,9 @@ export class PlanFeatureGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // En phase bêta : toutes les features sont disponibles pour tous
+    if (process.env.BETA_MODE === 'true') return true;
+
     const feature = this.reflector.getAllAndOverride<keyof PlanFeatures>(FEATURE_KEY, [
       context.getHandler(),
       context.getClass(),

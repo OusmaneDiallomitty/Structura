@@ -15,9 +15,7 @@ import {
   Menu,
   X,
   ChevronDown,
-  Building2,
   LogOut,
-  CreditCard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -94,12 +92,13 @@ const navigation: NavItem[] = [
     icon: UsersRound,
     directorOnly: true,
   },
-  {
-    title: "Abonnement",
-    href: "/dashboard/billing",
-    icon: CreditCard,
-    directorOnly: true,
-  },
+  // Abonnement masqué en phase bêta — à réactiver quand Djomy est en production
+  // {
+  //   title: "Abonnement",
+  //   href: "/dashboard/billing",
+  //   icon: CreditCard,
+  //   directorOnly: true,
+  // },
   {
     title: "Paramètres",
     href: "/dashboard/settings",
@@ -121,7 +120,7 @@ export function Sidebar() {
       .filter(
         (item) =>
           item.children &&
-          item.children.some((child) => pathname.startsWith(item.href))
+          item.children.some(() => pathname.startsWith(item.href))
       )
       .map((item) => item.title);
     setExpandedItems((prev) => {
