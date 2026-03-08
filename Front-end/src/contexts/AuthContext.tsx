@@ -10,6 +10,7 @@ import {
   logoutUser,
   refreshToken as apiRefreshToken,
   RegisterPayload,
+  PendingApprovalResponse,
 } from "@/lib/api/auth.service";
 import { toast } from "sonner";
 import { updateProfile, getMyProfile } from "@/lib/api/users.service";
@@ -141,10 +142,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const response = await loginUser({ email, password });
 
+      // Approbation requise — une session active existait sur un autre appareil
+      if ('status' in response && response.status === 'PENDING_APPROVAL') {
+        const { pendingToken } = response as PendingApprovalResponse;
+        // Mémoriser la préférence rememberMe pour après l'approbation
+        sessionStorage.setItem('structura_pending_remember', rememberMe ? 'true' : 'false');
+        router.push(`/pending-approval?token=${encodeURIComponent(pendingToken)}`);
+        return;
+      }
+
+      // Connexion directe (pas de session active précédente)
+      const authResponse = response as import("@/lib/api/auth.service").AuthResponse;
+
       // persist=true → localStorage (7 jours) | persist=false → sessionStorage (fermeture navigateur)
-      storage.setAuthItem(TOKEN_KEY, response.token, rememberMe);
-      storage.setAuthItem(REFRESH_TOKEN_KEY, response.refreshToken, rememberMe);
-      storage.setAuthItem(USER_KEY, JSON.stringify(response.user), rememberMe);
+      storage.setAuthItem(TOKEN_KEY, authResponse.token, rememberMe);
+      storage.setAuthItem(REFRESH_TOKEN_KEY, authResponse.refreshToken, rememberMe);
+      storage.setAuthItem(USER_KEY, JSON.stringify(authResponse.user), rememberMe);
 
       // Mémoriser la préférence pour les écritures futures (refreshEmailVerified, updateUser…)
       if (rememberMe) {
@@ -153,9 +166,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem("structura_remember_me");
       }
 
-      setUser(response.user);
+      setUser(authResponse.user);
 
-      if (!response.user.emailVerified) {
+      if (!authResponse.user.emailVerified) {
         router.push("/check-email");
       } else {
         router.push("/dashboard");

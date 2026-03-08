@@ -193,62 +193,75 @@ export class AuthService {
       throw new UnauthorizedException('Votre organisation a été désactivée');
     }
 
-    // Générer les tokens avec nouvelle session (invalide tous les anciens appareils)
-    const tokens = await this.generateTokens(matchedUser);
-    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
-
-    // Détecter si une session active existait déjà (connexion depuis un autre appareil)
+    // ─── Option B : approbation requise si session active sur un autre appareil ────
+    // Si une session existait déjà, bloquer l'accès et envoyer un email d'approbation.
+    // L'ancien appareil garde sa session intacte jusqu'à la décision (Approuver/Refuser).
     const hadActiveSession = !!matchedUser.currentSessionId;
 
-    // Stocker sessionId + hash refresh token + date de connexion en une seule requête
+    if (hadActiveSession && loginContext) {
+      const pendingToken = crypto.randomUUID();
+      const pendingKey   = `pending_login:${pendingToken}`;
+      const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
+
+      // Stocker les infos nécessaires pour construire la session après approbation (TTL 10 min)
+      await this.cacheService.set(pendingKey, {
+        status:    'pending',
+        userId:    matchedUser.id,
+        ip:        loginContext.ip,
+        userAgent: loginContext.userAgent,
+      }, 600);
+
+      const backendUrl  = this.configService.get('BACKEND_URL') || 'https://structura-api.fly.dev';
+      const approveUrl  = `${backendUrl}/api/auth/approve-login?token=${pendingToken}`;
+      const denyUrl     = `${backendUrl}/api/auth/deny-login?token=${pendingToken}`;
+
+      this.emailService.sendLoginApprovalEmail(
+        matchedUser.email,
+        matchedUser.firstName,
+        loginContext.ip,
+        loginContext.userAgent,
+        approveUrl,
+        denyUrl,
+        loginTime,
+      ).catch(() => {});
+
+      return { status: 'PENDING_APPROVAL', pendingToken };
+    }
+
+    // ─── Première connexion (aucune session active) → générer JWT directement ────
+    const tokens      = await this.generateTokens(matchedUser);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
     await this.prisma.user.update({
       where: { id: matchedUser.id },
       data: {
-        lastLoginAt: new Date(),
+        lastLoginAt:      new Date(),
         currentSessionId: tokens.sessionId,
         refreshTokenHash: refreshHash,
       },
     });
 
-    // Si l'utilisateur avait une session active → envoyer alerte email (fire-and-forget)
-    if (hadActiveSession && loginContext) {
-      const revokeToken = crypto.randomUUID();
-      const revokeKey = `revoke:${revokeToken}`;
-      // Stocker userId dans Redis — TTL 24h
-      this.cacheService.set(revokeKey, { userId: matchedUser.id }, 86400).catch(() => {});
-      const revokeUrl = `${this.configService.get('FRONTEND_URL')}/security/revoke?token=${revokeToken}`;
-      const loginTime = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
-      this.emailService.sendNewLoginNotificationEmail(
-        matchedUser.email,
-        matchedUser.firstName,
-        loginContext.ip,
-        loginContext.userAgent,
-        revokeUrl,
-        loginTime,
-      ).catch(() => {});
-    }
-
     return {
       user: {
-        id: matchedUser.id,
-        email: matchedUser.email,
-        firstName: matchedUser.firstName,
-        lastName: matchedUser.lastName,
-        role: matchedUser.role.toLowerCase(),
-        tenantId: matchedUser.tenantId,
-        schoolName: matchedUser.tenant?.name ?? null,
-        schoolLogo: matchedUser.tenant?.logo ?? null,
-        phone: matchedUser.phone,
-        avatar: matchedUser.avatar,
-        emailVerified: matchedUser.emailVerified,
-        isActive: matchedUser.isActive,
+        id:               matchedUser.id,
+        email:            matchedUser.email,
+        firstName:        matchedUser.firstName,
+        lastName:         matchedUser.lastName,
+        role:             matchedUser.role.toLowerCase(),
+        tenantId:         matchedUser.tenantId,
+        schoolName:       matchedUser.tenant?.name ?? null,
+        schoolLogo:       matchedUser.tenant?.logo ?? null,
+        phone:            matchedUser.phone,
+        avatar:           matchedUser.avatar,
+        emailVerified:    matchedUser.emailVerified,
+        isActive:         matchedUser.isActive,
         classAssignments: matchedUser.classAssignments ?? [],
-        createdAt: matchedUser.createdAt,
-        updatedAt: matchedUser.updatedAt,
+        createdAt:        matchedUser.createdAt,
+        updatedAt:        matchedUser.updatedAt,
       },
-      token: tokens.token,
+      token:        tokens.token,
       refreshToken: tokens.refreshToken,
-      expiresIn: tokens.expiresIn,
+      expiresIn:    tokens.expiresIn,
     };
   }
 
@@ -285,6 +298,107 @@ export class AuthService {
     });
     // Log audit
     this.logSecurityEvent('SESSION_REVOKED_BY_EMAIL', null, null, `Session révoquée via lien email pour userId: ${stored.userId}`).catch(() => {});
+  }
+
+  // ─── Approbation de connexion (Option B) ──────────────────────────────────
+
+  /**
+   * Poll : vérifie si la demande de connexion en attente a été approuvée ou refusée.
+   * Appelé toutes les 3 secondes par le frontend de l'appareil demandeur.
+   */
+  async checkApproval(pendingToken: string) {
+    if (!pendingToken || pendingToken.length < 10) {
+      return { status: 'expired' };
+    }
+    const stored = await this.cacheService.get<any>(`pending_login:${pendingToken}`);
+    if (!stored) return { status: 'expired' };
+
+    if (stored.status === 'approved') {
+      return {
+        status:       'approved',
+        token:        stored.token,
+        refreshToken: stored.refreshToken,
+        expiresIn:    stored.expiresIn,
+        user:         stored.user,
+      };
+    }
+    return { status: stored.status }; // 'pending' | 'denied'
+  }
+
+  /**
+   * Approuver la connexion : génère les tokens, invalide l'ancienne session, stocke le résultat.
+   * Appelé via le lien "Approuver" dans l'email (GET /auth/approve-login?token=xxx).
+   */
+  async approveLogin(pendingToken: string): Promise<void> {
+    const key    = `pending_login:${pendingToken}`;
+    const stored = await this.cacheService.get<{ status: string; userId: string }>(key);
+
+    if (!stored || stored.status !== 'pending') {
+      throw new BadRequestException("Lien d'approbation invalide ou expiré");
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where:   { id: stored.userId },
+      include: { tenant: true },
+    });
+
+    if (!user || !user.isActive) throw new UnauthorizedException('Compte invalide');
+
+    // Générer JWT + invalider l'ancienne session (computer reçoit SESSION_INVALIDATED)
+    const tokens      = await this.generateTokens(user);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt:      new Date(),
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: refreshHash,
+      },
+    });
+
+    // Stocker résultat dans Redis — le phone le récupère au prochain poll (TTL 5 min)
+    await this.cacheService.set(key, {
+      status:       'approved',
+      token:        tokens.token,
+      refreshToken: tokens.refreshToken,
+      expiresIn:    tokens.expiresIn,
+      user: {
+        id:               user.id,
+        email:            user.email,
+        firstName:        user.firstName,
+        lastName:         user.lastName,
+        role:             user.role.toLowerCase(),
+        tenantId:         user.tenantId,
+        schoolName:       user.tenant?.name ?? null,
+        schoolLogo:       user.tenant?.logo ?? null,
+        phone:            user.phone,
+        avatar:           user.avatar,
+        emailVerified:    user.emailVerified,
+        isActive:         user.isActive,
+        classAssignments: user.classAssignments ?? [],
+        createdAt:        user.createdAt,
+        updatedAt:        user.updatedAt,
+      },
+    }, 300);
+
+    this.logSecurityEvent('LOGIN_APPROVED', user.email, user.tenantId, 'Connexion approuvée via email').catch(() => {});
+  }
+
+  /**
+   * Refuser la connexion : marque la demande comme "denied" dans Redis.
+   * Appelé via le lien "Refuser" dans l'email (GET /auth/deny-login?token=xxx).
+   */
+  async denyLogin(pendingToken: string): Promise<void> {
+    const key    = `pending_login:${pendingToken}`;
+    const stored = await this.cacheService.get<{ status: string; userId: string }>(key);
+
+    if (!stored || stored.status !== 'pending') {
+      throw new BadRequestException('Lien de refus invalide ou expiré');
+    }
+
+    await this.cacheService.set(key, { status: 'denied' }, 300);
+    this.logSecurityEvent('LOGIN_DENIED', null, null, `Connexion refusée via email pour userId: ${stored.userId}`).catch(() => {});
   }
 
   /**

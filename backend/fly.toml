@@ -1,0 +1,40 @@
+# fly.toml — Configuration Fly.io pour le backend Structura
+# Remplace "structura-api" par le nom que tu choisiras lors de "fly launch"
+
+app = "structura-api"
+primary_region = "cdg"  # Paris — le plus proche de l'Afrique de l'Ouest
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+  BACKEND_URL = "https://structura-api.fly.dev"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 25
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[checks]
+  [checks.health]
+    grace_period = "30s"
+    interval = "15s"
+    method = "get"
+    path = "/api/health"
+    port = 3001
+    timeout = "10s"
+    type = "http"

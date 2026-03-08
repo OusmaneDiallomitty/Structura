@@ -37,6 +37,21 @@ export interface AuthResponse {
   expiresIn: number;
 }
 
+/** Retourné par loginUser() quand une approbation email est requise */
+export interface PendingApprovalResponse {
+  status: 'PENDING_APPROVAL';
+  pendingToken: string;
+}
+
+/** Retourné par checkApproval() */
+export interface ApprovalStatus {
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  token?: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  user?: User;
+}
+
 export interface ApiError {
   message: string;
   code?: string;
@@ -78,9 +93,11 @@ export async function registerUser(data: RegisterPayload): Promise<AuthResponse>
 }
 
 /**
- * Connexion d'un utilisateur
+ * Connexion d'un utilisateur.
+ * Peut retourner AuthResponse (connexion directe) ou PendingApprovalResponse
+ * si l'utilisateur avait déjà une session active sur un autre appareil.
  */
-export async function loginUser(data: LoginPayload): Promise<AuthResponse> {
+export async function loginUser(data: LoginPayload): Promise<AuthResponse | PendingApprovalResponse> {
   if (USE_MOCK) {
     return mockLogin(data);
   }
@@ -109,6 +126,16 @@ export async function loginUser(data: LoginPayload): Promise<AuthResponse> {
   } catch (error) {
     throw error;
   }
+}
+
+/**
+ * Vérifie si la demande de connexion en attente a été approuvée ou refusée.
+ * Poll toutes les 3 secondes depuis la page /pending-approval.
+ */
+export async function checkApproval(pendingToken: string): Promise<ApprovalStatus> {
+  const response = await fetch(`${API_BASE_URL}/auth/check-approval?token=${encodeURIComponent(pendingToken)}`);
+  if (!response.ok) return { status: 'expired' };
+  return response.json();
 }
 
 /**

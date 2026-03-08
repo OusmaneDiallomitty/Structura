@@ -43,6 +43,12 @@ export default function LoginPage() {
       toast.success('Votre session a été révoquée avec succès. Reconnectez-vous.', { duration: 8000 });
     } else if (params.get('revoke_error') === '1') {
       toast.error('Lien de révocation invalide ou expiré.', { duration: 6000 });
+    } else if (params.get('login_approved') === '1') {
+      toast.success('Connexion autorisée. La session a été transférée vers le nouvel appareil.', { duration: 6000 });
+    } else if (params.get('login_denied') === '1') {
+      toast.info('Connexion refusée. Le nouvel appareil ne pourra pas accéder au compte.', { duration: 6000 });
+    } else if (params.get('login_error') === '1') {
+      toast.error('Lien expiré ou invalide. La demande n\'est plus active.', { duration: 6000 });
     }
   }, []);
 

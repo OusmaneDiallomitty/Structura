@@ -440,33 +440,36 @@ export class EmailService {
   }
 
   /**
-   * Alerte nouvelle connexion depuis un autre appareil
+   * Email d'approbation de connexion depuis un nouvel appareil (Option B).
+   * L'utilisateur doit cliquer Approuver ou Refuser avant que le nouvel appareil obtienne l'accès.
    */
-  async sendNewLoginNotificationEmail(
+  async sendLoginApprovalEmail(
     email: string,
     firstName: string,
     ip: string,
     userAgent: string,
-    revokeUrl: string,
+    approveUrl: string,
+    denyUrl: string,
     loginTime: string,
   ): Promise<void> {
     try {
       await this.send(
         email,
-        '⚠️ Nouvelle connexion détectée sur votre compte Structura',
-        this.getNewLoginNotificationTemplate(firstName, ip, userAgent, revokeUrl, loginTime),
+        '🔐 Demande de connexion — action requise sur votre compte Structura',
+        this.getLoginApprovalTemplate(firstName, ip, userAgent, approveUrl, denyUrl, loginTime),
       );
-      this.logger.log(`Email alerte connexion envoyé à ${email}`);
+      this.logger.log(`Email approbation connexion envoyé à ${email}`);
     } catch (error) {
-      this.logger.error(`Échec envoi alerte connexion à ${email}`, error?.body || error);
+      this.logger.error(`Échec envoi email approbation à ${email}`, error?.body || error);
     }
   }
 
-  private getNewLoginNotificationTemplate(
+  private getLoginApprovalTemplate(
     firstName: string,
     ip: string,
     userAgent: string,
-    revokeUrl: string,
+    approveUrl: string,
+    denyUrl: string,
     loginTime: string,
   ): string {
     return `
@@ -475,7 +478,7 @@ export class EmailService {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nouvelle connexion détectée</title>
+        <title>Demande de connexion</title>
       </head>
       <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 0;">
@@ -485,39 +488,50 @@ export class EmailService {
                 <tr>
                   <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 40px 40px 30px; text-align: center;">
                     <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">Structura</h1>
-                    <p style="margin: 10px 0 0; color: #fef3c7; font-size: 16px;">⚠️ Alerte de sécurité</p>
+                    <p style="margin: 10px 0 0; color: #fef3c7; font-size: 16px;">Demande de connexion en attente</p>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 40px;">
                     <h2 style="margin: 0 0 20px; color: #111827; font-size: 22px; font-weight: 600;">Bonjour ${firstName},</h2>
                     <p style="margin: 0 0 20px; color: #4b5563; font-size: 16px; line-height: 1.6;">
-                      Une <strong>nouvelle connexion</strong> a été détectée sur votre compte Structura.
+                      Un <strong>nouvel appareil</strong> tente de se connecter à votre compte Structura.
+                      <br>Vous devez autoriser ou refuser cette demande.
                     </p>
                     <div style="margin: 0 0 30px; padding: 20px; background-color: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;">
-                      <p style="margin: 0 0 10px; color: #92400e; font-size: 14px; font-weight: 600;">Détails de la connexion :</p>
+                      <p style="margin: 0 0 10px; color: #92400e; font-size: 14px; font-weight: 600;">Détails de la demande :</p>
                       <p style="margin: 0 0 6px; color: #4b5563; font-size: 14px;">🕐 <strong>Date :</strong> ${loginTime}</p>
                       <p style="margin: 0 0 6px; color: #4b5563; font-size: 14px;">🌐 <strong>Adresse IP :</strong> ${ip}</p>
                       <p style="margin: 0; color: #4b5563; font-size: 14px;">💻 <strong>Appareil :</strong> ${userAgent}</p>
                     </div>
-                    <p style="margin: 0 0 10px; color: #4b5563; font-size: 16px; line-height: 1.6;">
-                      <strong>C'était vous ?</strong> Vous pouvez ignorer cet email en toute sécurité.
-                    </p>
-                    <p style="margin: 0 0 30px; color: #4b5563; font-size: 16px; line-height: 1.6;">
-                      <strong>Ce n'était pas vous ?</strong> Cliquez immédiatement sur le bouton ci-dessous pour sécuriser votre compte :
+                    <p style="margin: 0 0 24px; color: #374151; font-size: 15px; line-height: 1.6; font-weight: 500;">
+                      Si c'est vous, cliquez sur <strong>Approuver</strong>. Sinon, cliquez sur <strong>Refuser</strong> pour bloquer cet accès.
                     </p>
                     <table width="100%" cellpadding="0" cellspacing="0">
                       <tr>
-                        <td align="center" style="padding: 10px 0 30px;">
-                          <a href="${revokeUrl}" style="display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);">
-                            🔒 Ce n'était pas moi — Sécuriser mon compte
+                        <td align="center" style="padding: 0 0 16px;">
+                          <a href="${approveUrl}" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3); letter-spacing: 0.5px;">
+                            Autoriser la connexion
+                          </a>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td align="center" style="padding: 0 0 30px;">
+                          <a href="${denyUrl}" style="display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3); letter-spacing: 0.5px;">
+                            Refuser la connexion
                           </a>
                         </td>
                       </tr>
                     </table>
-                    <div style="margin-top: 10px; padding: 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px;">
+                    <div style="padding: 16px; background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px; margin-bottom: 16px;">
+                      <p style="margin: 0; color: #065f46; font-size: 13px; line-height: 1.6;">
+                        <strong>Approuver</strong> : l'appareil obtient l'accès et votre session actuelle sera transférée.
+                      </p>
+                    </div>
+                    <div style="padding: 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px;">
                       <p style="margin: 0; color: #991b1b; font-size: 13px; line-height: 1.6;">
-                        Ce lien expire dans <strong>24 heures</strong>. En cliquant dessus, la session en cours sera immédiatement révoquée et vous devrez vous reconnecter.
+                        <strong>Refuser</strong> : l'accès est bloqué. Si vous n'avez pas fait cette demande, changez votre mot de passe.
+                        <br>Ces liens expirent dans <strong>10 minutes</strong>.
                       </p>
                     </div>
                   </td>

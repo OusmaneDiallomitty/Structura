@@ -51,13 +51,50 @@ export class AuthController {
   @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Get('revoke-session')
   @Redirect()
-  async revokeSession(@Query('token') token: string, @Req() req: any) {
+  async revokeSession(@Query('token') token: string) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     try {
       await this.authService.revokeSession(token);
       return { url: `${frontendUrl}/login?revoked=1` };
     } catch {
       return { url: `${frontendUrl}/login?revoke_error=1` };
+    }
+  }
+
+  // ─── Option B : endpoints d'approbation de connexion ──────────────────────
+
+  // Poll depuis le nouvel appareil — vérifie si la demande a été approuvée/refusée
+  @SkipThrottle({ auth: true })
+  @Get('check-approval')
+  async checkApproval(@Query('token') token: string) {
+    return this.authService.checkApproval(token);
+  }
+
+  // Lien "Approuver" dans l'email — redirige vers le frontend après traitement
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Get('approve-login')
+  @Redirect()
+  async approveLogin(@Query('token') token: string) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    try {
+      await this.authService.approveLogin(token);
+      return { url: `${frontendUrl}/login?login_approved=1` };
+    } catch {
+      return { url: `${frontendUrl}/login?login_error=1` };
+    }
+  }
+
+  // Lien "Refuser" dans l'email — redirige vers le frontend après traitement
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Get('deny-login')
+  @Redirect()
+  async denyLogin(@Query('token') token: string) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    try {
+      await this.authService.denyLogin(token);
+      return { url: `${frontendUrl}/login?login_denied=1` };
+    } catch {
+      return { url: `${frontendUrl}/login?login_error=1` };
     }
   }
 
