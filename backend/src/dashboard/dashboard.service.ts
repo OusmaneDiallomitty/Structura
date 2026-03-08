@@ -96,14 +96,21 @@ export class DashboardService {
       }),
     ]);
 
-    // Calculer les statistiques dérivées
-    const totalStudentsLastMonth = await this.getTotalStudentsLastMonth(tenantId);
+    // Calculer les statistiques dérivées — toutes en parallèle
+    const [
+      totalStudentsLastMonth,
+      totalClassesLastMonth,
+      lastMonthRevenue,
+      lastMonthAttendanceRate,
+    ] = await Promise.all([
+      this.getTotalStudentsLastMonth(tenantId),
+      this.getTotalClassesLastMonth(tenantId),
+      this.getLastMonthRevenue(tenantId),
+      this.getLastMonthAttendanceRate(tenantId),
+    ]);
+
     const studentsChange = totalStudents - totalStudentsLastMonth;
-
-    const totalClassesLastMonth = await this.getTotalClassesLastMonth(tenantId);
     const classesChange = totalClasses - totalClassesLastMonth;
-
-    const lastMonthRevenue = await this.getLastMonthRevenue(tenantId);
     const revenueChange = lastMonthRevenue > 0
       ? ((monthRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1)
       : '0.0';
@@ -112,7 +119,6 @@ export class DashboardService {
       ? ((todayAttendance.present / todayAttendance.total) * 100).toFixed(1)
       : '0.0';
 
-    const lastMonthAttendanceRate = await this.getLastMonthAttendanceRate(tenantId);
     const attendanceRateChange = (parseFloat(attendanceRate) - lastMonthAttendanceRate).toFixed(1);
 
     return {
@@ -151,24 +157,19 @@ export class DashboardService {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const attendances = await this.prisma.attendance.findMany({
-      where: {
-        tenantId,
-        date: {
-          gte: today,
-          lt: tomorrow,
-        },
-      },
-    });
+    const dateFilter = { gte: today, lt: tomorrow };
 
-    const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'present').length;
-    const absent  = attendances.filter(a => a.status === 'ABSENT'  || a.status === 'absent').length;
+    const [total, present, absent] = await Promise.all([
+      this.prisma.attendance.count({ where: { tenantId, date: dateFilter } }),
+      this.prisma.attendance.count({
+        where: { tenantId, date: dateFilter, status: { in: ['PRESENT', 'present'] } },
+      }),
+      this.prisma.attendance.count({
+        where: { tenantId, date: dateFilter, status: { in: ['ABSENT', 'absent'] } },
+      }),
+    ]);
 
-    return {
-      total: attendances.length,
-      present,
-      absent,
-    };
+    return { total, present, absent };
   }
 
   /**
@@ -264,20 +265,23 @@ export class DashboardService {
     startOfThisMonth.setDate(1);
     startOfThisMonth.setHours(0, 0, 0, 0);
 
-    const attendances = await this.prisma.attendance.findMany({
-      where: {
-        tenantId,
-        date: {
-          gte: startOfLastMonth,
-          lt: startOfThisMonth,
+    const dateFilter = { gte: startOfLastMonth, lt: startOfThisMonth };
+
+    const [total, present] = await Promise.all([
+      this.prisma.attendance.count({
+        where: { tenantId, date: dateFilter },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          tenantId,
+          date: dateFilter,
+          status: { in: ['PRESENT', 'present'] },
         },
-      },
-    });
+      }),
+    ]);
 
-    if (attendances.length === 0) return 0;
-
-    const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'present').length;
-    return (present / attendances.length) * 100;
+    if (total === 0) return 0;
+    return (present / total) * 100;
   }
 
   /**
@@ -332,8 +336,19 @@ export class DashboardService {
 
   /**
    * Activités récentes (dernières actions)
+   * Cache Redis 30s — données fréquentes mais légères
    */
   async getRecentActivities(tenantId: string, limit: number = 10) {
+    const cacheKey = `dashboard:activities:${tenantId}:${limit}`;
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.computeRecentActivities(tenantId, limit);
+    await this.cache.set(cacheKey, result, 30);
+    return result;
+  }
+
+  private async computeRecentActivities(tenantId: string, limit: number) {
     const [recentStudents, recentPayments, recentAttendances] = await Promise.all([
       // Nouveaux élèves
       this.prisma.student.findMany({

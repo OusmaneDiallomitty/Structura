@@ -214,6 +214,8 @@ model Class {
   academicYearRel AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
   teacher        User?         @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId])                  // Comptage classes par tenant (dashboard)
+  @@index([tenantId, academicYearId])  // Filtrage classes par année scolaire
   @@index([academicYearId])
   @@index([teacherId])
   @@map("classes")
