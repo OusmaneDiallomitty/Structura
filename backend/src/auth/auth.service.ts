@@ -63,7 +63,7 @@ export class AuthService {
     }
 
     // Hasher le mot de passe
-    const hashedPassword = await bcrypt.hash(registerDto.password, 12);
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
     // Extraire prénom et nom
     const nameParts = registerDto.fullName.trim().split(' ');
@@ -403,7 +403,7 @@ export class AuthService {
       }
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     // Invalider le token d'invitation + enregistrer la première connexion
     await this.prisma.user.update({
@@ -465,7 +465,7 @@ export class AuthService {
     }
 
     // Hasher le nouveau mot de passe
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Mettre à jour le mot de passe
     await this.prisma.user.update({
@@ -503,7 +503,7 @@ export class AuthService {
       throw new BadRequestException('Le nouveau mot de passe doit être différent de l\'ancien');
     }
 
-    const hashed = await bcrypt.hash(dto.newPassword, 12);
+    const hashed = await bcrypt.hash(dto.newPassword, 10);
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: hashed },

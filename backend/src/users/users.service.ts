@@ -153,7 +153,7 @@ export class UsersService {
 
     // Mot de passe aléatoire (jamais communiqué, sera remplacé lors de l'activation)
     const tempPassword = crypto.randomBytes(16).toString('hex');
-    const hashedPassword = await bcrypt.hash(tempPassword, 12);
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     const user = await this.prisma.user.create({
       data: {
