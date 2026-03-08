@@ -73,7 +73,6 @@ const navigation: NavItem[] = [
     title: "Paiements",
     href: "/dashboard/payments",
     icon: DollarSign,
-    badge: "3",
     permission: { resource: "payments", action: "view" },
   },
   {
