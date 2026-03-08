@@ -160,6 +160,7 @@ export class AuthService {
     });
 
     if (candidates.length === 0) {
+      this.logSecurityEvent('LOGIN_FAILED', loginDto.email, null, 'Email inconnu').catch(() => {});
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
@@ -175,6 +176,7 @@ export class AuthService {
     }
 
     if (!matchedUser) {
+      this.logSecurityEvent('LOGIN_FAILED', loginDto.email, null, 'Mot de passe incorrect').catch(() => {});
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
@@ -191,14 +193,19 @@ export class AuthService {
       throw new UnauthorizedException('Votre organisation a été désactivée');
     }
 
-    // Mettre à jour la date de dernière connexion
+    // Générer les tokens avec nouvelle session (invalide tous les anciens appareils)
+    const tokens = await this.generateTokens(matchedUser);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    // Stocker sessionId + hash refresh token + date de connexion en une seule requête
     await this.prisma.user.update({
       where: { id: matchedUser.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        lastLoginAt: new Date(),
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: refreshHash,
+      },
     });
-
-    // Générer les tokens
-    const tokens = await this.generateTokens(matchedUser);
 
     return {
       user: {
@@ -218,18 +225,51 @@ export class AuthService {
         createdAt: matchedUser.createdAt,
         updatedAt: matchedUser.updatedAt,
       },
-      ...tokens,
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
+      expiresIn: tokens.expiresIn,
     };
+  }
+
+  /**
+   * Déconnexion — invalide immédiatement la session et le refresh token.
+   * Après logout, tout JWT existant est rejeté par la JwtStrategy (sessionId null).
+   */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { currentSessionId: null, refreshTokenHash: null },
+    });
+  }
+
+  /**
+   * Log un événement de sécurité dans AuditLog — fire-and-forget.
+   */
+  private async logSecurityEvent(
+    action: string,
+    actorEmail: string | null,
+    tenantId: string | null,
+    details: string,
+  ): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        action,
+        actorEmail,
+        tenantId,
+        details: { message: details, timestamp: new Date().toISOString() },
+      },
+    });
   }
 
   async refreshToken(refreshToken: string) {
     try {
-      // Vérifier le refresh token avec le secret dédié
+      // Vérifier la signature JWT avec le secret dédié
       const payload = this.jwtService.verify<{
         userId: string;
         email: string;
         tenantId: string;
         role: string;
+        sessionId: string;
       }>(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
       });
@@ -243,37 +283,55 @@ export class AuthService {
         throw new UnauthorizedException('Utilisateur invalide ou désactivé');
       }
 
-      return this.generateTokens({
-        id: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        role: user.role,
+      // Vérifier que le refresh token correspond à celui stocké en BDD (révocation possible)
+      const incomingHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+      if (!user.refreshTokenHash || user.refreshTokenHash !== incomingHash) {
+        this.logSecurityEvent('REFRESH_TOKEN_REUSE', user.email, user.tenantId, 'Refresh token invalide ou déjà révoqué').catch(() => {});
+        throw new UnauthorizedException('SESSION_INVALIDATED');
+      }
+
+      // Vérifier que la session est toujours active (non révoquée par un autre login)
+      if (!user.currentSessionId || user.currentSessionId !== payload.sessionId) {
+        throw new UnauthorizedException('SESSION_INVALIDATED');
+      }
+
+      // Rotation : générer de nouveaux tokens + invalider l'ancien refresh token
+      const tokens = await this.generateTokens(user);
+      const newRefreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { currentSessionId: tokens.sessionId, refreshTokenHash: newRefreshHash },
       });
-    } catch {
+
+      return { token: tokens.token, refreshToken: tokens.refreshToken, expiresIn: tokens.expiresIn };
+    } catch (err: any) {
+      if (err?.message === 'SESSION_INVALIDATED') {
+        throw new UnauthorizedException('SESSION_INVALIDATED');
+      }
       throw new UnauthorizedException('Refresh token invalide ou expiré');
     }
   }
 
   private async generateTokens(user: JwtUserPayload) {
+    // Nouvel identifiant de session unique — invalide tous les tokens précédents
+    const sessionId = crypto.randomUUID();
+
     const payload = {
       userId: user.id,
       email: user.email,
       tenantId: user.tenantId,
       role: user.role,
+      sessionId,
     };
 
     const token = this.jwtService.sign(payload);
-    
+
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.configService.get('JWT_REFRESH_SECRET'),
       expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN') || '7d',
     });
 
-    return {
-      token,
-      refreshToken,
-      expiresIn: 3600,
-    };
+    return { token, refreshToken, expiresIn: 3600, sessionId };
   }
 
   /**
@@ -504,12 +562,13 @@ export class AuthService {
     }
 
     const hashed = await bcrypt.hash(dto.newPassword, 10);
+    // Révoquer la session active — force la reconnexion avec le nouveau mot de passe
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashed },
+      data: { password: hashed, currentSessionId: null, refreshTokenHash: null },
     });
 
-    return { message: 'Mot de passe modifié avec succès' };
+    return { message: 'Mot de passe modifié avec succès. Veuillez vous reconnecter.' };
   }
 
   // ─── Informations de l'école (tenant) ────────────────────────────────────

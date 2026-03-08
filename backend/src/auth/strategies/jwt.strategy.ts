@@ -49,6 +49,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Token invalide');
     }
 
+    // Vérification session unique — si sessionId ne correspond pas, une autre connexion
+    // a pris la main (autre appareil). On rejette le token immédiatement.
+    if (!user.currentSessionId || user.currentSessionId !== payload.sessionId) {
+      throw new UnauthorizedException('SESSION_INVALIDATED');
+    }
+
     // Retourne les valeurs de la BDD (jamais celles du payload JWT).
     // IMPORTANT : role reste en MAJUSCULES pour la compatibilité des guards backend.
     // La transformation lowercase se fait dans le controller /auth/me pour le frontend.

@@ -129,12 +129,31 @@ export async function refreshToken(refreshToken: string): Promise<AuthResponse> 
     });
 
     if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      // Propager SESSION_INVALIDATED pour que AuthContext affiche le bon message
+      if (body?.message === 'SESSION_INVALIDATED') {
+        throw new Error('SESSION_INVALIDATED');
+      }
       throw new Error("Session expirée");
     }
 
     return await response.json();
   } catch (error) {
     throw error;
+  }
+}
+
+/**
+ * Déconnexion côté serveur — invalide la session en BDD
+ */
+export async function logoutUser(token: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Fire-and-forget — on déconnecte côté client même si le serveur est injoignable
   }
 }
 

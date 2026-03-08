@@ -7,9 +7,11 @@ import { UserPermissions, DEFAULT_PERMISSIONS, RoleType } from "@/types/permissi
 import {
   registerUser,
   loginUser,
+  logoutUser,
   refreshToken as apiRefreshToken,
   RegisterPayload,
 } from "@/lib/api/auth.service";
+import { toast } from "sonner";
 import { updateProfile, getMyProfile } from "@/lib/api/users.service";
 import * as storage from "@/lib/storage";
 
@@ -79,7 +81,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.setAuthItem(TOKEN_KEY, res.token, storage.isPersistent());
       storage.setAuthItem(REFRESH_TOKEN_KEY, res.refreshToken, storage.isPersistent());
       return true;
-    } catch {
+    } catch (err: any) {
+      // Session révoquée par une connexion sur un autre appareil
+      if (err?.message === 'SESSION_INVALIDATED') {
+        clearAuth();
+        toast.error('Vous avez été déconnecté — une nouvelle connexion a été détectée sur un autre appareil.', {
+          duration: 8000,
+        });
+        router.push('/login');
+      }
       return false;
     }
   };
@@ -177,6 +187,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Invalider la session côté serveur (fire-and-forget)
+    const token = storage.getAuthItem(TOKEN_KEY);
+    if (token) logoutUser(token).catch(() => {});
     clearAuth();
     router.push("/login");
   };

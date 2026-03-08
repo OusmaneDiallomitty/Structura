@@ -45,6 +45,16 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  // Déconnexion — invalide la session immédiatement côté serveur
+  @SkipThrottle({ auth: true })
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Request() req) {
+    await this.authService.logout(req.user.id);
+    return { message: 'Déconnecté avec succès' };
+  }
+
   // Endpoint protégé par JWT — pas de throttle (lecture de profil, très fréquent)
   // Le rôle est renvoyé en minuscules pour correspondre au type User du frontend.
   // (En interne les guards utilisent les MAJUSCULES depuis req.user.role directement.)
