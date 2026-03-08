@@ -410,22 +410,16 @@ function BulletinsContent() {
     if (logoUrl.startsWith("data:")) { setLogoBase64(logoUrl); return; }
 
     let cancelled = false;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      if (cancelled) return;
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width  = img.naturalWidth  || 300;
-        canvas.height = img.naturalHeight || 300;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { setLogoBase64(null); return; }
-        ctx.drawImage(img, 0, 0);
-        setLogoBase64(canvas.toDataURL("image/png"));
-      } catch { setLogoBase64(null); }
-    };
-    img.onerror = () => { if (!cancelled) setLogoBase64(null); };
-    img.src = logoUrl.includes("?") ? logoUrl : `${logoUrl}?cb=${Date.now()}`;
+    fetch(logoUrl)
+      .then((r) => r.blob())
+      .then((blob) => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror  = reject;
+        reader.readAsDataURL(blob);
+      }))
+      .then((b64) => { if (!cancelled) setLogoBase64(b64); })
+      .catch(() => { if (!cancelled) setLogoBase64(null); });
 
     return () => { cancelled = true; };
   }, [user?.schoolLogo]);

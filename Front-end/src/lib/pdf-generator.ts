@@ -137,23 +137,19 @@ export interface PaymentReceiptData {
 async function loadLogoBase64(src: string): Promise<string | null> {
   if (!src) return null;
   if (src.startsWith("data:")) return src;
-  return new Promise<string | null>((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width  = img.naturalWidth  || 300;
-        canvas.height = img.naturalHeight || 300;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(null); return; }
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      } catch { resolve(null); }
-    };
-    img.onerror = () => resolve(null);
-    img.src = src.includes("?") ? src : `${src}?cb=${Date.now()}`;
-  });
+  try {
+    const response = await fetch(src);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror  = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
