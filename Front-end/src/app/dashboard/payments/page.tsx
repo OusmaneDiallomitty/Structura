@@ -749,9 +749,16 @@ export default function PaymentsPage() {
       const remaining    = expectedFee > 0 ? Math.max(0, expectedFee - totalPaid) : 0;
       const progressPct  = expectedFee > 0 ? Math.min(100, Math.round((totalPaid / expectedFee) * 100)) : 0;
 
+      // Paiements de l'élève sur toute l'année (sans filtre de période)
+      const yearPaidAny = payments.some(
+        (p) => p.studentId === student.id && p.academicYear === selectedYear && p.status === "paid"
+      );
+
       let status: PaymentStatus = "unpaid";
       if (expectedFee > 0 && totalPaid >= expectedFee) status = "paid";
       else if (totalPaid > 0)                           status = "partial";
+      // L'élève n'a pas payé ce mois précis MAIS a payé d'autres mois → "partiel"
+      else if (yearPaidAny)                             status = "partial";
 
       // Calcul des mois annuels payés (tous paiements de l'élève, sans filtre de période)
       const annualPaidMonthsSet = new Set<string>();
