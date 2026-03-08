@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { Providers } from "@/components/layout/Providers";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -36,6 +37,7 @@ export default function RootLayout({
         <Providers>
           {children}
           <Toaster position="top-right" richColors />
+          <ServiceWorkerRegistration />
         </Providers>
       </body>
     </html>

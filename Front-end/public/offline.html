@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hors ligne — Structura</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: white;
+      border-radius: 1rem;
+      padding: 2.5rem 2rem;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      border: 1px solid #e2e8f0;
+    }
+    .icon {
+      width: 64px; height: 64px;
+      background: #eff6ff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 2rem;
+    }
+    h1 { font-size: 1.4rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; }
+    p  { color: #64748b; font-size: 0.95rem; line-height: 1.6; margin-bottom: 1.5rem; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: #fef3c7; color: #92400e;
+      border: 1px solid #fde68a;
+      border-radius: 9999px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.8rem; font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+    button {
+      background: #2563eb; color: white;
+      border: none; border-radius: 0.5rem;
+      padding: 0.7rem 1.5rem;
+      font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; width: 100%;
+      transition: background 0.15s;
+    }
+    button:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📡</div>
+    <div class="badge">⚠ Hors ligne</div>
+    <h1>Connexion indisponible</h1>
+    <p>
+      Votre appareil n'est pas connecté à internet.<br/>
+      Si vous étiez déjà sur l'application, vos données
+      restent accessibles — retournez à la page précédente.
+    </p>
+    <button onclick="window.history.back()">← Retour</button>
+  </div>
+</body>
+</html>

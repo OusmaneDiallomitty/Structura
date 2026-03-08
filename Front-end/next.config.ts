@@ -1,12 +1,6 @@
 import type { NextConfig } from "next";
-import withPWAInit from "@ducanh2912/next-pwa";
 import { withSentryConfig } from "@sentry/nextjs";
-
-const withPWA = withPWAInit({
-  dest: "public",
-  register: true,
-  disable: process.env.NODE_ENV === "development",
-});
+// @ducanh2912/next-pwa retiré — incompatible Next.js 16, remplacé par sw.js manuel dans /public
 
 const nextConfig: NextConfig = {
   // Turbopack (Next.js 16+) — config vide pour silencer l'erreur de coexistence
@@ -54,4 +48,4 @@ const sentryConfig = {
   hideSourceMaps: true,
 };
 
-export default withSentryConfig(withPWA(nextConfig), sentryConfig);
+export default withSentryConfig(nextConfig, sentryConfig);
