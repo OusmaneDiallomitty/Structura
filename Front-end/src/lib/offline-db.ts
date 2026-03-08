@@ -205,24 +205,20 @@ class OfflineDB {
    */
   async bulkAdd<T>(storeName: string, items: T[]): Promise<void> {
     if (!this.db) await this.init();
+    if (items.length === 0) return;
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([storeName], "readwrite");
       const store = transaction.objectStore(storeName);
 
-      let completed = 0;
-      const total = items.length;
+      // Utilise put (upsert) au lieu de add pour éviter l'erreur si l'élément existe déjà
+      transaction.oncomplete = () => resolve();
+      transaction.onerror   = () => reject(transaction.error);
+      transaction.onabort   = () => reject(transaction.error);
 
-      items.forEach((item) => {
-        const request = store.add(item);
-        request.onsuccess = () => {
-          completed++;
-          if (completed === total) resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-
-      if (total === 0) resolve();
+      for (const item of items) {
+        store.put(item);
+      }
     });
   }
 

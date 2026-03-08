@@ -25,6 +25,7 @@ import { useOnline } from "@/hooks/use-online";
 import { useSubscription } from "@/hooks/use-subscription";
 import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
+import { syncQueue } from "@/lib/sync-queue";
 import { getClasses, getClassSubjects, saveClassSubjects } from "@/lib/api/classes.service";
 import { getStudents } from "@/lib/api/students.service";
 import {
@@ -779,15 +780,6 @@ function GradesPageContent() {
   // ── Enregistrer ───────────────────────────────────────────────────────────
 
   async function handleSave() {
-    // Mode hors ligne : les notes sont conservées dans le brouillon localStorage
-    if (!isOnline) {
-      toast.info("Mode hors ligne — notes conservées dans le brouillon", {
-        description: "Elles seront enregistrables dès la reconnexion.",
-        duration: 5000,
-      });
-      return;
-    }
-
     const token = storage.getAuthItem("structura_token");
     if (!token) { toast.error("Session expirée"); return; }
 
@@ -795,6 +787,62 @@ function GradesPageContent() {
       ([, c]) => c.isDirty && c.score !== null
     );
     if (dirty.length === 0) { toast.info("Aucune modification à enregistrer"); return; }
+
+    // Mode hors ligne : mettre en queue pour sync automatique au retour online
+    if (!isOnline) {
+      setIsSaving(true);
+      try {
+        const toCreate = new Map<string, { studentId: string; score: number }[]>();
+        const toUpdate: { gradeId: string; score: number }[] = [];
+
+        for (const [key, cell] of dirty) {
+          const sep = key.indexOf("__");
+          const studentId = key.substring(0, sep);
+          const subjectName = key.substring(sep + 2);
+          if (cell.existingGradeId) {
+            toUpdate.push({ gradeId: cell.existingGradeId, score: cell.score! });
+          } else {
+            if (!toCreate.has(subjectName)) toCreate.set(subjectName, []);
+            toCreate.get(subjectName)!.push({ studentId, score: cell.score! });
+          }
+        }
+
+        for (const [subjectName, rows] of toCreate.entries()) {
+          const subRow = subjectRows.find((s) => s.name === subjectName);
+          await syncQueue.add({
+            type: "grade", action: "bulk_create",
+            data: {
+              subject: subjectName,
+              maxScore,
+              coefficient: subRow?.coefficient ?? 1,
+              term: selectedTrimester,
+              academicYear,
+              classId: selectedClassId,
+              grades: rows,
+            },
+          });
+        }
+
+        for (const { gradeId, score } of toUpdate) {
+          await syncQueue.add({
+            type: "grade", action: "update",
+            data: { id: gradeId, score, maxScore },
+          });
+        }
+
+        clearDraft(selectedClassId, selectedTrimester, academicYear);
+        setEditingCells(new Set());
+        toast.info(`${dirty.length} note(s) sauvegardées — synchronisation en attente`, {
+          description: "Envoi automatique dès le retour de la connexion.",
+          duration: 5000,
+        });
+      } catch (err: any) {
+        toast.error(err.message || "Erreur lors de la sauvegarde offline");
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
 
     setIsSaving(true);
     try {
