@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import * as storage from '@/lib/storage';
@@ -26,7 +26,7 @@ const PERIOD_LABELS: Record<string, string> = {
   annual:  'Annuel',
 };
 
-export default function BillingSuccessPage() {
+function BillingSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const ref = searchParams.get('ref');
@@ -132,5 +132,13 @@ export default function BillingSuccessPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function BillingSuccessPage() {
+  return (
+    <Suspense>
+      <BillingSuccessContent />
+    </Suspense>
   );
 }
