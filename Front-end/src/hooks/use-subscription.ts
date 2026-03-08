@@ -80,6 +80,8 @@ export function useSubscription() {
   /** Vérifie si le plan courant possède une feature */
   const hasFeature = useCallback(
     (feature: keyof SubscriptionStatus['features']): boolean => {
+      // En phase bêta : toutes les features sont disponibles
+      if (process.env.NEXT_PUBLIC_BETA_MODE === 'true') return true;
       if (!status) return false;
       return status.features[feature] === true;
     },
