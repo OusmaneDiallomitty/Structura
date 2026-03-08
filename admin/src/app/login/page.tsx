@@ -2,6 +2,7 @@
 
 import { useState, FormEvent, Suspense } from 'react';
 import { useRouter, useSearchParams }    from 'next/navigation';
+import { Eye, EyeOff }                  from 'lucide-react';
 import { login, setToken, setRefreshToken } from '@/lib/api';
 import { storeUser, isSuperAdmin }          from '@/lib/auth';
 
@@ -28,6 +29,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [showPwd,  setShowPwd]  = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -94,16 +96,25 @@ export default function LoginPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Mot de passe
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="••••••••••••"
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
-                         transition"
-            />
+            <div className="relative">
+              <input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••••••••"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+                           transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd(!showPwd)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
 
           {error && (
