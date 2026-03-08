@@ -211,7 +211,7 @@ export class AuthService {
         userAgent: loginContext.userAgent,
       }, 600);
 
-      const backendUrl  = this.configService.get('BACKEND_URL') || 'https://structura-api.fly.dev';
+      const backendUrl  = this.configService.get('BACKEND_URL') || 'https://structura-api.onrender.com';
       const approveUrl  = `${backendUrl}/api/auth/approve-login?token=${pendingToken}`;
       const denyUrl     = `${backendUrl}/api/auth/deny-login?token=${pendingToken}`;
 
