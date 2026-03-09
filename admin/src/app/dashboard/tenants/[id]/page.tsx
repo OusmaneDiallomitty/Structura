@@ -17,6 +17,7 @@ import {
   Settings,
   Timer,
   Send,
+  RefreshCw,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ import {
   deleteTenant,
   impersonateTenant,
   extendTrial,
+  resendDirectorInvite,
   sendReminder,
   type TenantDetail,
 } from '@/lib/api';
@@ -171,6 +173,18 @@ export default function TenantDetailPage() {
     }
   }
 
+  async function handleResendInvite() {
+    setBusy(true);
+    try {
+      const res = await resendDirectorInvite(id);
+      toast.success(res.message);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleSendReminder() {
     if (!reminderSubject.trim() || !reminderMessage.trim()) {
       toast.error('Objet et message requis');
@@ -291,6 +305,20 @@ export default function TenantDetailPage() {
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* Renvoi invitation — visible uniquement si le directeur n'a jamais activé */}
+            {tenant.users.some((u) => u.role === 'DIRECTOR' && u.lastLoginAt === null) && (
+              <button
+                onClick={handleResendInvite}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-violet-600
+                           border border-violet-200 rounded-xl hover:bg-violet-50 transition disabled:opacity-50"
+                title="Le directeur n'a pas encore activé son compte — renvoyer l'invitation"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="hidden sm:block">Renvoyer invitation</span>
+              </button>
             )}
 
             <button

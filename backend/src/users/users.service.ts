@@ -200,6 +200,37 @@ export class UsersService {
   }
 
   /**
+   * Renvoie l'email d'invitation à un membre qui n'a pas encore activé son compte.
+   * Régénère un nouveau token valide 7 jours.
+   */
+  async resendMemberInvite(tenantId: string, memberId: string) {
+    const member = await this.prisma.user.findFirst({ where: { id: memberId, tenantId } });
+    if (!member) throw new NotFoundException('Membre non trouvé');
+    if (member.lastLoginAt !== null) {
+      throw new BadRequestException('Ce membre a déjà activé son compte.');
+    }
+
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: memberId },
+      data: { passwordResetToken: inviteToken, passwordResetExpiry: tokenExpiry },
+    });
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+
+    await this.emailService.sendTeamInvitationEmail(
+      member.email,
+      member.firstName,
+      tenant?.name ?? 'votre établissement',
+      inviteToken,
+    );
+
+    return { message: `Invitation renvoyée à ${member.email}` };
+  }
+
+  /**
    * Met à jour le rôle, statut ou coordonnées d'un membre.
    * Un directeur ne peut pas modifier son propre rôle ni se désactiver.
    */

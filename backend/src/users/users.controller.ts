@@ -135,6 +135,18 @@ export class UsersController {
   }
 
   /**
+   * POST /users/team/:id/resend-invite
+   * Renvoie l'email d'activation à un membre qui n'a pas encore activé son compte (DIRECTOR uniquement).
+   */
+  @Post('team/:id/resend-invite')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  @HttpCode(200)
+  resendInvite(@Request() req, @Param('id') id: string) {
+    return this.usersService.resendMemberInvite(req.user.tenantId, id);
+  }
+
+  /**
    * DELETE /users/team/:id
    * Supprime définitivement un membre (DIRECTOR uniquement).
    */

@@ -766,6 +766,54 @@ export class AdminService {
     };
   }
 
+  // ─── Renvoi invitation directeur ──────────────────────────────────────────
+
+  /**
+   * POST /admin/tenants/:id/resend-invite
+   * Régénère un token d'invitation et renvoie l'email au directeur
+   * qui n'a pas encore activé son compte (lastLoginAt === null).
+   */
+  async resendDirectorInvite(tenantId: string, adminEmail?: string) {
+    const director = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'DIRECTOR' },
+    });
+
+    if (!director) {
+      throw new BadRequestException('Aucun directeur trouvé pour cette école.');
+    }
+
+    if (director.lastLoginAt !== null) {
+      throw new BadRequestException('Le directeur a déjà activé son compte.');
+    }
+
+    const inviteToken  = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 jours
+
+    await this.prisma.user.update({
+      where: { id: director.id },
+      data: { passwordResetToken: inviteToken, passwordResetExpiry: tokenExpiry },
+    });
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+
+    await this.emailService.sendTeamInvitationEmail(
+      director.email,
+      director.firstName,
+      tenant?.name ?? 'votre établissement',
+      inviteToken,
+    );
+
+    this.audit({
+      action: 'RESEND_DIRECTOR_INVITE',
+      actorEmail: adminEmail,
+      tenantId,
+      tenantName: tenant?.name,
+      details: { directorEmail: director.email },
+    });
+
+    return { message: `Invitation renvoyée à ${director.email}` };
+  }
+
   // ─── Statistiques financières ──────────────────────────────────────────────
 
   /**

@@ -191,8 +191,9 @@ export const deleteTenant     = (id: string)         => request<{ message: strin
 /** Réponse d'impersonation : code opaque au lieu du JWT (sécurité) */
 export interface ImpersonateResponse { code: string; expiresIn: number; impersonating: { tenantId: string; tenantName: string; directorEmail: string } }
 export const impersonateTenant = (id: string)        => request<ImpersonateResponse>(`/admin/tenants/${id}/impersonate`, { method: 'POST' });
-export const extendTrial       = (id: string, days: number) => request<{ message: string; newTrialEnd: string }>(`/admin/tenants/${id}/extend-trial`, { method: 'POST', body: JSON.stringify({ days }) });
-export const sendReminder      = (id: string, subject: string, message: string) => request<{ message: string }>(`/admin/tenants/${id}/send-reminder`, { method: 'POST', body: JSON.stringify({ subject, message }) });
+export const extendTrial          = (id: string, days: number) => request<{ message: string; newTrialEnd: string }>(`/admin/tenants/${id}/extend-trial`, { method: 'POST', body: JSON.stringify({ days }) });
+export const resendDirectorInvite = (id: string) => request<{ message: string }>(`/admin/tenants/${id}/resend-invite`, { method: 'POST' });
+export const sendReminder         = (id: string, subject: string, message: string) => request<{ message: string }>(`/admin/tenants/${id}/send-reminder`, { method: 'POST', body: JSON.stringify({ subject, message }) });
 export const createTenantAdmin = (data: {
   name: string; directorEmail: string; directorFirstName: string; directorLastName: string;
   type?: string; country?: string; city?: string; trialDays?: number;

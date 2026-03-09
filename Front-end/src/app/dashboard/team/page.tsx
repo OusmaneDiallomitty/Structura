@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Users,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,6 +80,7 @@ import {
   deleteTeamMember,
   updateMemberPermissions,
   assignTeacherClasses,
+  resendMemberInvite,
 } from "@/lib/api/users.service";
 import { getClasses, getClassSubjects } from "@/lib/api/classes.service";
 import { formatClassName } from "@/lib/class-helpers";
@@ -881,6 +883,24 @@ export default function TeamPage() {
                                       <><UserCheck className="h-4 w-4 mr-2" />Activer</>
                                     )}
                                   </DropdownMenuItem>
+                                  {member.lastLoginAt === null && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        const token = storage.getAuthItem("structura_token");
+                                        if (!token) return;
+                                        setIsSubmitting(true);
+                                        resendMemberInvite(token, member.id)
+                                          .then((res) => toast.success(res.message))
+                                          .catch((err) => toast.error("Erreur", {
+                                            description: err instanceof Error ? err.message : "Impossible de renvoyer l'invitation",
+                                          }))
+                                          .finally(() => setIsSubmitting(false));
+                                      }}
+                                    >
+                                      <RefreshCw className="h-4 w-4 mr-2" />
+                                      Renvoyer l&apos;invitation
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
                                     onClick={() => handleDelete(member)}

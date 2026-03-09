@@ -138,6 +138,19 @@ export class AdminController {
     return this.adminService.extendTrial(tenantId, dto, admin.email);
   }
 
+  // ─── Renvoi invitation directeur ──────────────────────────────────────────
+
+  /**
+   * POST /api/admin/tenants/:id/resend-invite
+   * Régénère le token et renvoie l'email d'activation au directeur
+   * (uniquement si son compte n'est pas encore activé).
+   */
+  @Post('tenants/:id/resend-invite')
+  @HttpCode(HttpStatus.OK)
+  resendDirectorInvite(@Param('id') tenantId: string, @CurrentUser() admin: any) {
+    return this.adminService.resendDirectorInvite(tenantId, admin.email);
+  }
+
   // ─── Rappel email ──────────────────────────────────────────────────────────
 
   /**

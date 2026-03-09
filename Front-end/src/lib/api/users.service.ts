@@ -169,6 +169,18 @@ export async function updateProfile(
   return handleResponse<BackendUserProfile>(res);
 }
 
+/** POST /users/team/:id/resend-invite — Renvoie l'invitation à un membre non activé (DIRECTOR uniquement) */
+export async function resendMemberInvite(
+  token: string,
+  id: string,
+): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE_URL}/users/team/${id}/resend-invite`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 /** DELETE /users/team/:id — DIRECTOR uniquement */
 export async function deleteTeamMember(
   token: string,
