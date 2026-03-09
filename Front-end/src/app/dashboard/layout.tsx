@@ -14,13 +14,19 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Précharge classes + élèves dans IndexedDB en arrière-plan dès que l'utilisateur
-  // est connecté — garantit le mode offline même sans avoir visité chaque page.
+  // Précharge toutes les données dans IndexedDB en arrière-plan.
+  // Se déclenche au montage ET à chaque retour de connexion.
   useEffect(() => {
-    const token = storage.getAuthItem("structura_token");
-    if (token && navigator.onLine) {
-      preloadOfflineData(token);
-    }
+    const runPreload = () => {
+      const token = storage.getAuthItem("structura_token");
+      if (token && navigator.onLine) {
+        preloadOfflineData(token);
+      }
+    };
+
+    runPreload(); // Au montage
+    window.addEventListener("online", runPreload); // Au retour online
+    return () => window.removeEventListener("online", runPreload);
   }, []);
 
   return (

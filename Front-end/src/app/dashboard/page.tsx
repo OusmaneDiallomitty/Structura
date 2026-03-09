@@ -186,6 +186,11 @@ export default function DashboardPage() {
     if (!hasSeenWelcome) {
       setShowWelcome(true);
     }
+
+    // Recharger automatiquement au retour de connexion
+    const handleOnline = () => loadDashboardData();
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
   }, [loadDashboardData]);
 
   const handleDismissWelcome = () => {

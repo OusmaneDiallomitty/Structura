@@ -33,9 +33,9 @@ export function useSubscription() {
       return;
     }
 
-    // Vérifier le cache en mémoire/localStorage
+    // Vérifier le cache localStorage (persiste entre les refreshs de page)
     try {
-      const cached = sessionStorage.getItem(CACHE_KEY);
+      const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const parsed: CachedSubscription = JSON.parse(cached);
         if (parsed.expiresAt > Date.now()) {
@@ -46,19 +46,19 @@ export function useSubscription() {
       }
     } catch {
       // Cache corrompu — on le supprime
-      sessionStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_KEY);
     }
 
     // Fetch depuis l'API
     try {
       const data = await getSubscriptionStatus(token);
       setStatus(data);
-      // Mettre en cache pour 5 minutes
+      // Mettre en cache pour 5 minutes (localStorage = persiste entre les refreshs)
       const cache: CachedSubscription = {
         data,
         expiresAt: Date.now() + CACHE_TTL_MS,
       };
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
     } catch {
       // Silencieux : si l'API échoue, on affiche FREE par défaut
     } finally {
@@ -108,7 +108,7 @@ export function useSubscription() {
 /** Invalide manuellement le cache abonnement (après paiement webhook reçu) */
 export function invalidateSubscriptionCache(): void {
   try {
-    sessionStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(CACHE_KEY);
   } catch {
     // Silencieux
   }

@@ -12,7 +12,8 @@ import { getPayments } from "./api/payments.service";
 import { getAttendances } from "./api/attendance.service";
 import { getGrades } from "./api/grades.service";
 
-let preloadDone = false; // Une seule fois par session navigateur
+// Promise en cours : évite les appels parallèles (ex: montage + retour online simultanés)
+let runningPreload: Promise<void> | null = null;
 
 async function preloadStore<T>(
   storeName: string,
@@ -32,42 +33,49 @@ async function preloadStore<T>(
   }
 }
 
-export async function preloadOfflineData(token: string): Promise<void> {
-  if (preloadDone) return;
-  if (!navigator.onLine) return;
+export function preloadOfflineData(token: string): Promise<void> {
+  if (!navigator.onLine) return Promise.resolve();
 
-  try {
-    // Classes et élèves en premier (bloquant — nécessaires pour toutes les pages)
-    const classes = await getClasses(token);
-    if (Array.isArray(classes) && classes.length > 0) {
-      await offlineDB.clear(STORES.CLASSES);
-      await offlineDB.bulkAdd(STORES.CLASSES, classes);
+  // Si un preload est déjà en cours, on attend le même (pas d'appels parallèles)
+  if (runningPreload) return runningPreload;
+
+  runningPreload = (async () => {
+    try {
+      // Classes et élèves en premier (bloquant — nécessaires pour toutes les pages)
+      const classes = await getClasses(token);
+      if (Array.isArray(classes) && classes.length > 0) {
+        await offlineDB.clear(STORES.CLASSES);
+        await offlineDB.bulkAdd(STORES.CLASSES, classes);
+      }
+
+      const studentsResult = await getStudents(token, { limit: 5000 });
+      const students = Array.isArray(studentsResult)
+        ? studentsResult
+        : (studentsResult as any)?.data ?? [];
+
+      if (students.length > 0) {
+        await offlineDB.clear(STORES.STUDENTS);
+        await offlineDB.bulkAdd(STORES.STUDENTS, students);
+      }
+
+      // Données secondaires en parallèle (non bloquantes)
+      const [paymentsCount, attendanceCount, gradesCount] = await Promise.all([
+        preloadStore(STORES.PAYMENTS, () => getPayments(token), "paiements"),
+        preloadStore(STORES.ATTENDANCE, () => getAttendances(token), "présences"),
+        preloadStore(STORES.GRADES, () => getGrades(token), "notes"),
+      ]);
+
+      console.log(
+        `[Offline] Préchargement terminé — ${classes.length} classes, ${students.length} élèves, ` +
+        `${paymentsCount} paiements, ${attendanceCount} présences, ${gradesCount} notes`
+      );
+    } catch (err) {
+      // Silencieux : l'app fonctionne en ligne normalement, le preload est un bonus
+      console.warn("[Offline] Préchargement échoué (ignoré) :", err);
+    } finally {
+      runningPreload = null; // Libérer pour permettre un prochain appel (ex: retour online)
     }
+  })();
 
-    const studentsResult = await getStudents(token, { limit: 5000 });
-    const students = Array.isArray(studentsResult)
-      ? studentsResult
-      : (studentsResult as any)?.data ?? [];
-
-    if (students.length > 0) {
-      await offlineDB.clear(STORES.STUDENTS);
-      await offlineDB.bulkAdd(STORES.STUDENTS, students);
-    }
-
-    // Données secondaires en parallèle (non bloquantes)
-    const [paymentsCount, attendanceCount, gradesCount] = await Promise.all([
-      preloadStore(STORES.PAYMENTS, () => getPayments(token), "paiements"),
-      preloadStore(STORES.ATTENDANCE, () => getAttendances(token), "présences"),
-      preloadStore(STORES.GRADES, () => getGrades(token), "notes"),
-    ]);
-
-    preloadDone = true;
-    console.log(
-      `[Offline] Préchargement terminé — ${classes.length} classes, ${students.length} élèves, ` +
-      `${paymentsCount} paiements, ${attendanceCount} présences, ${gradesCount} notes`
-    );
-  } catch (err) {
-    // Silencieux : l'app fonctionne en ligne normalement, le preload est un bonus
-    console.warn("[Offline] Préchargement échoué (ignoré) :", err);
-  }
+  return runningPreload;
 }
