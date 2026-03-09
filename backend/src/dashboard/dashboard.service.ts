@@ -571,6 +571,117 @@ export class DashboardService {
     return data;
   }
 
+  /**
+   * Recherche globale — retourne élèves et classes selon les permissions du user.
+   * Les professeurs voient uniquement leurs classes assignées.
+   */
+  async search(
+    tenantId: string,
+    q: string,
+    user: {
+      role: string;
+      permissions?: Record<string, Record<string, boolean>> | null;
+      assignedClassIds?: string[];
+    },
+  ) {
+    if (!q || q.trim().length < 2) return { results: [] };
+
+    const term = q.trim();
+    const canView = (resource: string) => {
+      if (user.role === 'DIRECTOR') return true;
+      if (user.permissions) return user.permissions[resource]?.view === true;
+      const defaults: Record<string, Record<string, Record<string, boolean>>> = {
+        TEACHER:    { students: { view: true }, classes: { view: true }, payments: { view: false } },
+        SECRETARY:  { students: { view: true }, classes: { view: true }, payments: { view: true } },
+        ACCOUNTANT: { students: { view: true }, classes: { view: true }, payments: { view: true } },
+        SUPERVISOR: { students: { view: true }, classes: { view: true }, payments: { view: false } },
+      };
+      return defaults[user.role]?.[resource]?.view === true;
+    };
+
+    const queries: Promise<any[]>[] = [];
+
+    // Recherche élèves
+    if (canView('students')) {
+      const studentWhere: any = {
+        tenantId,
+        OR: [
+          { firstName: { contains: term, mode: 'insensitive' } },
+          { lastName:  { contains: term, mode: 'insensitive' } },
+          { matricule: { contains: term, mode: 'insensitive' } },
+        ],
+      };
+      if (user.role === 'TEACHER') {
+        const ids = Array.isArray(user.assignedClassIds) ? user.assignedClassIds.filter(Boolean) : [];
+        studentWhere.classId = ids.length > 0 ? { in: ids } : null;
+      }
+      queries.push(
+        this.prisma.student.findMany({
+          where: studentWhere,
+          take: 5,
+          orderBy: { lastName: 'asc' },
+          include: { class: { select: { name: true } } },
+        }).then(rows => rows.map(s => ({
+          id:       s.id,
+          type:     'student' as const,
+          title:    `${s.firstName} ${s.lastName}`,
+          subtitle: `${s.class?.name ?? 'Sans classe'} • ${s.matricule}`,
+          url:      `/dashboard/students/${s.id}`,
+        }))),
+      );
+    }
+
+    // Recherche classes
+    if (canView('classes')) {
+      const classWhere: any = {
+        tenantId,
+        name: { contains: term, mode: 'insensitive' },
+      };
+      if (user.role === 'TEACHER') {
+        const ids = Array.isArray(user.assignedClassIds) ? user.assignedClassIds.filter(Boolean) : [];
+        classWhere.id = ids.length > 0 ? { in: ids } : undefined;
+        if (ids.length === 0) {
+          // Aucune classe → aucun résultat de type classe
+          queries.push(Promise.resolve([]));
+        } else {
+          queries.push(
+            this.prisma.class.findMany({
+              where: classWhere,
+              take: 5,
+              orderBy: { name: 'asc' },
+              include: { _count: { select: { students: true } } },
+            }).then(rows => rows.map(c => ({
+              id:       c.id,
+              type:     'class' as const,
+              title:    c.name,
+              subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`,
+              url:      `/dashboard/classes`,
+            }))),
+          );
+        }
+      } else {
+        queries.push(
+          this.prisma.class.findMany({
+            where: classWhere,
+            take: 5,
+            orderBy: { name: 'asc' },
+            include: { _count: { select: { students: true } } },
+          }).then(rows => rows.map(c => ({
+            id:       c.id,
+            type:     'class' as const,
+            title:    c.name,
+            subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`,
+            url:      `/dashboard/classes`,
+          }))),
+        );
+      }
+    }
+
+    const groups = await Promise.all(queries);
+    const results = groups.flat().slice(0, 10);
+    return { results };
+  }
+
   private async computeStudentsDistribution(tenantId: string) {
     const classes = await this.prisma.class.findMany({
       where: { tenantId },

@@ -15,6 +15,17 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   /**
+   * GET /api/dashboard/search?q=xxx
+   * Recherche globale — élèves et classes selon les permissions du user JWT.
+   * Min 2 caractères. Max 10 résultats.
+   */
+  @SkipThrottle()
+  @Get('search')
+  async search(@Request() req: any, @Query('q') q: string) {
+    return this.dashboardService.search(req.user.tenantId, q ?? '', req.user);
+  }
+
+  /**
    * GET /api/dashboard/stats
    * Récupérer les statistiques générales du dashboard
    */

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Search, FileText, Users, DollarSign, BookOpen, Calendar, X, ArrowRight } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Search, Users, BookOpen, X, ArrowRight, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,59 +11,17 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
 interface SearchResult {
   id: string;
-  type: "student" | "payment" | "class" | "grade" | "attendance";
+  type: "student" | "class";
   title: string;
   subtitle: string;
   url: string;
-  icon: React.ReactNode;
 }
-
-// Mock data - À remplacer par vraie recherche
-const mockResults: SearchResult[] = [
-  {
-    id: "1",
-    type: "student",
-    title: "Fatou Camara",
-    subtitle: "1ère année A • STR2024001",
-    url: "/dashboard/students?id=1",
-    icon: <Users className="h-4 w-4" />,
-  },
-  {
-    id: "2",
-    type: "payment",
-    title: "Paiement de 150,000 GNF",
-    subtitle: "Fatou Camara • 23 Jan 2026",
-    url: "/dashboard/payments?id=1",
-    icon: <DollarSign className="h-4 w-4" />,
-  },
-  {
-    id: "3",
-    type: "class",
-    title: "1ère année A",
-    subtitle: "25 élèves • Salle 101",
-    url: "/dashboard/classes?id=1",
-    icon: <BookOpen className="h-4 w-4" />,
-  },
-  {
-    id: "4",
-    type: "grade",
-    title: "Notes de Mathématiques",
-    subtitle: "1ère année A • Trimestre 1",
-    url: "/dashboard/grades?class=1",
-    icon: <FileText className="h-4 w-4" />,
-  },
-  {
-    id: "5",
-    type: "attendance",
-    title: "Présences du 23 Jan 2026",
-    subtitle: "1ère année A • 23/25 présents",
-    url: "/dashboard/attendance?date=2026-01-23",
-    icon: <Calendar className="h-4 w-4" />,
-  },
-];
 
 interface GlobalSearchProps {
   open: boolean;
@@ -71,56 +29,84 @@ interface GlobalSearchProps {
 }
 
 export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
+  const { getValidToken } = useAuth();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Focus input when dialog opens
+  // Focus + reset à l'ouverture
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 100);
       setQuery("");
       setResults([]);
       setSelectedIndex(0);
+      setIsLoading(false);
     }
   }, [open]);
 
-  // Search logic
-  useEffect(() => {
-    if (query.trim().length < 2) {
+  const doSearch = useCallback(async (q: string) => {
+    if (q.trim().length < 2) {
       setResults([]);
+      setIsLoading(false);
       return;
     }
+    setIsLoading(true);
+    try {
+      const token = await getValidToken();
+      if (!token) {
+        setResults([]);
+        return;
+      }
+      const res = await fetch(
+        `${API_BASE_URL}/dashboard/search?q=${encodeURIComponent(q.trim())}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        setResults([]);
+        return;
+      }
+      const data = await res.json();
+      setResults(data.results ?? []);
+      setSelectedIndex(0);
+    } catch {
+      setResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getValidToken]);
 
-    // Simulate search - À remplacer par vraie API
-    const filtered = mockResults.filter(
-      (result) =>
-        result.title.toLowerCase().includes(query.toLowerCase()) ||
-        result.subtitle.toLowerCase().includes(query.toLowerCase())
-    );
+  // Debounce 300 ms
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 2) {
+      setResults([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    debounceRef.current = setTimeout(() => doSearch(query), 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, doSearch]);
 
-    setResults(filtered);
-    setSelectedIndex(0);
-  }, [query]);
-
-  // Keyboard navigation
+  // Navigation clavier
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!open) return;
-
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev + 1) % results.length);
+        setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev - 1 + results.length) % results.length);
+        setSelectedIndex((prev) => Math.max(prev - 1, 0));
       } else if (e.key === "Enter" && results[selectedIndex]) {
         e.preventDefault();
         handleSelect(results[selectedIndex]);
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, results, selectedIndex]);
@@ -130,48 +116,38 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     window.location.href = result.url;
   };
 
-  const getTypeLabel = (type: SearchResult["type"]) => {
-    switch (type) {
-      case "student":
-        return "Élève";
-      case "payment":
-        return "Paiement";
-      case "class":
-        return "Classe";
-      case "grade":
-        return "Note";
-      case "attendance":
-        return "Présence";
-    }
-  };
+  const getTypeLabel = (type: SearchResult["type"]) =>
+    type === "student" ? "Élève" : "Classe";
 
-  const getTypeColor = (type: SearchResult["type"]) => {
-    switch (type) {
-      case "student":
-        return "bg-blue-500/10 text-blue-700 border-blue-200";
-      case "payment":
-        return "bg-emerald-500/10 text-emerald-700 border-emerald-200";
-      case "class":
-        return "bg-violet-500/10 text-violet-700 border-violet-200";
-      case "grade":
-        return "bg-amber-500/10 text-amber-700 border-amber-200";
-      case "attendance":
-        return "bg-pink-500/10 text-pink-700 border-pink-200";
-    }
-  };
+  const getTypeColor = (type: SearchResult["type"]) =>
+    type === "student"
+      ? "bg-blue-500/10 text-blue-700 border-blue-200"
+      : "bg-violet-500/10 text-violet-700 border-violet-200";
+
+  const getTypeIcon = (type: SearchResult["type"]) =>
+    type === "student"
+      ? <Users className="h-4 w-4" />
+      : <BookOpen className="h-4 w-4" />;
+
+  const showEmpty = query.trim().length < 2;
+  const showNoResults = !isLoading && !showEmpty && results.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl p-0 gap-0 bg-white border-gray-200">
         <DialogTitle className="sr-only">Recherche globale</DialogTitle>
-        {/* Search Input */}
+
+        {/* Champ de recherche */}
         <div className="flex items-center border-b border-gray-200 px-4 py-3 bg-gray-50/50">
-          <Search className="h-5 w-5 text-muted-foreground mr-3" />
+          {isLoading
+            ? <Loader2 className="h-5 w-5 text-muted-foreground mr-3 animate-spin" />
+            : <Search className="h-5 w-5 text-muted-foreground mr-3" />
+          }
           <Input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher des élèves, paiements, classes..."
+            placeholder="Rechercher des élèves, classes..."
             className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base bg-transparent text-gray-900 placeholder:text-gray-500"
           />
           {query && (
@@ -184,26 +160,26 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
           )}
         </div>
 
-        {/* Results */}
-        <ScrollArea className="max-h-[400px]">
-          {query.trim().length < 2 ? (
+        {/* Résultats */}
+        <ScrollArea className="max-h-100">
+          {showEmpty ? (
             <div className="py-12 text-center bg-white">
               <Search className="h-12 w-12 text-gray-400 mx-auto mb-3" />
               <p className="text-sm text-gray-600">
                 Tapez au moins 2 caractères pour rechercher
               </p>
               <p className="text-xs text-gray-500 mt-2">
-                Recherchez des élèves, paiements, classes, notes...
+                Recherchez des élèves, classes…
               </p>
             </div>
-          ) : results.length === 0 ? (
+          ) : showNoResults ? (
             <div className="py-12 text-center bg-white">
               <Search className="h-12 w-12 text-gray-400 mx-auto mb-3" />
               <p className="text-sm text-gray-600">
-                Aucun résultat pour "{query}"
+                Aucun résultat pour &quot;{query}&quot;
               </p>
               <p className="text-xs text-gray-500 mt-2">
-                Essayez avec d'autres mots-clés
+                Essayez avec d&apos;autres mots-clés
               </p>
             </div>
           ) : (
@@ -214,11 +190,11 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   onClick={() => handleSelect(result)}
                   className={cn(
                     "w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-100 last:border-0",
-                    index === selectedIndex && "bg-blue-50"
+                    index === selectedIndex && "bg-blue-50",
                   )}
                 >
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-700">
-                    {result.icon}
+                  <div className="shrink-0 w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-700">
+                    {getTypeIcon(result.type)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -227,7 +203,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                       </p>
                       <Badge
                         variant="outline"
-                        className={cn("text-xs", getTypeColor(result.type))}
+                        className={cn("text-xs shrink-0", getTypeColor(result.type))}
                       >
                         {getTypeLabel(result.type)}
                       </Badge>
@@ -236,7 +212,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                       {result.subtitle}
                     </p>
                   </div>
-                  <ArrowRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <ArrowRight className="h-4 w-4 text-gray-400 shrink-0" />
                 </button>
               ))}
             </div>
