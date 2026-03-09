@@ -237,6 +237,16 @@ class OfflineDB {
       request.onerror = () => reject(request.error);
     });
   }
+
+  /**
+   * Vider tous les stores — appelé au logout pour éviter les fuites de données entre sessions.
+   * Les erreurs par store sont ignorées (fail-safe) pour ne pas bloquer la déconnexion.
+   */
+  async clearAll(): Promise<void> {
+    await Promise.allSettled(
+      Object.values(STORES).map((storeName) => this.clear(storeName))
+    );
+  }
 }
 
 // Instance singleton

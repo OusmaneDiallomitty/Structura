@@ -80,8 +80,8 @@ export class AuthController {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       return htmlPageWithRedirect('Connexion autorisée', '#16a34a', '#dcfce7', checkIcon(),
         'Connexion autorisée !',
-        "L'autre appareil va être redirigé vers le tableau de bord.<br><br>Vous allez être redirigé vers la page de connexion dans <strong id=\"c\">3</strong>s…",
-        `${frontendUrl}/login`, 3
+        "L'autre appareil va être redirigé vers le tableau de bord.<br><br>Vous pouvez fermer cette page.",
+        `${frontendUrl}/pending-approval?token=${token}`, 1
       );
     } catch {
       return htmlPage('Lien invalide', '#dc2626', '#fee2e2', crossIcon(),

@@ -43,26 +43,41 @@ function BillingSuccessContent() {
     // Polling — le webhook peut arriver quelques secondes après le retour
     let attempts = 0;
     const maxAttempts = 10;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false; // guard: stoppe les retries dès qu'on a un résultat définitif
 
     const check = async () => {
+      if (stopped) return;
       try {
         const result = await verifyPayment(token, ref);
+        if (stopped) return; // composant démonté entre temps
         if (result.success) {
+          stopped = true;
           setPaymentInfo({ plan: result.plan, period: result.period, amount: result.amount });
           invalidateSubscriptionCache(); // Forcer rechargement du plan dans toute l'app
           setState('success');
         } else if (attempts >= maxAttempts) {
+          stopped = true;
           setState('pending');
         } else {
           attempts++;
-          setTimeout(check, 2_000); // Réessayer dans 2s
+          timeoutId = setTimeout(check, 2_000); // Réessayer dans 2s
         }
       } catch {
-        setState('error');
+        if (!stopped) {
+          stopped = true;
+          setState('error');
+        }
       }
     };
 
     check();
+
+    // Nettoyage au démontage — évite les setState sur composant démonté
+    return () => {
+      stopped = true;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    };
   }, [ref, router]);
 
   return (

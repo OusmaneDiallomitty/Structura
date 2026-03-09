@@ -29,6 +29,7 @@ import OnboardingModal from "@/components/onboarding/OnboardingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboarding } from "@/hooks/use-onboarding";
 import * as storage from "@/lib/storage";
+import { offlineDB } from "@/lib/offline-db";
 import { useOnline } from "@/hooks/use-online";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -164,6 +165,7 @@ export default function DashboardPage() {
 
       if (error.message.includes('Unauthorized') || error.message.includes('401')) {
         toast.error('Session expirée, veuillez vous reconnecter');
+        await offlineDB.clearAll().catch(() => {}); // Purger le cache local (confidentialité)
         logout();
         return;
       }

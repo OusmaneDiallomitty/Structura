@@ -864,18 +864,21 @@ export class AdminService {
       byPlan[p.plan] = (byPlan[p.plan] ?? 0) + p.amount;
     }
 
-    // Total global (tous abonnements SUCCESS, pas seulement 12 mois)
-    const totalAgg = await this.prisma.subscriptionPayment.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } });
+    // Total global + MRR + payingTenants — 3 requêtes indépendantes → parallèle (~300ms gagnés)
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const mrrAgg = await this.prisma.subscriptionPayment.aggregate({
-      _sum: { amount: true },
-      where: { status: 'SUCCESS', createdAt: { gte: thisMonthStart } },
-    });
-
-    // Tenants payants (ACTIVE ou TRIALING)
-    const payingTenants = await this.prisma.tenant.count({
-      where: { ...tenantExcludeAdmin, subscriptionStatus: { in: ['ACTIVE', 'TRIALING'] } },
-    });
+    const [totalAgg, mrrAgg, payingTenants] = await Promise.all([
+      this.prisma.subscriptionPayment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'SUCCESS' },
+      }),
+      this.prisma.subscriptionPayment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'SUCCESS', createdAt: { gte: thisMonthStart } },
+      }),
+      this.prisma.tenant.count({
+        where: { ...tenantExcludeAdmin, subscriptionStatus: { in: ['ACTIVE', 'TRIALING'] } },
+      }),
+    ]);
 
     const result = {
       monthly,
