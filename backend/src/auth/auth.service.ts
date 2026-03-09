@@ -196,9 +196,11 @@ export class AuthService {
     // ─── Option B : approbation requise si session active sur un autre appareil ────
     // Si une session existait déjà, bloquer l'accès et envoyer un email d'approbation.
     // L'ancien appareil garde sa session intacte jusqu'à la décision (Approuver/Refuser).
+    // Exception : SUPER_ADMIN bypass — contrôle du système, pas besoin d'auto-approbation.
     const hadActiveSession = !!matchedUser.currentSessionId;
+    const isSuperAdmin = matchedUser.role === 'SUPER_ADMIN';
 
-    if (hadActiveSession && loginContext) {
+    if (hadActiveSession && loginContext && !isSuperAdmin) {
       const pendingToken = crypto.randomUUID();
       const pendingKey   = `pending_login:${pendingToken}`;
       const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
