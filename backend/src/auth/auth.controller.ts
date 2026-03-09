@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Body, Get, Query, Patch, UseGuards, UseInterceptors, UploadedFile, Request, Req, HttpCode, HttpStatus, BadRequestException, Header } from '@nestjs/common';
+import { Controller, Post, Delete, Body, Get, Query, Patch, UseGuards, UseInterceptors, UploadedFile, Request, Req, HttpCode, HttpStatus, BadRequestException, Header, Redirect } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
