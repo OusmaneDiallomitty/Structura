@@ -67,8 +67,8 @@ export default function PendingApprovalPage() {
           }
 
           setPhase("approved");
-          // Laisser l'écran "Approuvé" visible 1,5s puis rediriger
-          setTimeout(() => router.push("/dashboard"), 1500);
+          // Rechargement complet — AuthContext se réinitialise depuis le storage
+          setTimeout(() => { window.location.href = "/dashboard"; }, 1500);
 
         } else if (result.status === "denied") {
           clearInterval(pollRef.current!);
