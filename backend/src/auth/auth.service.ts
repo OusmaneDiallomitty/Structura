@@ -203,13 +203,12 @@ export class AuthService {
       const pendingKey   = `pending_login:${pendingToken}`;
       const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
 
-      // Stocker les infos nécessaires pour construire la session après approbation (TTL 10 min)
-      await this.cacheService.set(pendingKey, {
-        status:    'pending',
-        userId:    matchedUser.id,
-        ip:        loginContext.ip,
-        userAgent: loginContext.userAgent,
-      }, 600);
+      // Stocker le pending token en BDD (indépendant de Redis) — TTL 10 min
+      const expiry = new Date(Date.now() + 10 * 60 * 1000);
+      await this.prisma.user.update({
+        where: { id: matchedUser.id },
+        data:  { pendingLoginToken: pendingToken, pendingLoginExpiry: expiry },
+      });
 
       const backendUrl  = this.configService.get('BACKEND_PUBLIC_URL') || 'https://structura-api.onrender.com';
       const approveUrl  = `${backendUrl}/api/auth/approve-login?token=${pendingToken}`;
@@ -304,101 +303,135 @@ export class AuthService {
 
   /**
    * Poll : vérifie si la demande de connexion en attente a été approuvée ou refusée.
-   * Appelé toutes les 3 secondes par le frontend de l'appareil demandeur.
+   * BDD = valide l'existence du token (source de vérité).
+   * Redis = stocke le résultat (approved/denied) une fois la décision prise.
    */
   async checkApproval(pendingToken: string) {
     if (!pendingToken || pendingToken.length < 10) {
       return { status: 'expired' };
     }
-    const stored = await this.cacheService.get<any>(`pending_login:${pendingToken}`);
-    if (!stored) return { status: 'expired' };
 
-    if (stored.status === 'approved') {
+    // Résultat "approuvé" disponible dans Redis (mis par approveLogin)
+    const approved = await this.cacheService.get<any>(`approved_login:${pendingToken}`);
+    if (approved) {
       return {
         status:       'approved',
-        token:        stored.token,
-        refreshToken: stored.refreshToken,
-        expiresIn:    stored.expiresIn,
-        user:         stored.user,
+        token:        approved.token,
+        refreshToken: approved.refreshToken,
+        expiresIn:    approved.expiresIn,
+        user:         approved.user,
       };
     }
-    return { status: stored.status }; // 'pending' | 'denied'
+
+    // Résultat "refusé" disponible dans Redis (mis par denyLogin)
+    const denied = await this.cacheService.get<any>(`denied_login:${pendingToken}`);
+    if (denied) {
+      return { status: 'denied' };
+    }
+
+    // Vérifier en BDD que le token est encore valide (n'a pas expiré)
+    const user = await this.prisma.user.findUnique({
+      where: { pendingLoginToken: pendingToken },
+    });
+
+    if (!user || !user.pendingLoginExpiry || user.pendingLoginExpiry < new Date()) {
+      // Nettoyer si expiré
+      if (user?.id) {
+        this.prisma.user.update({
+          where: { id: user.id },
+          data:  { pendingLoginToken: null, pendingLoginExpiry: null },
+        }).catch(() => {});
+      }
+      return { status: 'expired' };
+    }
+
+    return { status: 'pending' };
   }
 
   /**
-   * Approuver la connexion : génère les tokens, invalide l'ancienne session, stocke le résultat.
-   * Appelé via le lien "Approuver" dans l'email (GET /auth/approve-login?token=xxx).
+   * Approuver la connexion : génère les tokens, invalide l'ancienne session.
+   * Appelé via le lien "Approuver" dans l'email.
    */
   async approveLogin(pendingToken: string): Promise<void> {
-    const key    = `pending_login:${pendingToken}`;
-    const stored = await this.cacheService.get<{ status: string; userId: string }>(key);
-
-    if (!stored || stored.status !== 'pending') {
-      throw new BadRequestException("Lien d'approbation invalide ou expiré");
-    }
-
     const user = await this.prisma.user.findUnique({
-      where:   { id: stored.userId },
+      where:   { pendingLoginToken: pendingToken },
       include: { tenant: true },
     });
 
-    if (!user || !user.isActive) throw new UnauthorizedException('Compte invalide');
+    if (!user || !user.pendingLoginExpiry || user.pendingLoginExpiry < new Date()) {
+      throw new BadRequestException("Lien d'approbation invalide ou expiré");
+    }
+
+    if (!user.isActive) throw new UnauthorizedException('Compte invalide');
 
     // Générer JWT + invalider l'ancienne session (computer reçoit SESSION_INVALIDATED)
     const tokens      = await this.generateTokens(user);
     const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLoginAt:      new Date(),
-        currentSessionId: tokens.sessionId,
-        refreshTokenHash: refreshHash,
-      },
-    });
+    const userPayload = {
+      id:               user.id,
+      email:            user.email,
+      firstName:        user.firstName,
+      lastName:         user.lastName,
+      role:             user.role.toLowerCase(),
+      tenantId:         user.tenantId,
+      schoolName:       user.tenant?.name ?? null,
+      schoolLogo:       user.tenant?.logo ?? null,
+      phone:            user.phone,
+      avatar:           user.avatar,
+      emailVerified:    user.emailVerified,
+      isActive:         user.isActive,
+      classAssignments: user.classAssignments ?? [],
+      createdAt:        user.createdAt,
+      updatedAt:        user.updatedAt,
+    };
 
-    // Stocker résultat dans Redis — le phone le récupère au prochain poll (TTL 5 min)
-    await this.cacheService.set(key, {
-      status:       'approved',
+    // Stocker le résultat dans Redis (5 min) — le poll le récupère via checkApproval()
+    await this.cacheService.set(`approved_login:${pendingToken}`, {
       token:        tokens.token,
       refreshToken: tokens.refreshToken,
       expiresIn:    tokens.expiresIn,
-      user: {
-        id:               user.id,
-        email:            user.email,
-        firstName:        user.firstName,
-        lastName:         user.lastName,
-        role:             user.role.toLowerCase(),
-        tenantId:         user.tenantId,
-        schoolName:       user.tenant?.name ?? null,
-        schoolLogo:       user.tenant?.logo ?? null,
-        phone:            user.phone,
-        avatar:           user.avatar,
-        emailVerified:    user.emailVerified,
-        isActive:         user.isActive,
-        classAssignments: user.classAssignments ?? [],
-        createdAt:        user.createdAt,
-        updatedAt:        user.updatedAt,
-      },
+      user:         userPayload,
     }, 300);
+
+    // Mettre à jour la session + effacer le pending token en BDD
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt:        new Date(),
+        currentSessionId:   tokens.sessionId,
+        refreshTokenHash:   refreshHash,
+        pendingLoginToken:  null,
+        pendingLoginExpiry: null,
+      },
+    });
 
     this.logSecurityEvent('LOGIN_APPROVED', user.email, user.tenantId, 'Connexion approuvée via email').catch(() => {});
   }
 
   /**
-   * Refuser la connexion : marque la demande comme "denied" dans Redis.
-   * Appelé via le lien "Refuser" dans l'email (GET /auth/deny-login?token=xxx).
+   * Refuser la connexion : efface le pending token en BDD.
+   * Appelé via le lien "Refuser" dans l'email.
    */
   async denyLogin(pendingToken: string): Promise<void> {
-    const key    = `pending_login:${pendingToken}`;
-    const stored = await this.cacheService.get<{ status: string; userId: string }>(key);
+    const user = await this.prisma.user.findUnique({
+      where: { pendingLoginToken: pendingToken },
+    });
 
-    if (!stored || stored.status !== 'pending') {
+    if (!user || !user.pendingLoginExpiry || user.pendingLoginExpiry < new Date()) {
       throw new BadRequestException('Lien de refus invalide ou expiré');
     }
 
-    await this.cacheService.set(key, { status: 'denied' }, 300);
-    this.logSecurityEvent('LOGIN_DENIED', null, null, `Connexion refusée via email pour userId: ${stored.userId}`).catch(() => {});
+    // Stocker "denied" dans Redis (5 min) — le poll distingue denied vs expired
+    await this.cacheService.set(`denied_login:${pendingToken}`, { status: 'denied' }, 300);
+
+    // Effacer le pending token en BDD
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data:  { pendingLoginToken: null, pendingLoginExpiry: null },
+    });
+
+    this.logSecurityEvent('LOGIN_DENIED', user.email, user.tenantId, 'Connexion refusée via email').catch(() => {});
   }
 
   /**

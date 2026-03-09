@@ -21,15 +21,19 @@ export class CacheService implements OnModuleDestroy {
 
     this.client = new Redis(redisUrl, {
       lazyConnect: true,
-      enableOfflineQueue: false, // Ne pas accumuler les commandes si Redis est down
+      enableOfflineQueue: true,  // File d'attente activée : les commandes attendent la connexion
       maxRetriesPerRequest: 1,
-      retryStrategy: () => null, // Ne pas réessayer indéfiniment
+      retryStrategy: () => null, // Ne pas réessayer indéfiniment si Redis est vraiment down
     });
 
     this.client.on('connect', () => this.logger.log('✅ Redis connecté'));
     this.client.on('error', (err) =>
       this.logger.warn(`Redis indisponible : ${err.message}`),
     );
+
+    // Connexion proactive au démarrage — évite le rejet des premières commandes
+    // (avec lazyConnect + TLS Upstash, la connexion peut prendre ~100ms)
+    this.client.connect().catch(() => {});
   }
 
   async get<T>(key: string): Promise<T | null> {
