@@ -59,7 +59,7 @@ async function main() {
         type:               'PLATFORM',
         subdomain:          ADMIN_TENANT_SUBDOMAIN,
         isActive:           true,
-        subscriptionPlan:   'PREMIUM',
+        subscriptionPlan:   'PRO_PLUS',
         subscriptionStatus: 'ACTIVE',
       },
     });

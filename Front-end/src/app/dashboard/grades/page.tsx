@@ -26,6 +26,7 @@ import { useSubscription } from "@/hooks/use-subscription";
 import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
 import { syncQueue } from "@/lib/sync-queue";
+import { offlineDB, STORES } from "@/lib/offline-db";
 import { getClasses, getClassSubjects, saveClassSubjects } from "@/lib/api/classes.service";
 import { getStudents } from "@/lib/api/students.service";
 import {
@@ -270,37 +271,44 @@ function GradesPageContent() {
       setIsLoadingClasses(true);
       const token = storage.getAuthItem("structura_token");
       if (!token) { setIsLoadingClasses(false); return; }
+      const isTeacher = (user?.role ?? "").toLowerCase() === "teacher";
+      const assignedClassIds = isTeacher
+        ? (user?.classAssignments ?? []).map((a) => a.classId)
+        : null;
+
+      function applyAssignmentFilter(raw: any[]) {
+        const filtered = assignedClassIds !== null
+          ? raw.filter((c: any) => assignedClassIds!.includes(c.id))
+          : raw;
+        return filtered.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          section: c.section ?? null,
+          level: c.level ?? "Primaire",
+        }));
+      }
+
       try {
         const res = await getClasses(token);
         const raw = Array.isArray(res) ? res : (res as any).classes ?? [];
-
-        // IDs des classes assignées au prof (null = pas de restriction)
-        const isTeacher = (user?.role ?? "").toLowerCase() === "teacher";
-        const assignedClassIds = isTeacher
-          ? (user?.classAssignments ?? []).map((a) => a.classId)
-          : null;
-
-        const filtered = assignedClassIds !== null
-          ? raw.filter((c: any) => assignedClassIds.includes(c.id))
-          : raw;
-
-        if (!cancelled) {
-          setClasses(
-            filtered.map((c: any) => ({
-              id: c.id,
-              name: c.name,
-              section: c.section ?? null,
-              level: c.level ?? "Primaire",
-            }))
-          );
-        }
+        if (!cancelled) setClasses(applyAssignmentFilter(raw));
       } catch {
-        // Retry une fois après 1.5s (token en cours de refresh, réseau instable…)
-        if (retries > 0 && !cancelled) {
+        // Retry une fois si online (token en cours de refresh, réseau instable…)
+        if (retries > 0 && !cancelled && navigator.onLine) {
           setTimeout(() => { if (!cancelled) load(retries - 1); }, 1500);
           return;
         }
-        if (!cancelled) toast.error("Impossible de charger les classes");
+        // Fallback IndexedDB (mode hors ligne)
+        try {
+          const cached = await offlineDB.getAll<any>(STORES.CLASSES);
+          if (cached.length > 0 && !cancelled) {
+            setClasses(applyAssignmentFilter(cached));
+          } else if (!cancelled) {
+            toast.error("Impossible de charger les classes");
+          }
+        } catch {
+          if (!cancelled) toast.error("Impossible de charger les classes");
+        }
       } finally {
         if (!cancelled) setIsLoadingClasses(false);
       }
@@ -509,8 +517,89 @@ function GradesPageContent() {
 
         setStudents(studentsData);
         setGrid(newGrid);
-      } catch (err: any) {
-        if (!cancelled) toast.error(err.message || "Impossible de charger les données");
+      } catch {
+        // Fallback IndexedDB (mode hors ligne)
+        if (cancelled) return;
+        try {
+          const [cachedStudents, cachedGrades] = await Promise.all([
+            offlineDB.getAll<any>(STORES.STUDENTS),
+            offlineDB.getAll<BackendGrade>(STORES.GRADES),
+          ]);
+
+          const classStudents = cachedStudents.filter(
+            (s: any) => s.classId === selectedClassId
+          );
+          const classGrades = cachedGrades.filter(
+            (g) => g.classId === selectedClassId &&
+                   g.term === selectedTrimester &&
+                   g.academicYear === academicYear
+          );
+
+          if (classStudents.length === 0 && !cancelled) {
+            toast.error("Données non disponibles hors ligne pour cette classe");
+            return;
+          }
+
+          const studentsData: StudentInfo[] = classStudents.map((s: any) => ({
+            id: s.id,
+            name: `${s.firstName ?? ""} ${s.lastName ?? ""}`.trim(),
+            matricule: s.matricule ?? "",
+            gender: s.gender ?? undefined,
+          }));
+
+          // Reconstruire les matières depuis les notes offline
+          setSubjectRows((prev) => {
+            const prevNames = new Set(prev.map((r) => r.name.toLowerCase()));
+            const updated = [...prev];
+            for (const g of classGrades) {
+              if (!prevNames.has(g.subject.toLowerCase())) {
+                updated.push({ name: g.subject, coefficient: g.coefficient, selected: true, isDefault: false });
+                prevNames.add(g.subject.toLowerCase());
+              }
+            }
+            return updated;
+          });
+
+          const allSubjectNames = [
+            ...new Set([
+              ...getSubjectsForLevel(selectedClass?.level ?? "Primaire").map((s) => s.name),
+              ...classGrades.map((g) => g.subject),
+            ]),
+          ];
+
+          const newGrid: Record<string, GradeCell> = {};
+          for (const student of studentsData) {
+            for (const subjectName of allSubjectNames) {
+              const key = cellKey(student.id, subjectName);
+              const existing = classGrades.find(
+                (g) => g.studentId === student.id && g.subject === subjectName
+              );
+              newGrid[key] = {
+                score: existing ? existing.score : null,
+                scoreInput: existing ? String(existing.score) : "",
+                existingGradeId: existing?.id,
+                isDirty: false,
+              };
+            }
+          }
+
+          const draft = loadDraft(selectedClassId, selectedTrimester, academicYear);
+          if (draft) {
+            for (const [key, { score, scoreInput }] of Object.entries(draft)) {
+              if (newGrid[key] !== undefined) {
+                newGrid[key] = { ...newGrid[key], score, scoreInput, isDirty: true };
+              }
+            }
+          }
+
+          if (!cancelled) {
+            setStudents(studentsData);
+            setGrid(newGrid);
+            toast.info("Données chargées depuis le cache offline");
+          }
+        } catch {
+          if (!cancelled) toast.error("Impossible de charger les données");
+        }
       } finally {
         if (!cancelled) setIsLoadingData(false);
       }

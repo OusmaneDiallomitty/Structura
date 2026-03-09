@@ -1,31 +1,49 @@
 /**
  * Préchargeur offline — remplit IndexedDB en arrière-plan quand l'utilisateur est en ligne.
  * Appelé une fois par session depuis le DashboardLayout.
- * Garantit que les listes (élèves, classes) sont disponibles en mode hors ligne
+ * Garantit que toutes les données critiques sont disponibles hors ligne
  * même si l'utilisateur n'a pas visité chaque page individuellement.
  */
 
 import { offlineDB, STORES } from "./offline-db";
 import { getStudents } from "./api/students.service";
 import { getClasses } from "./api/classes.service";
+import { getPayments } from "./api/payments.service";
+import { getAttendances } from "./api/attendance.service";
+import { getGrades } from "./api/grades.service";
 
 let preloadDone = false; // Une seule fois par session navigateur
+
+async function preloadStore<T>(
+  storeName: string,
+  fetcher: () => Promise<T[]>,
+  label: string
+): Promise<number> {
+  try {
+    const items = await fetcher();
+    if (Array.isArray(items) && items.length > 0) {
+      await offlineDB.clear(storeName);
+      await offlineDB.bulkAdd(storeName, items);
+    }
+    return Array.isArray(items) ? items.length : 0;
+  } catch (err) {
+    console.warn(`[Offline] Préchargement ${label} échoué (ignoré) :`, err);
+    return 0;
+  }
+}
 
 export async function preloadOfflineData(token: string): Promise<void> {
   if (preloadDone) return;
   if (!navigator.onLine) return;
 
   try {
-    // Classes — petit dataset, toujours complet
+    // Classes et élèves en premier (bloquant — nécessaires pour toutes les pages)
     const classes = await getClasses(token);
     if (Array.isArray(classes) && classes.length > 0) {
       await offlineDB.clear(STORES.CLASSES);
-      for (const cls of classes) {
-        await offlineDB.update(STORES.CLASSES, cls);
-      }
+      await offlineDB.bulkAdd(STORES.CLASSES, classes);
     }
 
-    // Élèves — limite haute pour tout récupérer d'un coup
     const studentsResult = await getStudents(token, { limit: 5000 });
     const students = Array.isArray(studentsResult)
       ? studentsResult
@@ -33,14 +51,20 @@ export async function preloadOfflineData(token: string): Promise<void> {
 
     if (students.length > 0) {
       await offlineDB.clear(STORES.STUDENTS);
-      for (const s of students) {
-        await offlineDB.update(STORES.STUDENTS, s);
-      }
+      await offlineDB.bulkAdd(STORES.STUDENTS, students);
     }
+
+    // Données secondaires en parallèle (non bloquantes)
+    const [paymentsCount, attendanceCount, gradesCount] = await Promise.all([
+      preloadStore(STORES.PAYMENTS, () => getPayments(token), "paiements"),
+      preloadStore(STORES.ATTENDANCE, () => getAttendances(token), "présences"),
+      preloadStore(STORES.GRADES, () => getGrades(token), "notes"),
+    ]);
 
     preloadDone = true;
     console.log(
-      `[Offline] Préchargement terminé — ${classes.length} classes, ${students.length} élèves`
+      `[Offline] Préchargement terminé — ${classes.length} classes, ${students.length} élèves, ` +
+      `${paymentsCount} paiements, ${attendanceCount} présences, ${gradesCount} notes`
     );
   } catch (err) {
     // Silencieux : l'app fonctionne en ligne normalement, le preload est un bonus
