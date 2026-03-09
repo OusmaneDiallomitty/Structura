@@ -37,16 +37,23 @@ export function getAuthItem(key: string): string | null {
  */
 export function setAuthItem(key: string, value: string, persist: boolean): void {
   if (!isClient) return;
-  try {
-    if (persist) {
+  if (persist) {
+    try {
       localStorage.setItem(key, value);
       sessionStorage.removeItem(key);
-    } else {
+    } catch {
+      // localStorage plein (mode privé, quota) → fallback sessionStorage
+      try {
+        sessionStorage.setItem(key, value);
+      } catch { /* ignore : rien à faire si les deux storages sont inaccessibles */ }
+    }
+  } else {
+    try {
       sessionStorage.setItem(key, value);
       localStorage.removeItem(key);
+    } catch {
+      // sessionStorage inaccessible (iframe sandboxé, etc.) → silencieux
     }
-  } catch {
-    // Silencieux : stockage plein ou mode privé restrictif
   }
 }
 

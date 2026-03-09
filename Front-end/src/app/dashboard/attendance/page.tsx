@@ -278,8 +278,9 @@ export default function AttendancePage() {
       setIsLoadingClasses(false);
     }
   // user?.id : recharge quand l'utilisateur change (pas à chaque re-render de user)
+  // isOnline : recharge depuis l'API au retour de connexion
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, user?.id]);
+  }, [role, user?.id, isOnline]);
 
   // ── Vue d'ensemble : toutes les présences d'une date ────────────────────────
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users,
   GraduationCap,
@@ -101,21 +101,25 @@ export default function DashboardPage() {
   const [attendanceData, setAttendanceData] = useState<any[]>([]);
   const [studentsDistribution, setStudentsDistribution] = useState<any[]>([]);
 
+  // Guard anti-stale : annule les setState d'un appel dépassé si un plus récent a démarré
+  const loadIdRef = useRef(0);
+
   // Handlers pour l'onboarding
   const handleOnboardingComplete = () => {
-    setShowOnboardingModal(false); // Fermer le modal
+    setShowOnboardingModal(false);
     toast.success('Configuration terminée !');
     router.push('/dashboard/classes');
   };
 
   const handleOnboardingSkip = () => {
-    setShowOnboardingModal(false); // Fermer le modal
+    setShowOnboardingModal(false);
     toast.info('Vous pourrez configurer votre école plus tard');
-    loadDashboardData(); // Recharger les données
+    loadDashboardData();
   };
 
   // Charger toutes les données du dashboard
   const loadDashboardData = useCallback(async () => {
+    const loadId = ++loadIdRef.current; // ID unique pour cet appel
     setIsLoading(true);
     const token = storage.getAuthItem('structura_token');
 
@@ -146,15 +150,18 @@ export default function DashboardPage() {
         getStudentsDistribution(token),
       ]);
 
+      // Ignorer si un appel plus récent a déjà démarré (évite les setState sur état périmé)
+      if (loadId !== loadIdRef.current) return;
+
       setStats(statsData.stats);
       setActivities(activitiesData);
       setPaymentsData(paymentsChart);
       setAttendanceData(attendanceChart);
       setStudentsDistribution(distributionData);
     } catch (error: any) {
+      if (loadId !== loadIdRef.current) return;
       console.error('Erreur chargement dashboard:', error);
 
-      // Si Unauthorized (401), rediriger vers login
       if (error.message.includes('Unauthorized') || error.message.includes('401')) {
         toast.error('Session expirée, veuillez vous reconnecter');
         logout();
@@ -163,9 +170,9 @@ export default function DashboardPage() {
 
       toast.error(error.message || 'Erreur lors du chargement du dashboard');
     } finally {
-      setIsLoading(false);
+      if (loadId === loadIdRef.current) setIsLoading(false);
     }
-  }, [isOnline]);
+  }, [isOnline, logout]);
 
   // Détecter un plan en attente depuis /tarifs (flow: tarifs → register → check-email → dashboard → billing)
   useEffect(() => {

@@ -25,7 +25,7 @@ export class DashboardService {
     if (cached) return cached;
 
     const result = await this.computeDashboardStats(tenantId);
-    await this.cache.set(cacheKey, result, 60);
+    await this.cache.set(cacheKey, result, 300);
     return result;
   }
 
@@ -38,48 +38,32 @@ export class DashboardService {
       monthRevenue,
       recentStudents,
       recentPayments,
+      totalStudentsLastMonth,
+      totalClassesLastMonth,
+      lastMonthRevenue,
+      lastMonthAttendanceRate,
     ] = await Promise.all([
       // Total élèves actifs
       this.prisma.student.count({
-        where: {
-          tenantId,
-          status: StudentStatus.ACTIVE,
-        },
+        where: { tenantId, status: StudentStatus.ACTIVE },
       }),
-
       // Total classes
-      this.prisma.class.count({
-        where: { tenantId },
-      }),
-
+      this.prisma.class.count({ where: { tenantId } }),
       // Présences du jour
       this.getTodayAttendance(tenantId),
-
       // Paiements en attente
       this.prisma.payment.count({
-        where: {
-          tenantId,
-          status: { in: [...PENDING_STATUSES] },
-        },
+        where: { tenantId, status: { in: [...PENDING_STATUSES] } },
       }),
-
       // Revenus du mois en cours
       this.getMonthRevenue(tenantId),
-
       // 5 derniers élèves inscrits
       this.prisma.student.findMany({
         where: { tenantId },
         take: 5,
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          matricule: true,
-          createdAt: true,
-        },
+        select: { id: true, firstName: true, lastName: true, matricule: true, createdAt: true },
       }),
-
       // 5 derniers paiements
       this.prisma.payment.findMany({
         where: { tenantId },
@@ -94,15 +78,7 @@ export class DashboardService {
           },
         },
       }),
-    ]);
-
-    // Calculer les statistiques dérivées — toutes en parallèle
-    const [
-      totalStudentsLastMonth,
-      totalClassesLastMonth,
-      lastMonthRevenue,
-      lastMonthAttendanceRate,
-    ] = await Promise.all([
+      // Statistiques comparatives (mois dernier) — en parallèle dès le départ
       this.getTotalStudentsLastMonth(tenantId),
       this.getTotalClassesLastMonth(tenantId),
       this.getLastMonthRevenue(tenantId),
@@ -386,7 +362,7 @@ export class DashboardService {
       this.prisma.attendance.findMany({
         where: {
           tenantId,
-          status: 'absent',
+          status: { in: ['absent', 'ABSENT'] },
         },
         take: 3,
         orderBy: { createdAt: 'desc' },
