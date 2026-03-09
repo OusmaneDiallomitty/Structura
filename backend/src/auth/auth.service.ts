@@ -655,24 +655,24 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Invalider le token d'invitation + enregistrer la première connexion
+    // Générer les tokens AVANT l'update pour obtenir sessionId et refreshTokenHash.
+    // Sans ça, currentSessionId reste null en BDD et la JwtStrategy rejette
+    // toutes les requêtes suivantes avec SESSION_INVALIDATED.
+    const tokens      = await this.generateTokens({ id: user.id, email: user.email, tenantId: user.tenantId, role: user.role });
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    // Invalider le token d'invitation + ouvrir la session en une seule écriture
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        password: hashedPassword,
-        passwordResetToken: null,
+        password:            hashedPassword,
+        passwordResetToken:  null,
         passwordResetExpiry: null,
         onboardingCompleted: true,
-        lastLoginAt: new Date(),       // première connexion effective
+        lastLoginAt:         new Date(),
+        currentSessionId:    tokens.sessionId,   // ← manquait : cause du SESSION_INVALIDATED
+        refreshTokenHash:    refreshHash,         // ← manquait : refresh token inutilisable
       },
-    });
-
-    // Auto-connexion après configuration du compte
-    const tokens = await this.generateTokens({
-      id: user.id,
-      email: user.email,
-      tenantId: user.tenantId,
-      role: user.role,
     });
 
     return {
