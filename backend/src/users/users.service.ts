@@ -180,23 +180,23 @@ export class UsersService {
       },
     });
 
-    // Email d'invitation avec lien d'activation
-    // On attend l'envoi pour pouvoir informer le directeur en cas d'échec.
-    let emailSent = false;
-    try {
-      await this.emailService.sendTeamInvitationEmail(
+    // Email d'invitation fire-and-forget : ne bloque pas la réponse HTTP (~500ms économisés).
+    // Le directeur peut renvoyer l'invitation via le bouton dédié si l'envoi échoue.
+    this.emailService
+      .sendTeamInvitationEmail(
         user.email,
         user.firstName,
         tenant?.name ?? 'votre établissement',
         inviteToken,
+      )
+      .catch((err: unknown) =>
+        console.error(
+          `[Users] Échec envoi email invitation pour ${user.email}:`,
+          err instanceof Error ? err.message : err,
+        ),
       );
-      emailSent = true;
-    } catch (err) {
-      // On ne bloque pas la création du compte : le directeur peut renvoyer l'invitation
-      console.error(`[Users] Échec envoi email invitation pour ${user.email}:`, err instanceof Error ? err.message : err);
-    }
 
-    return { ...user, emailSent };
+    return { ...user, emailSent: true };
   }
 
   /**

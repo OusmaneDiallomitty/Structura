@@ -796,12 +796,15 @@ export class AdminService {
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
 
-    await this.emailService.sendTeamInvitationEmail(
-      director.email,
-      director.firstName,
-      tenant?.name ?? 'votre établissement',
-      inviteToken,
-    );
+    // Fire-and-forget : ne bloque pas la réponse HTTP
+    this.emailService
+      .sendTeamInvitationEmail(
+        director.email,
+        director.firstName,
+        tenant?.name ?? 'votre établissement',
+        inviteToken,
+      )
+      .catch((e: Error) => this.logger.error(`Renvoi invitation directeur échoué : ${e.message}`));
 
     this.audit({
       action: 'RESEND_DIRECTOR_INVITE',

@@ -228,21 +228,22 @@ export class ClassesService {
         },
       });
 
-      // 2. Upsert chaque matière (créer ou mettre à jour coefficient + ordre)
-      for (let i = 0; i < dto.subjects.length; i++) {
-        const s = dto.subjects[i];
-        await tx.classSubject.upsert({
-          where: { classId_name: { classId, name: s.name } },
-          update: { coefficient: s.coefficient, order: i },
-          create: {
-            classId,
-            tenantId,
-            name: s.name,
-            coefficient: s.coefficient,
-            order: i,
-          },
-        });
-      }
+      // 2. Upsert chaque matière en parallèle (indépendantes entre elles → Promise.all)
+      await Promise.all(
+        dto.subjects.map((s, i) =>
+          tx.classSubject.upsert({
+            where: { classId_name: { classId, name: s.name } },
+            update: { coefficient: s.coefficient, order: i },
+            create: {
+              classId,
+              tenantId,
+              name: s.name,
+              coefficient: s.coefficient,
+              order: i,
+            },
+          }),
+        ),
+      );
 
       // 3. Retourner la liste finale triée
       return tx.classSubject.findMany({
@@ -404,30 +405,27 @@ export class ClassesService {
       }
     }
 
-    const createdClasses = [];
-
-    for (const classTemplate of classesToCreate) {
-      // Si des sections sont définies pour cette classe, créer une classe par section
+    // Créer toutes les classes en parallèle — N×M creates séquentiels → un seul round-trip
+    const classCreationPromises = classesToCreate.flatMap((classTemplate) => {
       const classSections = sections?.[classTemplate.name] || [null];
-
-      for (const section of classSections) {
-        const newClass = await this.prisma.class.create({
+      return classSections.map((section) =>
+        this.prisma.class.create({
           data: {
             name: classTemplate.name,
             level: classTemplate.level,
             section: section || undefined,
-            order: classTemplate.order, // Ordre d'affichage (1, 2, 3, ...)
+            order: classTemplate.order,
             capacity: 30,
             studentCount: 0,
             academicYearId: academicYearId,
             academicYear: academicYear.name,
             tenantId: tenantId,
           },
-        });
+        }),
+      );
+    });
 
-        createdClasses.push(newClass);
-      }
-    }
+    const createdClasses = await Promise.all(classCreationPromises);
 
     return {
       created: createdClasses.length,

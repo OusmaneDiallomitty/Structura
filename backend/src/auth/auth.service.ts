@@ -894,8 +894,10 @@ export class AuthService {
       },
     });
 
-    // Envoyer l'email
-    await this.emailService.sendVerificationEmail(user.email, verificationToken, user.firstName);
+    // Fire-and-forget : ne bloque pas la réponse HTTP
+    this.emailService
+      .sendVerificationEmail(user.email, verificationToken, user.firstName)
+      .catch((error) => this.logger.error('Failed to resend verification email', error));
 
     return {
       message: 'Email de vérification renvoyé',

@@ -178,26 +178,12 @@ export class GradesService {
             where.academicYear = filters.academicYear;
         }
 
-        // Moyenne générale
-        const avgScore = await this.prisma.grade.aggregate({
-            where,
-            _avg: {
-                score: true,
-            },
-        });
-
-        // Statistiques par matière
-        const bySubject = await this.prisma.grade.groupBy({
-            by: ['subject'],
-            where,
-            _avg: {
-                score: true,
-            },
-            _count: true,
-        });
-
-        // Nombre total de notes
-        const totalGrades = await this.prisma.grade.count({ where });
+        // 3 requêtes indépendantes → parallèle
+        const [avgScore, bySubject, totalGrades] = await Promise.all([
+            this.prisma.grade.aggregate({ where, _avg: { score: true } }),
+            this.prisma.grade.groupBy({ by: ['subject'], where, _avg: { score: true }, _count: true }),
+            this.prisma.grade.count({ where }),
+        ]);
 
         return {
             totalGrades,
