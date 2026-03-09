@@ -30,14 +30,22 @@ export default function LoginPage() {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [showPwd,  setShowPwd]  = useState(false);
+  const [pending,  setPending]  = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setPending(false);
     setLoading(true);
 
     try {
       const res = await login(email, password);
+
+      // Session active sur un autre appareil → email d'approbation envoyé
+      if ((res as any).status === 'PENDING_APPROVAL') {
+        setPending(true);
+        return;
+      }
 
       if (!isSuperAdmin(res.user)) {
         setError('Accès refusé. Ce panneau est réservé aux Super Admins.');
@@ -116,6 +124,13 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
+
+          {pending && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-xl space-y-1">
+              <p className="font-semibold">Approbation requise</p>
+              <p>Un email a été envoyé à <strong>{email}</strong>. Cliquez sur "Autoriser" dans cet email pour accéder au panneau admin.</p>
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
