@@ -711,6 +711,7 @@ export class AdminService {
       // Token d'invitation pour setup-account
       const inviteToken = crypto.randomBytes(32).toString('hex');
       const tempPassword = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
+      const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 jours
 
       const director = await tx.user.create({
         data: {
@@ -723,7 +724,8 @@ export class AdminService {
           emailVerified:         true,   // L'admin a validé l'adresse
           onboardingCompleted:   false,
           mustChangePassword:    true,
-          emailVerificationToken: inviteToken,
+          passwordResetToken:    inviteToken,
+          passwordResetExpiry:   tokenExpiry,
         },
       });
 
