@@ -77,9 +77,11 @@ export class AuthController {
   async approveLogin(@Query('token') token: string): Promise<string> {
     try {
       await this.authService.approveLogin(token);
-      return htmlPage('Connexion autorisée', '#16a34a', '#dcfce7', checkIcon(),
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      return htmlPageWithRedirect('Connexion autorisée', '#16a34a', '#dcfce7', checkIcon(),
         'Connexion autorisée !',
-        "L'autre appareil va être redirigé vers le tableau de bord dans quelques secondes.<br><br>Vous pouvez fermer cette page."
+        "L'autre appareil va être redirigé vers le tableau de bord.<br><br>Vous allez être redirigé vers la page de connexion dans <strong id=\"c\">3</strong>s…",
+        `${frontendUrl}/login`, 3
       );
     } catch {
       return htmlPage('Lien invalide', '#dc2626', '#fee2e2', crossIcon(),
@@ -295,6 +297,14 @@ function htmlPage(title: string, color: string, bg: string, icon: string, headin
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f9fafb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}.card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:40px 32px;max-width:400px;width:100%;text-align:center}.icon{width:64px;height:64px;background:${bg};border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 24px}svg{width:32px;height:32px;color:${color}}h1{font-size:20px;font-weight:700;color:#111827;margin-bottom:12px}p{font-size:14px;color:#6b7280;line-height:1.7}.brand{margin-top:32px;font-size:12px;color:#d1d5db;font-weight:600;letter-spacing:.05em}
 </style></head><body><div class="card"><div class="icon">${icon}</div><h1>${heading}</h1><p>${body}</p><p class="brand">STRUCTURA</p></div></body></html>`;
+}
+
+function htmlPageWithRedirect(title: string, color: string, bg: string, icon: string, heading: string, body: string, redirectUrl: string, delaySec: number): string {
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f9fafb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}.card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:40px 32px;max-width:400px;width:100%;text-align:center}.icon{width:64px;height:64px;background:${bg};border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 24px}svg{width:32px;height:32px;color:${color}}h1{font-size:20px;font-weight:700;color:#111827;margin-bottom:12px}p{font-size:14px;color:#6b7280;line-height:1.7}.brand{margin-top:32px;font-size:12px;color:#d1d5db;font-weight:600;letter-spacing:.05em}
+</style></head><body><div class="card"><div class="icon">${icon}</div><h1>${heading}</h1><p>${body}</p><p class="brand">STRUCTURA</p></div>
+<script>var s=${delaySec};var t=setInterval(function(){s--;var el=document.getElementById('c');if(el)el.textContent=s;if(s<=0){clearInterval(t);window.location.href='${redirectUrl}';}},1000);</script>
+</body></html>`;
 }
 
 function checkIcon(): string {
