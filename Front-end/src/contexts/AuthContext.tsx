@@ -65,6 +65,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Déconnexion automatique si une autre session prend la place (détectée par fetchWithTimeout)
+  useEffect(() => {
+    const handleSessionInvalidated = () => {
+      clearAuth();
+      toast.error('Vous avez été déconnecté — une nouvelle connexion a été détectée sur un autre appareil.', {
+        duration: 8000,
+      });
+      router.push('/login');
+    };
+    window.addEventListener('auth:session-invalidated', handleSessionInvalidated);
+    return () => window.removeEventListener('auth:session-invalidated', handleSessionInvalidated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Heartbeat toutes les 2 minutes : détecte SESSION_INVALIDATED même en cas d'inactivité
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      tryRefreshToken();
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   const clearAuth = () => {
     // Nettoyer les deux storages + la préférence rememberMe
     storage.removeAuthItem(TOKEN_KEY);
