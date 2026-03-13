@@ -43,13 +43,18 @@ export interface PendingApprovalResponse {
   pendingToken: string;
 }
 
-/** Retourné par checkApproval() */
+/** Retourné par checkApproval() — jamais les tokens JWT, seulement un code d'échange */
 export interface ApprovalStatus {
   status: 'pending' | 'approved' | 'denied' | 'expired';
-  token?: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  user?: User;
+  code?: string; // code UUID à usage unique → à échanger via exchangeCode()
+}
+
+/** Retourné par exchangeCode() */
+export interface ExchangeResponse {
+  user: User;
+  token: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 export interface ApiError {
@@ -135,6 +140,24 @@ export async function loginUser(data: LoginPayload): Promise<AuthResponse | Pend
 export async function checkApproval(pendingToken: string): Promise<ApprovalStatus> {
   const response = await fetch(`${API_BASE_URL}/auth/check-approval?token=${encodeURIComponent(pendingToken)}`);
   if (!response.ok) return { status: 'expired' };
+  return response.json();
+}
+
+/**
+ * Échange le code à usage unique (reçu via checkApproval) contre les vrais tokens JWT.
+ * Le code est détruit côté serveur immédiatement après l'échange.
+ * POST /auth/exchange
+ */
+export async function exchangeCode(code: string): Promise<ExchangeResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || 'Code invalide ou expiré');
+  }
   return response.json();
 }
 

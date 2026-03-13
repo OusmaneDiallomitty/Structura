@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { checkApproval } from "@/lib/api/auth.service";
+import { checkApproval, exchangeCode } from "@/lib/api/auth.service";
 import * as storage from "@/lib/storage";
 
 // Clés de stockage (identiques à AuthContext)
@@ -10,18 +10,19 @@ const TOKEN_KEY         = "structura_token";
 const REFRESH_TOKEN_KEY = "structura_refresh_token";
 const USER_KEY          = "structura_user";
 
-type Phase = "waiting" | "approved" | "denied" | "expired";
+type Phase = "waiting" | "exchanging" | "approved" | "denied" | "expired";
 
 export default function PendingApprovalPage() {
   const router   = useRouter();
   const [phase, setPhase]       = useState<Phase>("waiting");
   const [seconds, setSeconds]   = useState(600); // TTL 10 min
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingToken = useRef<string>("");
+  const exchanging   = useRef(false); // guard — un seul échange en cours
 
   useEffect(() => {
-    // Lire le token depuis l'URL (window.location au lieu de useSearchParams → pas besoin de Suspense)
+    // Lire le token depuis l'URL (window.location → pas besoin de Suspense)
     const params = new URLSearchParams(window.location.search);
     const token  = params.get("token") || "";
     pendingToken.current = token;
@@ -45,21 +46,27 @@ export default function PendingApprovalPage() {
 
     // Poll backend toutes les 3 secondes
     pollRef.current = setInterval(async () => {
+      if (exchanging.current) return; // échange déjà en cours, ignorer ce tick
       try {
         const result = await checkApproval(pendingToken.current);
 
-        if (result.status === "approved" && result.token && result.user) {
+        if (result.status === "approved" && result.code) {
+          // Stopper le poll immédiatement
           clearInterval(pollRef.current!);
           clearInterval(intervalRef.current!);
+          exchanging.current = true;
+          setPhase("exchanging");
 
-          // Récupérer la préférence rememberMe sauvegardée avant la redirection
+          // Échanger le code contre les vrais tokens JWT
           const rememberMe = sessionStorage.getItem("structura_pending_remember") === "true";
           sessionStorage.removeItem("structura_pending_remember");
 
+          const session = await exchangeCode(result.code);
+
           // Stocker les tokens et l'utilisateur
-          storage.setAuthItem(TOKEN_KEY, result.token, rememberMe);
-          storage.setAuthItem(REFRESH_TOKEN_KEY, result.refreshToken ?? "", rememberMe);
-          storage.setAuthItem(USER_KEY, JSON.stringify(result.user), rememberMe);
+          storage.setAuthItem(TOKEN_KEY, session.token, rememberMe);
+          storage.setAuthItem(REFRESH_TOKEN_KEY, session.refreshToken, rememberMe);
+          storage.setAuthItem(USER_KEY, JSON.stringify(session.user), rememberMe);
           if (rememberMe) {
             localStorage.setItem("structura_remember_me", "true");
           } else {
@@ -82,6 +89,7 @@ export default function PendingApprovalPage() {
         }
       } catch {
         // Silencieux — réseau indisponible, réessayer au prochain tick
+        exchanging.current = false;
       }
     }, 3000);
 
@@ -129,6 +137,16 @@ export default function PendingApprovalPage() {
                 Annuler et retourner à la connexion
               </button>
             </div>
+          </>
+        )}
+
+        {phase === "exchanging" && (
+          <>
+            <div className="flex justify-center mb-6">
+              <div className="w-16 h-16 rounded-full border-4 border-indigo-200 border-t-indigo-500 animate-spin" />
+            </div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">Connexion en cours…</h1>
+            <p className="text-gray-500 text-sm">Finalisation de la session sécurisée.</p>
           </>
         )}
 

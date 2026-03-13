@@ -202,14 +202,14 @@ export class AuthService {
 
     if (hadActiveSession && loginContext && !isSuperAdmin) {
       const pendingToken = crypto.randomUUID();
-      const pendingKey   = `pending_login:${pendingToken}`;
       const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
 
       // Stocker le pending token en BDD (indépendant de Redis) — TTL 10 min
+      // Effacer le code d'échange d'un éventuel ancien cycle d'approbation
       const expiry = new Date(Date.now() + 10 * 60 * 1000);
       await this.prisma.user.update({
         where: { id: matchedUser.id },
-        data:  { pendingLoginToken: pendingToken, pendingLoginExpiry: expiry },
+        data:  { pendingLoginToken: pendingToken, pendingLoginExpiry: expiry, pendingExchangeCode: null },
       });
 
       const backendUrl  = this.configService.get('BACKEND_PUBLIC_URL') || 'https://structura-api.onrender.com';
@@ -301,12 +301,24 @@ export class AuthService {
     this.logSecurityEvent('SESSION_REVOKED_BY_EMAIL', null, null, `Session révoquée via lien email pour userId: ${stored.userId}`).catch(() => {});
   }
 
-  // ─── Approbation de connexion (Option B) ──────────────────────────────────
+  // ─── Approbation de connexion (Option B — code d'échange) ────────────────
+  //
+  // Flux sécurisé :
+  //   1. login() → génère pendingLoginToken en BDD + envoie email
+  //   2. checkApproval() ← poll toutes les 3s depuis /pending-approval
+  //   3. approveLogin() ← clic email → génère un code d'échange court (UUID)
+  //      → Redis `approved_login:{pendingToken}` = { code } (TTL 700s)
+  //      → BDD `pendingExchangeCode` = code (fallback si Redis down)
+  //   4. checkApproval() retourne { status: 'approved', code }  (jamais de JWT)
+  //   5. exchangeCode() ← frontend → échange le code contre les vrais JWT
+  //      → code consommé (détruit) immédiatement
+  //      → JWT jamais stocké en BDD
+  //
+  // Sécurité : un code UUID seul est inutilisable sans l'endpoint /exchange.
 
   /**
    * Poll : vérifie si la demande de connexion en attente a été approuvée ou refusée.
-   * BDD = valide l'existence du token (source de vérité).
-   * Redis = stocke le résultat (approved/denied) une fois la décision prise.
+   * Retourne { status, code } — jamais les tokens JWT directement.
    */
   async checkApproval(pendingToken: string) {
     if (!pendingToken || pendingToken.length < 10) {
@@ -314,15 +326,9 @@ export class AuthService {
     }
 
     // Résultat "approuvé" disponible dans Redis (mis par approveLogin)
-    const approved = await this.cacheService.get<any>(`approved_login:${pendingToken}`);
-    if (approved) {
-      return {
-        status:       'approved',
-        token:        approved.token,
-        refreshToken: approved.refreshToken,
-        expiresIn:    approved.expiresIn,
-        user:         approved.user,
-      };
+    const approved = await this.cacheService.get<{ code: string }>(`approved_login:${pendingToken}`);
+    if (approved?.code) {
+      return { status: 'approved', code: approved.code };
     }
 
     // Résultat "refusé" disponible dans Redis (mis par denyLogin)
@@ -331,33 +337,40 @@ export class AuthService {
       return { status: 'denied' };
     }
 
-    // Vérifier en BDD que le token est encore valide (n'a pas expiré)
-    const user = await this.prisma.user.findUnique({
+    // Vérifier en BDD que le pendingLoginToken est encore valide
+    const userByToken = await this.prisma.user.findUnique({
       where: { pendingLoginToken: pendingToken },
     });
 
-    if (!user || !user.pendingLoginExpiry || user.pendingLoginExpiry < new Date()) {
-      // Nettoyer si expiré
-      if (user?.id) {
-        this.prisma.user.update({
-          where: { id: user.id },
-          data:  { pendingLoginToken: null, pendingLoginExpiry: null },
-        }).catch(() => {});
-      }
+    if (!userByToken) {
       return { status: 'expired' };
+    }
+
+    if (!userByToken.pendingLoginExpiry || userByToken.pendingLoginExpiry < new Date()) {
+      // Expiré — nettoyer en fire-and-forget
+      this.prisma.user.update({
+        where: { id: userByToken.id },
+        data:  { pendingLoginToken: null, pendingLoginExpiry: null, pendingExchangeCode: null },
+      }).catch(() => {});
+      return { status: 'expired' };
+    }
+
+    // Fallback BDD : approveLogin() a posé le code en BDD (Redis était indisponible)
+    if (userByToken.pendingExchangeCode) {
+      return { status: 'approved', code: userByToken.pendingExchangeCode };
     }
 
     return { status: 'pending' };
   }
 
   /**
-   * Approuver la connexion : génère les tokens, invalide l'ancienne session.
+   * Approuver la connexion : génère un code d'échange court (UUID), PAS les tokens JWT.
+   * Les tokens sont générés plus tard dans exchangeCode() au moment de l'échange.
    * Appelé via le lien "Approuver" dans l'email.
    */
   async approveLogin(pendingToken: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
-      where:   { pendingLoginToken: pendingToken },
-      include: { tenant: true },
+      where: { pendingLoginToken: pendingToken },
     });
 
     if (!user || !user.pendingLoginExpiry || user.pendingLoginExpiry < new Date()) {
@@ -366,49 +379,105 @@ export class AuthService {
 
     if (!user.isActive) throw new UnauthorizedException('Compte invalide');
 
-    // Générer JWT + invalider l'ancienne session (computer reçoit SESSION_INVALIDATED)
-    const tokens      = await this.generateTokens(user);
-    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+    // Idempotence : si le code existe déjà, ré-émettre en Redis et retourner
+    // (évite de créer un second code si l'utilisateur clique deux fois sur Approuver)
+    if (user.pendingExchangeCode) {
+      await this.cacheService.set(
+        `approved_login:${pendingToken}`,
+        { code: user.pendingExchangeCode },
+        700,
+      );
+      return;
+    }
 
-    const userPayload = {
-      id:               user.id,
-      email:            user.email,
-      firstName:        user.firstName,
-      lastName:         user.lastName,
-      role:             user.role.toLowerCase(),
-      tenantId:         user.tenantId,
-      schoolName:       user.tenant?.name ?? null,
-      schoolLogo:       user.tenant?.logo ?? null,
-      phone:            user.phone,
-      avatar:           user.avatar,
-      emailVerified:    user.emailVerified,
-      isActive:         user.isActive,
-      classAssignments: user.classAssignments ?? [],
-      createdAt:        user.createdAt,
-      updatedAt:        user.updatedAt,
-    };
+    // Générer le code d'échange (TTL 2 min — très court, échangé quasi-instantanément)
+    const exchangeCode = crypto.randomUUID();
 
-    // Stocker le résultat dans Redis (5 min) — le poll le récupère via checkApproval()
-    await this.cacheService.set(`approved_login:${pendingToken}`, {
-      token:        tokens.token,
-      refreshToken: tokens.refreshToken,
-      expiresIn:    tokens.expiresIn,
-      user:         userPayload,
-    }, 300);
+    // Redis : le poll checkApproval() le lit pour retourner { status: 'approved', code }
+    await this.cacheService.set(`approved_login:${pendingToken}`, { code: exchangeCode }, 700);
 
-    // Mettre à jour la session + effacer le pending token en BDD
+    // BDD : fallback si Redis était down pendant le set ci-dessus
+    // Seul le code (UUID) est stocké — jamais les tokens JWT
     await this.prisma.user.update({
       where: { id: user.id },
-      data: {
-        lastLoginAt:        new Date(),
-        currentSessionId:   tokens.sessionId,
-        refreshTokenHash:   refreshHash,
-        pendingLoginToken:  null,
-        pendingLoginExpiry: null,
-      },
+      data:  { pendingExchangeCode: exchangeCode },
     });
 
     this.logSecurityEvent('LOGIN_APPROVED', user.email, user.tenantId, 'Connexion approuvée via email').catch(() => {});
+  }
+
+  /**
+   * Échange le code à usage unique contre les vrais tokens JWT.
+   * Le code est détruit immédiatement après l'échange (usage unique).
+   * C'est ici que la session est créée — jamais dans approveLogin().
+   */
+  async exchangeCode(code: string) {
+    if (!code || code.length < 10) {
+      throw new BadRequestException('Code invalide');
+    }
+
+    // Retrouver l'utilisateur par son code d'échange (champ @unique en BDD)
+    // Cette requête BDD est la source de vérité — Redis n'est pas nécessaire ici.
+    const user = await this.prisma.user.findUnique({
+      where:   { pendingExchangeCode: code },
+      include: { tenant: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Code invalide ou déjà utilisé');
+    }
+
+    if (!user.isActive || !user.tenant?.isActive) {
+      throw new UnauthorizedException('Compte ou organisation désactivé');
+    }
+
+    // Consommer le code immédiatement (usage unique, atomique via @unique constraint)
+    // Après cette ligne, tout autre appel avec le même code retournera "not found"
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        pendingExchangeCode: null,
+        pendingLoginToken:   null,
+        pendingLoginExpiry:  null,
+      },
+    });
+
+    // Nettoyer Redis (best-effort)
+    this.cacheService.del(`approved_login:${user.pendingLoginToken ?? ''}`).catch(() => {});
+
+    // Générer les tokens JWT + mettre à jour la session maintenant
+    const tokens      = await this.generateTokens(user);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data:  { lastLoginAt: new Date(), currentSessionId: tokens.sessionId, refreshTokenHash: refreshHash },
+    });
+
+    this.logSecurityEvent('LOGIN_EXCHANGED', user.email, user.tenantId, 'Code échangé — session créée').catch(() => {});
+
+    return {
+      user: {
+        id:               user.id,
+        email:            user.email,
+        firstName:        user.firstName,
+        lastName:         user.lastName,
+        role:             user.role.toLowerCase(),
+        tenantId:         user.tenantId,
+        schoolName:       user.tenant?.name ?? null,
+        schoolLogo:       user.tenant?.logo ?? null,
+        phone:            user.phone,
+        avatar:           user.avatar,
+        emailVerified:    user.emailVerified,
+        isActive:         user.isActive,
+        classAssignments: user.classAssignments ?? [],
+        createdAt:        user.createdAt,
+        updatedAt:        user.updatedAt,
+      },
+      token:        tokens.token,
+      refreshToken: tokens.refreshToken,
+      expiresIn:    tokens.expiresIn,
+    };
   }
 
   /**
@@ -427,10 +496,10 @@ export class AuthService {
     // Stocker "denied" dans Redis (5 min) — le poll distingue denied vs expired
     await this.cacheService.set(`denied_login:${pendingToken}`, { status: 'denied' }, 300);
 
-    // Effacer le pending token en BDD
+    // Effacer le pending token + code d'échange en BDD
     await this.prisma.user.update({
       where: { id: user.id },
-      data:  { pendingLoginToken: null, pendingLoginExpiry: null },
+      data:  { pendingLoginToken: null, pendingLoginExpiry: null, pendingExchangeCode: null },
     });
 
     this.logSecurityEvent('LOGIN_DENIED', user.email, user.tenantId, 'Connexion refusée via email').catch(() => {});

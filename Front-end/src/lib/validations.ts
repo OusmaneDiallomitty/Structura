@@ -36,8 +36,8 @@ export const registerSchema = z
       .string()
       .min(1, ERROR_MESSAGES.REQUIRED_FIELD)
       .regex(
-        /^\+[1-9]\d{8,14}$/,
-        "Numéro invalide — sélectionnez d'abord votre pays"
+        /^\+224\d{9}$/,
+        "Numéro invalide — 9 chiffres requis après +224 (ex : 620 000 000)"
       ),
     password: z
       .string()

@@ -114,20 +114,9 @@ export const SCHOOL_LEVEL_LABELS = {
   lycee: "Lycée",
 } as const;
 
-// Pays cibles — Afrique de l'Ouest francophone avec système éducatif similaire
-// Chaque entrée inclut : devise officielle, préfixe téléphonique, ville principale
+// Pays disponibles — Guinée uniquement pour le lancement initial
 export const COUNTRIES = [
-  { value: "GN",    label: "Guinée",          currency: "GNF", phonePrefix: "+224", defaultCity: "Conakry"      },
-  { value: "SN",    label: "Sénégal",          currency: "XOF", phonePrefix: "+221", defaultCity: "Dakar"        },
-  { value: "CI",    label: "Côte d'Ivoire",    currency: "XOF", phonePrefix: "+225", defaultCity: "Abidjan"      },
-  { value: "ML",    label: "Mali",             currency: "XOF", phonePrefix: "+223", defaultCity: "Bamako"       },
-  { value: "BF",    label: "Burkina Faso",     currency: "XOF", phonePrefix: "+226", defaultCity: "Ouagadougou" },
-  { value: "BJ",    label: "Bénin",            currency: "XOF", phonePrefix: "+229", defaultCity: "Cotonou"      },
-  { value: "NE",    label: "Niger",            currency: "XOF", phonePrefix: "+227", defaultCity: "Niamey"       },
-  { value: "TG",    label: "Togo",             currency: "XOF", phonePrefix: "+228", defaultCity: "Lomé"         },
-  { value: "CM",    label: "Cameroun",         currency: "XAF", phonePrefix: "+237", defaultCity: "Yaoundé"      },
-  { value: "MR",    label: "Mauritanie",       currency: "MRU", phonePrefix: "+222", defaultCity: "Nouakchott"  },
-  { value: "OTHER", label: "Autre pays",       currency: "XOF", phonePrefix: "+",    defaultCity: ""             },
+  { value: "GN", label: "Guinée", currency: "GNF", phonePrefix: "+224", defaultCity: "Conakry" },
 ] as const;
 
 export type CountryCode = typeof COUNTRIES[number]["value"];

@@ -91,6 +91,15 @@ export class AuthController {
     }
   }
 
+  // Échange le code à usage unique contre les vrais tokens JWT
+  // Appelé par le frontend immédiatement après avoir reçu { status: 'approved', code }
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
+  @Post('exchange')
+  @HttpCode(HttpStatus.OK)
+  async exchange(@Body('code') code: string) {
+    return this.authService.exchangeCode(code);
+  }
+
   // Lien "Refuser" dans l'email — page de confirmation HTML (pas de redirect vers /login)
   @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Get('deny-login')

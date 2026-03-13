@@ -50,8 +50,8 @@ function RegisterContent() {
   const [error, setError] = useState<string | null>(null);
   // Sélection de pays → dérive le placeholder de ville
   const [selectedCountryCode, setSelectedCountryCode] = useState<string>("");
-  // Préfixe téléphonique — indépendant du pays de l'école (synchro auto, mais modifiable)
-  const [phoneCountryCode, setPhoneCountryCode] = useState<string>("");
+  // Guinée uniquement — préfixe +224 fixe
+  const [phoneCountryCode] = useState<string>("GN");
   const [localPhone, setLocalPhone] = useState<string>("");
   const [countryOpen, setCountryOpen] = useState(false);
 
@@ -93,17 +93,11 @@ function RegisterContent() {
   // Données du pays sélectionné (devise, ville par défaut)
   const activeCountry   = getCountryData(selectedCountryCode);
   const cityPlaceholder = activeCountry?.defaultCity ?? "Votre ville";
-  // Préfixe effectif — basé sur le pays du téléphone (indépendant)
-  const effectivePhonePrefix = getCountryData(phoneCountryCode)?.phonePrefix ?? "+";
 
   /** Quand le pays de l'école change : auto-remplit la ville + synchronise le préfixe tél si pas encore défini */
   const handleCountryChange = (value: string) => {
     setValue("country", value, { shouldValidate: true });
     setSelectedCountryCode(value);
-    // Synchronise le préfixe téléphonique seulement si l'utilisateur ne l'a pas changé manuellement
-    if (!phoneCountryCode) {
-      setPhoneCountryCode(value);
-    }
     setLocalPhone("");
     setValue("phone", "", { shouldValidate: false });
     // Auto-remplir la ville avec la capitale du pays (modifiable par l'utilisateur)
@@ -113,20 +107,11 @@ function RegisterContent() {
     }
   };
 
-  /** Quand le pays du numéro de téléphone change indépendamment */
-  const handlePhoneCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCode = e.target.value;
-    setPhoneCountryCode(newCode);
-    const prefix = getCountryData(newCode)?.phonePrefix ?? "+";
-    setValue("phone", prefix + localPhone, { shouldValidate: localPhone.length > 0 });
-  };
-
-  /** Quand les chiffres du téléphone changent : combine préfixe + chiffres */
+  /** Quand les chiffres du téléphone changent : combine +224 + 9 chiffres max */
   const handleLocalPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Garder uniquement les chiffres, supprimer les zéros en tête
-    const digits = e.target.value.replace(/\D/g, "").replace(/^0+/, "");
+    const digits = e.target.value.replace(/\D/g, "").replace(/^0+/, "").slice(0, 9);
     setLocalPhone(digits);
-    setValue("phone", effectivePhonePrefix + digits, { shouldValidate: digits.length > 0 });
+    setValue("phone", "+224" + digits, { shouldValidate: digits.length > 0 });
   };
 
   // Calcul de la force du mot de passe
@@ -297,9 +282,7 @@ function RegisterContent() {
                         <SelectItem key={country.value} value={country.value}>
                           <span className="flex items-center gap-2">
                             <span>{country.label}</span>
-                            {country.value !== "OTHER" && (
-                              <span className="text-xs text-gray-400">{country.phonePrefix}</span>
-                            )}
+                            <span className="text-xs text-gray-400">{country.phonePrefix}</span>
                           </span>
                         </SelectItem>
                       ))}
@@ -310,7 +293,7 @@ function RegisterContent() {
                       {errors.country.message}
                     </p>
                   )}
-                  {activeCountry && activeCountry.value !== "OTHER" && (
+                  {activeCountry && (
                     <p className="text-xs text-gray-500">
                       Devise de votre pays :{" "}
                       <span className="font-medium text-indigo-600">{activeCountry.currency}</span>
@@ -345,7 +328,7 @@ function RegisterContent() {
                     )}
                   </div>
 
-                  {/* Téléphone avec préfixe pays */}
+                  {/* Téléphone — préfixe +224 fixe (Guinée) */}
                   <div className="space-y-2">
                     <Label htmlFor="phone" className="text-sm font-semibold text-gray-800">Numéro de téléphone</Label>
                     <div
@@ -355,29 +338,19 @@ function RegisterContent() {
                           : "border-gray-300 hover:border-indigo-400 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20"
                       }`}
                     >
-                      {/* Sélecteur de préfixe pays (indépendant du pays de l'école) */}
-                      <select
-                        value={phoneCountryCode}
-                        onChange={handlePhoneCountryChange}
-                        disabled={isLoading}
-                        title="Indicatif pays du téléphone"
-                        className="h-full px-2 bg-gray-50 border-r border-gray-200 text-sm font-semibold text-gray-700 shrink-0 outline-none cursor-pointer hover:bg-gray-100 transition-colors"
-                      >
-                        <option value="" disabled>+</option>
-                        {COUNTRIES.map((c) => (
-                          <option key={c.value} value={c.value}>
-                            {c.phonePrefix} {c.value !== "OTHER" ? `(${c.label})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                      {/* Saisie des chiffres */}
+                      {/* Préfixe Guinée — statique */}
+                      <span className="h-full px-3 flex items-center bg-gray-50 border-r border-gray-200 text-sm font-semibold text-gray-700 shrink-0 select-none">
+                        +224
+                      </span>
+                      {/* Saisie — 9 chiffres max */}
                       <input
                         id="phone"
                         type="tel"
                         inputMode="numeric"
                         autoComplete="tel"
-                        disabled={isLoading || !phoneCountryCode}
-                        placeholder={phoneCountryCode ? "XXXXXXXXX" : "Choisissez l'indicatif →"}
+                        disabled={isLoading}
+                        placeholder="6XX XXX XXX"
+                        maxLength={9}
                         value={localPhone}
                         onChange={handleLocalPhoneChange}
                         aria-invalid={errors.phone ? "true" : "false"}
@@ -385,9 +358,7 @@ function RegisterContent() {
                         className="flex-1 px-3 bg-transparent outline-none text-sm placeholder:text-gray-400 disabled:cursor-not-allowed"
                       />
                     </div>
-                    <p className="text-xs text-gray-400">
-                      Indicatif différent de votre pays d'école ? Changez-le ici.
-                    </p>
+                    <p className="text-xs text-gray-400">9 chiffres sans le zéro initial (ex : 620 000 000)</p>
                     {errors.phone && (
                       <p
                         id="phone-error"

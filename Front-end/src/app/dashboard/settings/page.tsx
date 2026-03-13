@@ -43,7 +43,6 @@ const PREFS_KEY = "structura_regional_prefs"; // localStorage uniquement (prÃ©fÃ
 const CURRENCY_OPTIONS = Array.from(
   new Map(
     COUNTRIES
-      .filter((c) => c.value !== "OTHER")
       .map((c) => [c.currency, c.currency])
   ).keys()
 ).map((code) => ({
