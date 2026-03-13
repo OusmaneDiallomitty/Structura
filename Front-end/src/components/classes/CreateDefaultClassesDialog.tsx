@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { GraduationCap, AlertTriangle } from "lucide-react";
+import { GraduationCap, AlertTriangle, Loader2 } from "lucide-react";
 import * as storage from "@/lib/storage";
 import { getClasses, convertAndCreateClasses } from "@/lib/api/classes.service";
 
@@ -301,7 +301,7 @@ export function CreateDefaultClassesDialog({
     <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-800 transition-colors">
           <GraduationCap className="h-4 w-4" />
           Créer classes prédéfinies
         </Button>
@@ -540,12 +540,32 @@ export function CreateDefaultClassesDialog({
           )}
         </div>
 
-        <DialogFooter className="flex-shrink-0 border-t pt-4 mt-4 flex-col sm:flex-row gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">
+        <DialogFooter className="shrink-0 border-t pt-4 mt-4 flex-col sm:flex-row gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            className="w-full sm:w-auto hover:bg-gray-100 transition-colors"
+          >
             Annuler
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || totalClasses === 0} className="w-full sm:w-auto">
-            {isSubmitting ? "Création..." : `Créer ${totalClasses} classe(s)`}
+          <Button
+            onClick={handleSubmit}
+            disabled={isSubmitting || totalClasses === 0}
+            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Création en cours…
+              </>
+            ) : totalClasses === 0 ? (
+              "Sélectionnez au moins une classe"
+            ) : (
+              <>
+                <GraduationCap className="h-4 w-4 mr-2" />
+                Créer {totalClasses} classe{totalClasses > 1 ? "s" : ""}
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

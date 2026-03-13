@@ -234,7 +234,7 @@ export default function StudentProfilePage() {
           <h1 className="text-3xl font-bold tracking-tight">Profil de l'élève</h1>
           <p className="text-muted-foreground mt-1">Informations détaillées et historique</p>
         </div>
-        <Button asChild>
+        <Button asChild className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors">
           <Link href={`/dashboard/students/${studentId}/edit`}>
             <Edit2 className="h-4 w-4 mr-2" />
             Modifier
@@ -307,16 +307,49 @@ export default function StudentProfilePage() {
 
       {/* ─── Onglets ─── */}
       <Tabs defaultValue="info" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="info">Informations</TabsTrigger>
-          <TabsTrigger value="grades">
-            Notes {grades.length > 0 && `(${grades.length})`}
+        <TabsList className="grid w-full grid-cols-4 h-11 bg-gray-100/80 p-1 rounded-xl">
+          <TabsTrigger
+            value="info"
+            className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
+          >
+            <User className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Infos</span>
           </TabsTrigger>
-          <TabsTrigger value="attendance">
-            Présences {attendances.length > 0 && `(${attendances.length})`}
+          <TabsTrigger
+            value="grades"
+            className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
+          >
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Notes</span>
+            {grades.length > 0 && (
+              <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {grades.length}
+              </span>
+            )}
           </TabsTrigger>
-          <TabsTrigger value="payments">
-            Paiements {payments.length > 0 && `(${payments.length})`}
+          <TabsTrigger
+            value="attendance"
+            className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
+          >
+            <Calendar className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Présences</span>
+            {attendances.length > 0 && (
+              <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {attendances.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="payments"
+            className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
+          >
+            <CreditCard className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Paiements</span>
+            {payments.length > 0 && (
+              <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {payments.length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -704,7 +737,7 @@ export default function StudentProfilePage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="gap-1.5 text-xs h-8"
+                                  className="gap-1.5 text-xs h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300 transition-colors"
                                   onClick={async () => {
                                     try {
                                       await generatePaymentReceipt({
