@@ -83,7 +83,7 @@ export async function getAcademicYears(token: string): Promise<AcademicYear[]> {
 /**
  * Récupérer l'année académique courante
  */
-export async function getCurrentAcademicYear(token: string): Promise<AcademicYear> {
+export async function getCurrentAcademicYear(token: string): Promise<AcademicYear | null> {
   const response = await fetch(`${API_BASE_URL}/academic-years/current`, {
     method: 'GET',
     headers: {
@@ -91,6 +91,9 @@ export async function getCurrentAcademicYear(token: string): Promise<AcademicYea
       'Content-Type': 'application/json',
     },
   });
+
+  // 404 = aucune année définie pour ce tenant (cas normal premier accès)
+  if (response.status === 404) return null;
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Failed to fetch current academic year' }));

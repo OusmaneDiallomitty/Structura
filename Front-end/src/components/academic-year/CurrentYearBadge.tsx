@@ -38,23 +38,28 @@ export function CurrentYearBadge() {
     return new Date(currentYear.endDate) < new Date();
   }, [currentYear]);
 
-  // Clé cache localStorage pour l'année courante (fallback offline)
-  const YEAR_CACHE_KEY = "structura_current_year_cache";
+  // Clé cache isolée par tenant — évite la pollution entre comptes sur le même navigateur
+  const YEAR_CACHE_KEY = user?.tenantId
+    ? `structura_year_cache:${user.tenantId}`
+    : "structura_current_year_cache";
 
   useEffect(() => {
     // Charger depuis le cache localStorage immédiatement (affichage instantané)
-    try {
-      const cached = localStorage.getItem(YEAR_CACHE_KEY);
-      if (cached) {
-        setCurrentYear(JSON.parse(cached));
-        setIsLoading(false);
-      }
-    } catch { /* ignore */ }
+    // UNIQUEMENT si on a un tenantId — sinon on ne touche pas au cache
+    if (user?.tenantId) {
+      try {
+        const cached = localStorage.getItem(YEAR_CACHE_KEY);
+        if (cached) {
+          setCurrentYear(JSON.parse(cached));
+          setIsLoading(false);
+        }
+      } catch { /* ignore */ }
+    }
 
     loadCurrentYear();
     if (isDirector) loadAllYears();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirector]);
+  }, [isDirector, user?.tenantId]);
 
   // Re-charger l'année scolaire quand la connexion revient
   useEffect(() => {
@@ -73,15 +78,22 @@ export function CurrentYearBadge() {
       if (!token) return;
 
       const year = await getCurrentAcademicYear(token);
-      setCurrentYear(year);
-      // Mettre en cache pour le fallback offline
-      try { localStorage.setItem(YEAR_CACHE_KEY, JSON.stringify(year)); } catch { /* quota */ }
+
+      if (year === null) {
+        // Le tenant n'a aucune année scolaire (nouveau compte ou supprimée)
+        // Effacer le cache pour ne pas afficher des données d'un autre tenant
+        try { localStorage.removeItem(YEAR_CACHE_KEY); } catch { /* ignore */ }
+        setCurrentYear(null);
+      } else {
+        // Année valide — mettre en cache pour le fallback offline
+        try { localStorage.setItem(YEAR_CACHE_KEY, JSON.stringify(year)); } catch { /* quota */ }
+        setCurrentYear(year);
+      }
     } catch {
-      // Ne pas effacer l'année si on en avait déjà une (connexion instable, transition online/offline)
-      // setCurrentYear(null) seulement si le cache ne nous a rien donné
+      // Erreur réseau (pas un 404) — garder le cache pour le mode offline
+      // Ne pas toucher à currentYear si on en avait déjà une depuis le cache
       setCurrentYear((prev) => {
-        if (prev !== null) return prev; // Garder l'ancienne valeur
-        // Essayer le cache localStorage comme dernier recours
+        if (prev !== null) return prev;
         try {
           const cached = localStorage.getItem(YEAR_CACHE_KEY);
           if (cached) return JSON.parse(cached);
