@@ -213,9 +213,9 @@ export class AuthService {
         data:  { pendingLoginToken: pendingToken, pendingLoginExpiry: expiry, pendingExchangeCode: null },
       });
 
-      const backendUrl  = this.configService.get('BACKEND_PUBLIC_URL') || 'https://structura-api.onrender.com';
-      const approveUrl  = `${backendUrl}/api/auth/approve-login?token=${pendingToken}`;
-      const denyUrl     = `${backendUrl}/api/auth/deny-login?token=${pendingToken}`;
+      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+      const approveUrl  = `${frontendUrl}/approve-login?token=${pendingToken}`;
+      const denyUrl     = `${frontendUrl}/deny-login?token=${pendingToken}`;
 
       this.emailService.sendLoginApprovalEmail(
         matchedUser.email,
