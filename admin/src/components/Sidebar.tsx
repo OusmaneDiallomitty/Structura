@@ -36,13 +36,19 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   // Compteur d'alertes — endpoint léger /alerts/count (3 COUNT au lieu de 7 findMany)
   useEffect(() => {
-    const fetch = () =>
+    const fetchCount = () =>
       getAlertsCount()
-        .then((r) => setAlertCount(r.urgent + r.warning))
+        .then((r) => setAlertCount(r.total))
         .catch(() => {});
-    fetch();
-    const id = setInterval(fetch, 2 * 60_000);
-    return () => clearInterval(id);
+    fetchCount();
+    const id = setInterval(fetchCount, 2 * 60_000);
+
+    // Refresh immédiat après action sur la page alertes (snooze, etc.)
+    window.addEventListener('alerts:refresh', fetchCount);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('alerts:refresh', fetchCount);
+    };
   }, []);
 
   // Fermer le sidebar au changement de route (mobile)

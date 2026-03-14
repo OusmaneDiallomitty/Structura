@@ -6,10 +6,10 @@ import {
 } from 'recharts';
 
 const PLAN_LABELS: Record<string, string> = {
-  FREE: 'Free', ESSENTIEL: 'Essentiel', BUSINESS: 'Business', PREMIUM: 'Premium',
+  FREE: 'Free', PRO: 'Pro', PRO_PLUS: 'Pro Plus',
 };
 const PLAN_COLORS: Record<string, string> = {
-  FREE: '#94a3b8', ESSENTIEL: '#60a5fa', BUSINESS: '#a78bfa', PREMIUM: '#fbbf24',
+  FREE: '#94a3b8', PRO: '#60a5fa', PRO_PLUS: '#a78bfa',
 };
 
 interface Props {

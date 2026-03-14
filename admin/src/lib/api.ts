@@ -118,11 +118,12 @@ export const getGlobalStats = () => request<GlobalStats>('/admin/stats');
 export interface AlertItem {
   type: 'TRIAL_EXPIRING_SOON' | 'TRIAL_EXPIRING_WEEK' | 'TRIAL_EXPIRED'
       | 'PAST_DUE' | 'INACTIVE_7DAYS' | 'NO_SETUP' | 'LONG_FREE';
-  label:      string;
-  tenant:     Tenant & { healthScore: number };
-  director:   { email: string; lastLoginAt: string | null } | null;
-  hoursLeft:  number | null;
-  daysExpired: number | null;
+  label:        string;
+  tenant:       Tenant & { healthScore: number };
+  director:     { email: string; lastLoginAt: string | null } | null;
+  hoursLeft:    number | null;
+  daysExpired:  number | null;
+  snoozedUntil: string | null;
 }
 export interface AlertsResponse {
   urgent:  AlertItem[];
@@ -131,6 +132,33 @@ export interface AlertsResponse {
   counts:  { urgent: number; warning: number; info: number; total: number };
 }
 export const getAlerts = () => request<AlertsResponse>('/admin/alerts');
+
+// ─── Snooze alertes ──────────────────────────────────────────────────────────
+
+export const snoozeAlert   = (tenantId: string, alertType: string, days: number) =>
+  request<{ message: string; snoozedUntil: string }>('/admin/alerts/snooze', {
+    method: 'POST', body: JSON.stringify({ tenantId, alertType, days }),
+  });
+export const unsnoozeAlert = (tenantId: string, alertType: string) =>
+  request<{ message: string }>(`/admin/alerts/snooze/${tenantId}/${alertType}`, { method: 'DELETE' });
+
+// ─── Notes internes par tenant ───────────────────────────────────────────────
+
+export interface TenantNote {
+  id: string; tenantId: string; content: string;
+  authorEmail: string; createdAt: string; updatedAt: string;
+}
+export const getTenantNotes   = (id: string)                      => request<TenantNote[]>(`/admin/tenants/${id}/notes`);
+export const addTenantNote    = (id: string, content: string)     => request<TenantNote>(`/admin/tenants/${id}/notes`, { method: 'POST', body: JSON.stringify({ content }) });
+export const deleteTenantNote = (tenantId: string, noteId: string) => request<{ message: string }>(`/admin/tenants/${tenantId}/notes/${noteId}`, { method: 'DELETE' });
+
+// ─── Activité récente par tenant ─────────────────────────────────────────────
+
+export interface TenantActivity {
+  id: string; action: string; actorEmail: string | null;
+  details: Record<string, unknown> | null; createdAt: string;
+}
+export const getTenantRecentActivity = (id: string) => request<TenantActivity[]>(`/admin/tenants/${id}/recent-activity`);
 
 // ─── Activité ────────────────────────────────────────────────────────────────
 
