@@ -10,7 +10,7 @@ const TOKEN_KEY         = "structura_token";
 const REFRESH_TOKEN_KEY = "structura_refresh_token";
 const USER_KEY          = "structura_user";
 
-type Phase = "waiting" | "exchanging" | "approved" | "denied" | "expired";
+type Phase = "waiting" | "exchanging" | "approved" | "denied" | "expired" | "error";
 
 export default function PendingApprovalPage() {
   const router   = useRouter();
@@ -20,6 +20,7 @@ export default function PendingApprovalPage() {
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingToken = useRef<string>("");
   const exchanging   = useRef(false); // guard — un seul échange en cours
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
   useEffect(() => {
     // Lire le token depuis l'URL (window.location → pas besoin de Suspense)
@@ -51,31 +52,33 @@ export default function PendingApprovalPage() {
         const result = await checkApproval(pendingToken.current);
 
         if (result.status === "approved" && result.code) {
-          // Stopper le poll immédiatement
           clearInterval(pollRef.current!);
           clearInterval(intervalRef.current!);
           exchanging.current = true;
           setPhase("exchanging");
 
-          // Échanger le code contre les vrais tokens JWT
-          const rememberMe = sessionStorage.getItem("structura_pending_remember") === "true";
-          sessionStorage.removeItem("structura_pending_remember");
+          try {
+            const rememberMe = sessionStorage.getItem("structura_pending_remember") === "true";
+            sessionStorage.removeItem("structura_pending_remember");
 
-          const session = await exchangeCode(result.code);
+            const session = await exchangeCode(result.code);
 
-          // Stocker les tokens et l'utilisateur
-          storage.setAuthItem(TOKEN_KEY, session.token, rememberMe);
-          storage.setAuthItem(REFRESH_TOKEN_KEY, session.refreshToken, rememberMe);
-          storage.setAuthItem(USER_KEY, JSON.stringify(session.user), rememberMe);
-          if (rememberMe) {
-            localStorage.setItem("structura_remember_me", "true");
-          } else {
-            localStorage.removeItem("structura_remember_me");
+            storage.setAuthItem(TOKEN_KEY, session.token, rememberMe);
+            storage.setAuthItem(REFRESH_TOKEN_KEY, session.refreshToken, rememberMe);
+            storage.setAuthItem(USER_KEY, JSON.stringify(session.user), rememberMe);
+            if (rememberMe) {
+              localStorage.setItem("structura_remember_me", "true");
+            } else {
+              localStorage.removeItem("structura_remember_me");
+            }
+
+            setPhase("approved");
+            setTimeout(() => { window.location.href = "/dashboard"; }, 1500);
+          } catch (err) {
+            exchanging.current = false;
+            setErrorMsg(err instanceof Error ? err.message : "Erreur lors de la connexion");
+            setPhase("error");
           }
-
-          setPhase("approved");
-          // Rechargement complet — AuthContext se réinitialise depuis le storage
-          setTimeout(() => { window.location.href = "/dashboard"; }, 1500);
 
         } else if (result.status === "denied") {
           clearInterval(pollRef.current!);
@@ -89,7 +92,6 @@ export default function PendingApprovalPage() {
         }
       } catch {
         // Silencieux — réseau indisponible, réessayer au prochain tick
-        exchanging.current = false;
       }
     }, 3000);
 
@@ -177,6 +179,26 @@ export default function PendingApprovalPage() {
             <p className="text-gray-600 mb-6 leading-relaxed">
               Le titulaire du compte a refusé cette demande de connexion.
             </p>
+            <button
+              onClick={() => router.push("/login")}
+              className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+            >
+              Retour à la connexion
+            </button>
+          </>
+        )}
+
+        {phase === "error" && (
+          <>
+            <div className="flex justify-center mb-6">
+              <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center">
+                <svg className="w-8 h-8 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+              </div>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">Échec de la connexion</h1>
+            <p className="text-gray-500 text-sm mb-6">{errorMsg || "Une erreur inattendue s'est produite. Veuillez réessayer."}</p>
             <button
               onClick={() => router.push("/login")}
               className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-3 px-4 rounded-lg transition-colors"

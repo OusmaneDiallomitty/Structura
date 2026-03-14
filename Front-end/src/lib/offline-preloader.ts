@@ -10,7 +10,7 @@ import { getStudents } from "./api/students.service";
 import { getClasses } from "./api/classes.service";
 import { getPayments } from "./api/payments.service";
 import { getAttendances } from "./api/attendance.service";
-import { getGrades } from "./api/grades.service";
+// getGrades supprimé — replaced by Evaluation/Composition APIs
 
 // Promise en cours : évite les appels parallèles (ex: montage + retour online simultanés)
 let runningPreload: Promise<void> | null = null;
@@ -59,15 +59,14 @@ export function preloadOfflineData(token: string): Promise<void> {
       }
 
       // Données secondaires en parallèle (non bloquantes)
-      const [paymentsCount, attendanceCount, gradesCount] = await Promise.all([
+      const [paymentsCount, attendanceCount] = await Promise.all([
         preloadStore(STORES.PAYMENTS, () => getPayments(token), "paiements"),
         preloadStore(STORES.ATTENDANCE, () => getAttendances(token), "présences"),
-        preloadStore(STORES.GRADES, () => getGrades(token), "notes"),
       ]);
 
       console.log(
         `[Offline] Préchargement terminé — ${classes.length} classes, ${students.length} élèves, ` +
-        `${paymentsCount} paiements, ${attendanceCount} présences, ${gradesCount} notes`
+        `${paymentsCount} paiements, ${attendanceCount} présences`
       );
     } catch (err) {
       // Silencieux : l'app fonctionne en ligne normalement, le preload est un bonus

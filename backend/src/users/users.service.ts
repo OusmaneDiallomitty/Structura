@@ -252,7 +252,7 @@ export class UsersService {
 
     // Si le rôle passe de TEACHER vers un autre rôle, déassigner toutes les classes.
     // Cela évite des données orphelines (classe avec teacherId pointant vers un non-TEACHER).
-    if (user.role === 'TEACHER' && dto.role && dto.role.toUpperCase() !== 'TEACHER') {
+    if (user.role?.toUpperCase() === 'TEACHER' && dto.role && dto.role.toUpperCase() !== 'TEACHER') {
       await this.prisma.class.updateMany({
         where: { teacherId: id, tenantId },
         data: { teacherId: null },

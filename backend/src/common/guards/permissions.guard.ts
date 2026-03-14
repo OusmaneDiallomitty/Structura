@@ -114,15 +114,18 @@ export class PermissionsGuard implements CanActivate {
 
     if (!user) return false;
 
+    // Le JWT stocke le rôle en lowercase (role.toLowerCase() dans auth.service)
+    const roleUpper = user.role?.toUpperCase();
+
     // Le directeur a toujours toutes les permissions
-    if (user.role === 'DIRECTOR') return true;
+    if (roleUpper === 'DIRECTOR') return true;
 
     const { resource, action } = permission;
 
     // Permissions custom (JSON en BDD) → prioritaires sur les défauts du rôle
     const hasPermission = user.permissions
       ? user.permissions[resource]?.[action] === true
-      : DEFAULT_ROLE_PERMISSIONS[user.role]?.[resource]?.[action] === true;
+      : DEFAULT_ROLE_PERMISSIONS[roleUpper]?.[resource]?.[action] === true;
 
     if (!hasPermission) {
       const msg =

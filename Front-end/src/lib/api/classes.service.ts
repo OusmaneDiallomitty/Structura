@@ -49,6 +49,7 @@ export interface BackendClass {
   room?: string;
   teacherId?: string;
   teacherName?: string;
+  gradeMode?: string; // "PRIMARY" | "SECONDARY"
   createdAt?: string;
   updatedAt?: string;
 }

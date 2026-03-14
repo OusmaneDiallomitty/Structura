@@ -1,99 +1,69 @@
 /**
- * Service API Grades (Notes)
- * Aligné sur le backend NestJS — GradesController
+ * Service API Grades — Secondaire (Collège + Lycée)
+ * Architecture : Évaluations (notes mensuelles) + Compositions (examens) + Bulletins
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
-export interface BackendGrade {
+function hdrs(token: string) {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+async function handle<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'Erreur réseau' }));
+    throw new Error(err.message || `Erreur ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+export interface Evaluation {
   id: string;
+  studentId: string;
+  classId: string;
   subject: string;
+  term: string;
+  month: string;
   score: number;
-  maxScore: number;
+  academicYear: string;
+  teacherName?: string;
+  notes?: string;
+  student?: { id: string; firstName: string; lastName: string; matricule: string };
+}
+
+export interface Composition {
+  id: string;
+  studentId: string;
+  classId: string;
+  subject: string;
+  term: string;
+  academicYear: string;
+  compositionScore: number;
+  teacherName?: string;
+  notes?: string;
+  student?: { id: string; firstName: string; lastName: string; matricule: string };
+}
+
+export interface SubjectCoefficient {
+  id: string;
+  classId: string;
+  subject: string;
   coefficient: number;
-  term: string;
   academicYear: string;
-  studentId: string;
-  classId: string;
-  teacherId?: string;
-  teacherName?: string;
-  notes?: string;
-  student?: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    matricule: string;
-  };
-  class?: {
-    id: string;
-    name: string;
-    section?: string | null;
-    level?: string;
-  };
-  createdAt?: string;
-  updatedAt?: string;
 }
 
-export interface GradeFilters {
-  studentId?: string;
-  classId?: string;
-  subject?: string;
-  term?: string;
-  academicYear?: string;
-}
-
-export interface CreateGradeDto {
+export interface StudentSubjectResult {
   subject: string;
-  score: number;
-  maxScore?: number;
-  coefficient?: number;
-  term: string;
-  academicYear?: string;
-  studentId: string;
-  classId: string;
+  averageCourse: number | null; // null pour le primaire (pas d'évals mensuelles)
+  compositionScore: number;
+  averageSubject: number;
+  coefficient: number;
+  countsInAverage?: boolean;
   teacherName?: string;
-  notes?: string;
 }
 
-export interface BulkCreateGradeDto {
-  subject: string;
-  maxScore?: number;
-  coefficient?: number;
-  term: string;
-  academicYear?: string;
-  classId: string;
-  teacherName?: string;
-  grades: {
-    studentId: string;
-    score: number;
-    notes?: string;
-  }[];
-}
-
-export interface UpdateGradeDto {
-  score?: number;
-  maxScore?: number;
-  coefficient?: number;
-  teacherName?: string;
-  notes?: string;
-}
-
-export interface BulkCreateResult {
-  count: number;
-  message: string;
-}
-
-export interface TrimesterLock {
-  id: string;
-  classId: string;
-  tenantId: string;
-  trimester: string;
-  academicYear: string;
-  lockedAt: string;
-  lockedByName?: string;
-}
-
-export interface StudentGradeReport {
+export interface StudentReport {
   student: {
     id: string;
     firstName: string;
@@ -103,186 +73,182 @@ export interface StudentGradeReport {
   };
   term: string;
   academicYear: string;
-  /** Barème natif retourné par le backend (10 pour Primaire, 20 pour Collège/Lycée) */
-  maxScore: number;
-  grades: {
-    subject: string;
-    score: number;
-    maxScore: number;
-    coefficient: number;
-    percentage: number;
-    teacherName?: string;
-    notes?: string;
-  }[];
-  average: number;
+  gradeMode: string;   // "PRIMARY" | "SECONDARY"
+  scoreMax: number;    // 10 (primaire) | 20 (secondaire)
+  subjects: StudentSubjectResult[];
+  generalAverage: number;
   totalSubjects: number;
 }
 
-export interface ClassGradeReport {
-  class: { id: string; name: string; section?: string | null };
+export interface AnnualReport {
+  student: { id: string; firstName: string; lastName: string; matricule: string };
+  academicYear: string;
+  gradeMode: string;
+  scoreMax: number;
+  termAverages: { term: string; average: number }[];
+  termsCount: number;
+  annualAverage: number;
+  decision: 'ADMIS' | 'REDOUBLE';
+  passThreshold: number;
+}
+
+export interface ClassReportStudent {
+  student: { id: string; firstName: string; lastName: string; matricule: string };
+  generalAverage: number;
+  totalSubjects: number;
+  rank: number;
+}
+
+export interface ClassReport {
+  class: { id: string; name: string; section?: string | null } | null;
   term: string;
   academicYear: string;
-  /** Barème natif retourné par le backend (10 pour Primaire, 20 pour Collège/Lycée) */
-  maxScore: number;
-  students: {
-    student: { id: string; firstName: string; lastName: string; matricule: string };
-    average: number;
-    subjectCount: number;
-  }[];
+  students: ClassReportStudent[];
   classAverage: number;
   totalStudents: number;
 }
 
-function buildHeaders(token: string) {
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
+export interface TrimesterLock {
+  id: string;
+  classId: string;
+  trimester: string;
+  academicYear: string;
+  lockedAt: string;
+  lockedByName?: string;
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Erreur réseau' }));
-    throw new Error(error.message || `Erreur ${response.status}`);
+// ── Évaluations ───────────────────────────────────────────────────────────
+
+export async function getEvaluations(token: string, filters?: {
+  classId?: string; subject?: string; term?: string;
+  studentId?: string; academicYear?: string;
+}): Promise<Evaluation[]> {
+  const p = new URLSearchParams();
+  if (filters?.classId)      p.set('classId', filters.classId);
+  if (filters?.subject)      p.set('subject', filters.subject);
+  if (filters?.term)         p.set('term', filters.term);
+  if (filters?.studentId)    p.set('studentId', filters.studentId);
+  if (filters?.academicYear) p.set('academicYear', filters.academicYear);
+  return handle<Evaluation[]>(await fetch(`${API}/grades/evaluations?${p}`, { headers: hdrs(token) }));
+}
+
+export async function bulkSaveEvaluations(token: string, data: {
+  classId: string; subject: string; term: string; month: string;
+  academicYear?: string; teacherName?: string;
+  evaluations: { studentId: string; score: number; notes?: string }[];
+}) {
+  return handle<{ count: number; message: string }>(
+    await fetch(`${API}/grades/evaluations/bulk`, {
+      method: 'POST', headers: hdrs(token), body: JSON.stringify(data),
+    })
+  );
+}
+
+// ── Compositions ──────────────────────────────────────────────────────────
+
+export async function getCompositions(token: string, filters?: {
+  classId?: string; subject?: string; term?: string;
+  studentId?: string; academicYear?: string;
+}): Promise<Composition[]> {
+  const p = new URLSearchParams();
+  if (filters?.classId)      p.set('classId', filters.classId);
+  if (filters?.subject)      p.set('subject', filters.subject);
+  if (filters?.term)         p.set('term', filters.term);
+  if (filters?.studentId)    p.set('studentId', filters.studentId);
+  if (filters?.academicYear) p.set('academicYear', filters.academicYear);
+  return handle<Composition[]>(await fetch(`${API}/grades/compositions?${p}`, { headers: hdrs(token) }));
+}
+
+export async function bulkSaveCompositions(token: string, data: {
+  classId: string; subject: string; term: string;
+  academicYear?: string; teacherName?: string;
+  compositions: { studentId: string; compositionScore: number; notes?: string }[];
+}) {
+  return handle<{ count: number; message: string }>(
+    await fetch(`${API}/grades/compositions/bulk`, {
+      method: 'POST', headers: hdrs(token), body: JSON.stringify(data),
+    })
+  );
+}
+
+// ── Coefficients ──────────────────────────────────────────────────────────
+
+export async function getSubjectCoefficients(token: string, classId: string, academicYear?: string): Promise<SubjectCoefficient[]> {
+  const p = new URLSearchParams();
+  if (academicYear) p.set('academicYear', academicYear);
+  return handle<SubjectCoefficient[]>(
+    await fetch(`${API}/grades/subject-coefficients/${classId}?${p}`, { headers: hdrs(token) })
+  );
+}
+
+export async function setSubjectCoefficients(token: string, data: {
+  classId: string;
+  coefficients: { subject: string; coefficient: number }[];
+  academicYear?: string;
+}) {
+  return handle<{ count: number; message: string }>(
+    await fetch(`${API}/grades/subject-coefficients`, {
+      method: 'POST', headers: hdrs(token), body: JSON.stringify(data),
+    })
+  );
+}
+
+// ── Rapports (Bulletins) ──────────────────────────────────────────────────
+
+export async function getStudentReport(token: string, studentId: string, term: string, academicYear?: string): Promise<StudentReport> {
+  const p = new URLSearchParams({ term });
+  if (academicYear) p.set('academicYear', academicYear);
+  return handle<StudentReport>(
+    await fetch(`${API}/grades/student/${studentId}/report?${p}`, { headers: hdrs(token) })
+  );
+}
+
+export async function getClassReport(token: string, classId: string, term: string, academicYear?: string): Promise<ClassReport> {
+  const p = new URLSearchParams({ term });
+  if (academicYear) p.set('academicYear', academicYear);
+  return handle<ClassReport>(
+    await fetch(`${API}/grades/class/${classId}/report?${p}`, { headers: hdrs(token) })
+  );
+}
+
+export async function getAnnualReport(token: string, studentId: string, academicYear?: string): Promise<AnnualReport> {
+  const p = new URLSearchParams();
+  if (academicYear) p.set('academicYear', academicYear);
+  return handle<AnnualReport>(
+    await fetch(`${API}/grades/student/${studentId}/annual-report?${p}`, { headers: hdrs(token) })
+  );
+}
+
+// ── Verrous ───────────────────────────────────────────────────────────────
+
+export async function getTrimesterLock(token: string, classId: string, trimester: string, academicYear: string): Promise<TrimesterLock | null> {
+  const p = new URLSearchParams({ classId, trimester, academicYear });
+  const res = await fetch(`${API}/grades/trimester-lock?${p}`, { headers: hdrs(token) });
+  if (!res.ok || res.status === 204) return null;
+  try {
+    const text = await res.text();
+    if (!text || text.trim() === '' || text === 'null') return null;
+    const data = JSON.parse(text);
+    // {} = pas de verrou (backend retourne {} quand null)
+    if (!data || !data.id) return null;
+    return data;
+  } catch {
+    return null;
   }
-  return response.json() as Promise<T>;
 }
 
-export async function getGrades(
-  token: string,
-  filters?: GradeFilters
-): Promise<BackendGrade[]> {
-  const params = new URLSearchParams();
-  if (filters?.studentId)    params.append('studentId', filters.studentId);
-  if (filters?.classId)      params.append('classId', filters.classId);
-  if (filters?.subject)      params.append('subject', filters.subject);
-  if (filters?.term)         params.append('term', filters.term);
-  if (filters?.academicYear) params.append('academicYear', filters.academicYear);
-
-  const url = `${API_BASE_URL}/grades${params.toString() ? `?${params}` : ''}`;
-  const res = await fetch(url, { headers: buildHeaders(token) });
-  return handleResponse<BackendGrade[]>(res);
-}
-
-export async function getGradeById(token: string, id: string): Promise<BackendGrade> {
-  const res = await fetch(`${API_BASE_URL}/grades/${id}`, {
-    headers: buildHeaders(token),
-  });
-  return handleResponse<BackendGrade>(res);
-}
-
-export async function createGrade(token: string, data: CreateGradeDto): Promise<BackendGrade> {
-  const res = await fetch(`${API_BASE_URL}/grades`, {
-    method: 'POST',
-    headers: buildHeaders(token),
-    body: JSON.stringify(data),
-  });
-  return handleResponse<BackendGrade>(res);
-}
-
-export async function bulkCreateGrades(
-  token: string,
-  data: BulkCreateGradeDto
-): Promise<BulkCreateResult> {
-  const res = await fetch(`${API_BASE_URL}/grades/bulk`, {
-    method: 'POST',
-    headers: buildHeaders(token),
-    body: JSON.stringify(data),
-  });
-  return handleResponse<BulkCreateResult>(res);
-}
-
-export async function updateGrade(
-  token: string,
-  id: string,
-  data: UpdateGradeDto
-): Promise<BackendGrade> {
-  const res = await fetch(`${API_BASE_URL}/grades/${id}`, {
-    method: 'PATCH',
-    headers: buildHeaders(token),
-    body: JSON.stringify(data),
-  });
-  return handleResponse<BackendGrade>(res);
-}
-
-export async function deleteGrade(token: string, id: string): Promise<{ message: string }> {
-  const res = await fetch(`${API_BASE_URL}/grades/${id}`, {
-    method: 'DELETE',
-    headers: buildHeaders(token),
-  });
-  return handleResponse<{ message: string }>(res);
-}
-
-// ── Verrous de trimestre ────────────────────────────────────────────────────
-
-export async function checkTrimesterLock(
-  token: string,
-  classId: string,
-  trimester: string,
-  academicYear: string,
-): Promise<TrimesterLock | null> {
-  const params = new URLSearchParams({ classId, trimester, academicYear });
-  const res = await fetch(`${API_BASE_URL}/grades/trimester-lock?${params}`, {
-    headers: buildHeaders(token),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Erreur ${res.status}`);
-  return res.json() as Promise<TrimesterLock | null>;
-}
-
-export async function lockTrimester(
-  token: string,
-  classId: string,
-  trimester: string,
-  academicYear: string,
-): Promise<TrimesterLock> {
-  const res = await fetch(`${API_BASE_URL}/grades/trimester-lock`, {
-    method: 'POST',
-    headers: buildHeaders(token),
-    body: JSON.stringify({ classId, trimester, academicYear }),
-  });
-  return handleResponse<TrimesterLock>(res);
-}
-
-export async function unlockTrimester(
-  token: string,
-  classId: string,
-  trimester: string,
-  academicYear: string,
-): Promise<{ message: string }> {
-  const params = new URLSearchParams({ classId, trimester, academicYear });
-  const res = await fetch(`${API_BASE_URL}/grades/trimester-lock?${params}`, {
-    method: 'DELETE',
-    headers: buildHeaders(token),
-  });
-  return handleResponse<{ message: string }>(res);
-}
-
-export async function getStudentReport(
-  token: string,
-  studentId: string,
-  term: string,
-  academicYear?: string
-): Promise<StudentGradeReport> {
-  const params = new URLSearchParams({ term });
-  if (academicYear) params.append('academicYear', academicYear);
-  const res = await fetch(
-    `${API_BASE_URL}/grades/student/${studentId}/report?${params}`,
-    { headers: buildHeaders(token) }
+export async function lockTrimester(token: string, classId: string, trimester: string, academicYear: string): Promise<TrimesterLock> {
+  return handle<TrimesterLock>(
+    await fetch(`${API}/grades/trimester-lock`, {
+      method: 'POST', headers: hdrs(token),
+      body: JSON.stringify({ classId, trimester, academicYear }),
+    })
   );
-  return handleResponse<StudentGradeReport>(res);
 }
 
-export async function getClassReport(
-  token: string,
-  classId: string,
-  term: string,
-  academicYear?: string
-): Promise<ClassGradeReport> {
-  const params = new URLSearchParams({ term });
-  if (academicYear) params.append('academicYear', academicYear);
-  const res = await fetch(
-    `${API_BASE_URL}/grades/class/${classId}/report?${params}`,
-    { headers: buildHeaders(token) }
+export async function unlockTrimester(token: string, classId: string, trimester: string, academicYear: string) {
+  const p = new URLSearchParams({ classId, trimester, academicYear });
+  return handle<{ message: string }>(
+    await fetch(`${API}/grades/trimester-lock?${p}`, { method: 'DELETE', headers: hdrs(token) })
   );
-  return handleResponse<ClassGradeReport>(res);
 }

@@ -135,6 +135,8 @@ export async function createAcademicYear(
     name: data.name,
     startDate: data.startDate || undefined,
     endDate: data.endDate || undefined,
+    startMonth: data.startMonth || undefined,
+    durationMonths: data.durationMonths || undefined,
     isCurrent: data.isCurrent,
   };
 
@@ -168,6 +170,8 @@ export async function createNewYearWithTransition(
     name: data.name,
     startDate: data.startDate || undefined,
     endDate: data.endDate || undefined,
+    startMonth: data.startMonth || undefined,
+    durationMonths: data.durationMonths || undefined,
     studentTransitionMode: data.studentTransitionMode,
   };
 

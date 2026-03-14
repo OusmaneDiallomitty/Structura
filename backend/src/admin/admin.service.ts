@@ -205,6 +205,14 @@ export class AdminService {
     const ago7d   = new Date(now.getTime() -  7 * 86_400_000);
     const ago30d  = new Date(now.getTime() - 30 * 86_400_000);
 
+    // Récupérer tous les snoozes actifs (non expirés)
+    const activeSnoozes = await this.prisma.alertSnooze.findMany({
+      where: { snoozedUntil: { gt: now } },
+      select: { tenantId: true, alertType: true, snoozedUntil: true },
+    });
+    const isSnoozed = (tenantId: string, alertType: string) =>
+      activeSnoozes.some(s => s.tenantId === tenantId && s.alertType === alertType);
+
     // Sélection commune : infos tenant + tous users pour health score + infos directeur
     const alertSelect = {
       ...TENANT_LIST_SELECT,
@@ -284,48 +292,62 @@ export class AdminService {
     // Urgentes triées : trials expirant bientôt en premier (hoursLeft ↑), puis PAST_DUE, puis expirés
     const urgentItems = [
       ...trialExpiring72h
+        .filter(t => !isSnoozed(t.id, 'TRIAL_EXPIRING_SOON'))
         .map((t) => {
           const { tenant, director } = enrich(t);
           const hoursLeft = t.trialEndsAt
             ? Math.round((new Date(t.trialEndsAt).getTime() - now.getTime()) / 3_600_000)
             : null;
-          return { type: 'TRIAL_EXPIRING_SOON' as const, label: 'Trial expire dans moins de 72h', tenant, director, hoursLeft, daysExpired: null };
+          const snooze = activeSnoozes.find(s => s.tenantId === t.id && s.alertType === 'TRIAL_EXPIRING_SOON');
+          return { type: 'TRIAL_EXPIRING_SOON' as const, label: 'Trial expire dans moins de 72h', tenant, director, hoursLeft, daysExpired: null, snoozedUntil: snooze?.snoozedUntil ?? null };
         })
         .sort((a, b) => (a.hoursLeft ?? 999) - (b.hoursLeft ?? 999)),
-      ...pastDue.map((t) => {
-        const { tenant, director } = enrich(t);
-        return { type: 'PAST_DUE' as const, label: 'Paiement en retard', tenant, director, hoursLeft: null, daysExpired: null };
-      }),
-      ...expiredTrials.map((t) => {
-        const { tenant, director } = enrich(t);
-        const daysExpired = t.trialEndsAt
-          ? Math.round((now.getTime() - new Date(t.trialEndsAt).getTime()) / 86_400_000)
-          : null;
-        return { type: 'TRIAL_EXPIRED' as const, label: 'Trial expiré — non converti', tenant, director, hoursLeft: null, daysExpired };
-      }),
+      ...pastDue
+        .filter(t => !isSnoozed(t.id, 'PAST_DUE'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          return { type: 'PAST_DUE' as const, label: 'Paiement en retard', tenant, director, hoursLeft: null, daysExpired: null, snoozedUntil: null };
+        }),
+      ...expiredTrials
+        .filter(t => !isSnoozed(t.id, 'TRIAL_EXPIRED'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          const daysExpired = t.trialEndsAt
+            ? Math.round((now.getTime() - new Date(t.trialEndsAt).getTime()) / 86_400_000)
+            : null;
+          return { type: 'TRIAL_EXPIRED' as const, label: 'Trial expiré — non converti', tenant, director, hoursLeft: null, daysExpired, snoozedUntil: null };
+        }),
     ];
 
     const warningItems = [
-      ...inactiveUsers.map((t) => {
-        const { tenant } = enrich(t);
-        return { type: 'INACTIVE_7DAYS' as const, label: 'Inactif depuis 7+ jours', tenant, director: null, hoursLeft: null, daysExpired: null };
-      }),
-      ...noSetup.map((t) => {
-        const { tenant, director } = enrich(t);
-        const daysSince = Math.round((now.getTime() - new Date(t.createdAt).getTime()) / 86_400_000);
-        return { type: 'NO_SETUP' as const, label: `Onboarding abandonné — 0 élève depuis ${daysSince}j`, tenant, director, hoursLeft: null, daysExpired: null };
-      }),
+      ...inactiveUsers
+        .filter(t => !isSnoozed(t.id, 'INACTIVE_7DAYS'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          return { type: 'INACTIVE_7DAYS' as const, label: 'Inactif depuis 7+ jours', tenant, director, hoursLeft: null, daysExpired: null, snoozedUntil: null };
+        }),
+      ...noSetup
+        .filter(t => !isSnoozed(t.id, 'NO_SETUP'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          const daysSince = Math.round((now.getTime() - new Date(t.createdAt).getTime()) / 86_400_000);
+          return { type: 'NO_SETUP' as const, label: `Onboarding abandonné — 0 élève depuis ${daysSince}j`, tenant, director, hoursLeft: null, daysExpired: null, snoozedUntil: null };
+        }),
     ];
 
     const infoItems = [
-      ...trialExpiring7d.map((t) => {
-        const { tenant, director } = enrich(t);
-        return { type: 'TRIAL_EXPIRING_WEEK' as const, label: 'Trial expire cette semaine', tenant, director, hoursLeft: null, daysExpired: null };
-      }),
-      ...longFree.map((t) => {
-        const { tenant } = enrich(t);
-        return { type: 'LONG_FREE' as const, label: 'En plan FREE depuis 30+ jours', tenant, director: null, hoursLeft: null, daysExpired: null };
-      }),
+      ...trialExpiring7d
+        .filter(t => !isSnoozed(t.id, 'TRIAL_EXPIRING_WEEK'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          return { type: 'TRIAL_EXPIRING_WEEK' as const, label: 'Trial expire cette semaine', tenant, director, hoursLeft: null, daysExpired: null, snoozedUntil: null };
+        }),
+      ...longFree
+        .filter(t => !isSnoozed(t.id, 'LONG_FREE'))
+        .map((t) => {
+          const { tenant, director } = enrich(t);
+          return { type: 'LONG_FREE' as const, label: 'En plan FREE depuis 30+ jours', tenant, director, hoursLeft: null, daysExpired: null, snoozedUntil: null };
+        }),
     ];
 
     return {
@@ -342,47 +364,69 @@ export class AdminService {
   }
 
   /**
-   * Comptage rapide des alertes actives — utilisé par le badge de la sidebar.
-   * 3 requêtes COUNT au lieu des 7 findMany de getAlerts() pour les listes complètes.
-   * Cache 90s — appelé toutes les 2 min par la sidebar, évite les COUNT répétés.
+   * Comptage des alertes actives — utilisé par le badge de la sidebar.
+   * Réutilise getAlerts() pour être cohérent avec la page (snoozes filtrés, INFO inclus).
+   * Cache 90s — invalidé automatiquement après chaque snooze/action.
    */
   async getAlertsCount() {
     const CACHE_KEY = 'admin:alerts:count';
     const cached = await this.cacheService.get<object>(CACHE_KEY);
     if (cached) return cached;
 
-    const now   = new Date();
-    const in72h = new Date(now.getTime() + 72 * 3_600_000);
-    const ago7d = new Date(now.getTime() -  7 * 86_400_000);
-    const ago3d = new Date(now.getTime() -  3 * 86_400_000);
-
-    const [urgentCount, warningCount] = await Promise.all([
-      // Urgent = trial ≤ 72h OU déjà expiré OU PAST_DUE
-      this.prisma.tenant.count({
-        where: {
-          ...tenantExcludeAdmin,
-          OR: [
-            { subscriptionStatus: 'TRIALING', trialEndsAt: { lte: in72h } },
-            { subscriptionStatus: 'PAST_DUE', isActive: true },
-          ],
-        },
-      }),
-      // Warning = inactif OU onboarding abandonné (non dédupliqué)
-      this.prisma.tenant.count({
-        where: {
-          ...tenantExcludeAdmin,
-          isActive: true,
-          OR: [
-            { users: { none: { lastLoginAt: { gte: ago7d } } } },
-            { currentStudentCount: 0, createdAt: { lte: ago3d } },
-          ],
-        },
-      }),
-    ]);
-
-    const result = { urgent: urgentCount, warning: warningCount, total: urgentCount + warningCount };
-    await this.cacheService.set(CACHE_KEY, result, 90); // TTL 90s
+    const { counts } = await this.getAlerts();
+    const result = { urgent: counts.urgent, warning: counts.warning, info: counts.info, total: counts.total };
+    await this.cacheService.set(CACHE_KEY, result, 90);
     return result;
+  }
+
+  // ─── Snooze d'alertes ─────────────────────────────────────────────────────
+
+  async snoozeAlert(tenantId: string, alertType: string, days: number, adminEmail: string) {
+    const snoozedUntil = new Date(Date.now() + days * 86_400_000);
+    await this.prisma.alertSnooze.upsert({
+      where:  { tenantId_alertType: { tenantId, alertType } },
+      update: { snoozedUntil, snoozedBy: adminEmail },
+      create: { tenantId, alertType, snoozedUntil, snoozedBy: adminEmail },
+    });
+    await this.cacheService.del('admin:alerts:count');
+    return { message: `Alerte snoozée ${days}j`, snoozedUntil };
+  }
+
+  async unsnoozeAlert(tenantId: string, alertType: string) {
+    await this.prisma.alertSnooze.deleteMany({ where: { tenantId, alertType } });
+    await this.cacheService.del('admin:alerts:count');
+    return { message: 'Snooze retiré' };
+  }
+
+  // ─── Notes internes par tenant ────────────────────────────────────────────
+
+  async getTenantNotes(tenantId: string) {
+    return this.prisma.tenantNote.findMany({
+      where:   { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addTenantNote(tenantId: string, content: string, authorEmail: string) {
+    return this.prisma.tenantNote.create({
+      data: { tenantId, content, authorEmail },
+    });
+  }
+
+  async deleteTenantNote(noteId: string) {
+    await this.prisma.tenantNote.delete({ where: { id: noteId } });
+    return { message: 'Note supprimée' };
+  }
+
+  // ─── Activité récente par tenant (pour les alertes) ───────────────────────
+
+  async getTenantRecentActivity(tenantId: string) {
+    return this.prisma.auditLog.findMany({
+      where:   { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take:    5,
+      select:  { id: true, action: true, actorEmail: true, details: true, createdAt: true },
+    });
   }
 
   // ─── Journal d'activité ────────────────────────────────────────────────────

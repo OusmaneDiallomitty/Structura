@@ -40,6 +40,56 @@ export class AdminController {
     return this.adminService.getAlertsCount();
   }
 
+  /** POST /api/admin/alerts/snooze — Snooze une alerte pour un tenant+type */
+  @Post('alerts/snooze')
+  @HttpCode(HttpStatus.OK)
+  snoozeAlert(
+    @Body() body: { tenantId: string; alertType: string; days: number },
+    @CurrentUser() admin: any,
+  ) {
+    return this.adminService.snoozeAlert(body.tenantId, body.alertType, body.days, admin.email);
+  }
+
+  /** DELETE /api/admin/alerts/snooze/:tenantId/:alertType — Retire le snooze */
+  @Delete('alerts/snooze/:tenantId/:alertType')
+  @HttpCode(HttpStatus.OK)
+  unsnoozeAlert(
+    @Param('tenantId') tenantId: string,
+    @Param('alertType') alertType: string,
+  ) {
+    return this.adminService.unsnoozeAlert(tenantId, alertType);
+  }
+
+  /** GET /api/admin/tenants/:id/notes — Notes internes */
+  @Get('tenants/:id/notes')
+  getTenantNotes(@Param('id') id: string) {
+    return this.adminService.getTenantNotes(id);
+  }
+
+  /** POST /api/admin/tenants/:id/notes — Ajouter une note */
+  @Post('tenants/:id/notes')
+  @HttpCode(HttpStatus.CREATED)
+  addTenantNote(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+    @CurrentUser() admin: any,
+  ) {
+    return this.adminService.addTenantNote(id, body.content, admin.email);
+  }
+
+  /** DELETE /api/admin/tenants/:id/notes/:noteId — Supprimer une note */
+  @Delete('tenants/:id/notes/:noteId')
+  @HttpCode(HttpStatus.OK)
+  deleteTenantNote(@Param('noteId') noteId: string) {
+    return this.adminService.deleteTenantNote(noteId);
+  }
+
+  /** GET /api/admin/tenants/:id/recent-activity — 5 dernières actions audit */
+  @Get('tenants/:id/recent-activity')
+  getTenantRecentActivity(@Param('id') id: string) {
+    return this.adminService.getTenantRecentActivity(id);
+  }
+
   // ─── Journal d'activité ────────────────────────────────────────────────────
 
   /** GET /api/admin/activity — Journal d'audit paginé */

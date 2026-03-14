@@ -32,4 +32,8 @@ export class CreateClassDto {
   @IsString()
   @IsOptional()
   academicYear?: string;
+
+  @IsString()
+  @IsOptional()
+  gradeMode?: string; // "PRIMARY" | "SECONDARY" (défaut: "SECONDARY")
 }

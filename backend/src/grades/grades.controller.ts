@@ -1,169 +1,224 @@
 import {
-    Controller,
-    Get,
-    Post,
-    Body,
-    Patch,
-    Param,
-    Delete,
-    UseGuards,
-    Request,
-    Query,
-    HttpCode,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import { GradesService } from './grades.service';
-import { CreateGradeDto, CreateBulkGradeDto } from './dto/create-grade.dto';
-import { UpdateGradeDto } from './dto/update-grade.dto';
+import { CreateEvaluationDto, BulkCreateEvaluationDto } from './dto/create-evaluation.dto';
+import { CreateCompositionDto, BulkCreateCompositionDto, UpdateCompositionDto } from './dto/create-composition.dto';
+import { SetSubjectCoefficientsDto } from './dto/subject-coefficient.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { PermissionsGuard } from '../common/guards/permissions.guard';
-import { RequirePermission } from '../common/decorators/require-permission.decorator';
-import { PlanFeatureGuard } from '../common/guards/plan-feature.guard';
-import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Throttle } from '@nestjs/throttler';
 
-/**
- * Grades Controller
- *
- * Plan FREE  → saisie + consultation des notes (POST, GET, PATCH, DELETE)
- * Plan PRO   → rapports détaillés + bulletins + verrou trimestre (@RequireFeature('bulletins'))
- * Plan PRO+  → toutes les fonctionnalités
- */
 @Controller('grades')
-@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, PlanFeatureGuard)
+@UseGuards(JwtAuthGuard)
 export class GradesController {
-    constructor(private readonly gradesService: GradesService) {}
+  constructor(private gradesService: GradesService) {}
 
-    // ── Saisie des notes — disponible sur FREE ──────────────────────────────────
+  // ── ÉVALUATIONS (Notes mensuelles) — PROFESSEUR uniquement en écriture ──
 
-    @Post()
-    @Roles('TEACHER')
-    @RequirePermission('grades', 'create')
-    create(@Request() req, @Body() createGradeDto: CreateGradeDto) {
-        return this.gradesService.create(req.user.tenantId, createGradeDto);
+  @Post('evaluations')
+  @UseGuards(RolesGuard)
+  @Roles('TEACHER', 'DIRECTOR')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async createEvaluation(@CurrentUser() user: any, @Body() createDto: CreateEvaluationDto) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.createEvaluation(user.tenantId, createDto);
+  }
+
+  @Post('evaluations/bulk')
+  @UseGuards(RolesGuard)
+  @Roles('TEACHER', 'DIRECTOR')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async bulkCreateEvaluations(@CurrentUser() user: any, @Body() bulkDto: BulkCreateEvaluationDto) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.bulkCreateEvaluations(user.tenantId, bulkDto);
+  }
+
+  @Get('evaluations')
+  async getEvaluations(@CurrentUser() user: any, @Query() filters: any) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.getEvaluations(user.tenantId, {
+      classId: filters.classId,
+      subject: filters.subject,
+      term: filters.term,
+      studentId: filters.studentId,
+      academicYear: filters.academicYear,
+    });
+  }
+
+  // ── COMPOSITIONS (Examens) — PROFESSEUR uniquement en écriture ───────────
+
+  @Post('compositions')
+  @UseGuards(RolesGuard)
+  @Roles('TEACHER', 'DIRECTOR')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async createComposition(@CurrentUser() user: any, @Body() createDto: CreateCompositionDto) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.createComposition(user.tenantId, createDto);
+  }
+
+  @Post('compositions/bulk')
+  @UseGuards(RolesGuard)
+  @Roles('TEACHER', 'DIRECTOR')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async bulkCreateCompositions(@CurrentUser() user: any, @Body() bulkDto: BulkCreateCompositionDto) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.bulkCreateCompositions(user.tenantId, bulkDto);
+  }
+
+  @Get('compositions')
+  async getCompositions(@CurrentUser() user: any, @Query() filters: any) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.getCompositions(user.tenantId, {
+      classId: filters.classId,
+      subject: filters.subject,
+      term: filters.term,
+      studentId: filters.studentId,
+      academicYear: filters.academicYear,
+    });
+  }
+
+  @Patch('compositions/:compositionId')
+  @UseGuards(RolesGuard)
+  @Roles('TEACHER', 'DIRECTOR')
+  async updateComposition(
+    @CurrentUser() user: any,
+    @Param('compositionId') compositionId: string,
+    @Body() updateDto: UpdateCompositionDto,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.updateComposition(user.tenantId, compositionId, updateDto);
+  }
+
+  // ── RAPPORTS (Bulletins) — DIRECTEUR uniquement ──────────────────────────
+
+  @Get('student/:studentId/annual-report')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async getAnnualReport(
+    @CurrentUser() user: any,
+    @Param('studentId') studentId: string,
+    @Query('academicYear') academicYear?: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.getAnnualReport(user.tenantId, studentId, academicYear);
+  }
+
+  @Get('student/:studentId/report')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async getStudentReport(
+    @CurrentUser() user: any,
+    @Param('studentId') studentId: string,
+    @Query('term') term: string,
+    @Query('academicYear') academicYear?: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    if (!term) throw new BadRequestException('Term required');
+    return this.gradesService.getStudentReport(user.tenantId, studentId, term, academicYear);
+  }
+
+  @Get('class/:classId/report')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async getClassReport(
+    @CurrentUser() user: any,
+    @Param('classId') classId: string,
+    @Query('term') term: string,
+    @Query('academicYear') academicYear?: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    if (!term) throw new BadRequestException('Term required');
+    return this.gradesService.getClassReport(user.tenantId, classId, term, academicYear);
+  }
+
+  // ── COEFFICIENTS — DIRECTEUR uniquement ──────────────────────────────────
+
+  @Post('subject-coefficients')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async setSubjectCoefficients(
+    @CurrentUser() user: any,
+    @Body() setDto: SetSubjectCoefficientsDto,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.setSubjectCoefficients(user.tenantId, setDto);
+  }
+
+  @Get('subject-coefficients/:classId')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async getSubjectCoefficients(
+    @CurrentUser() user: any,
+    @Param('classId') classId: string,
+    @Query('academicYear') academicYear?: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.getSubjectCoefficients(user.tenantId, classId, academicYear);
+  }
+
+  // ── VERROUS DE TRIMESTRE — DIRECTEUR uniquement ───────────────────────────
+
+  @Get('trimester-lock')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async getTrimesterLock(
+    @CurrentUser() user: any,
+    @Query('classId') classId: string,
+    @Query('trimester') trimester: string,
+    @Query('academicYear') academicYear: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    if (!classId || !trimester || !academicYear) {
+      throw new BadRequestException('classId, trimester, academicYear required');
     }
+    // Retourner {} si pas de verrou — évite le corps vide que NestJS envoie pour null
+    const lock = await this.gradesService.getTrimesterLock(user.tenantId, classId, trimester, academicYear);
+    return lock ?? {};
+  }
 
-    @Post('bulk')
-    @Roles('TEACHER')
-    @RequirePermission('grades', 'create')
-    createBulk(@Request() req, @Body() createBulkDto: CreateBulkGradeDto) {
-        return this.gradesService.createBulk(req.user.tenantId, createBulkDto);
+  @Post('trimester-lock')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async lockTrimester(
+    @CurrentUser() user: any,
+    @Body() body: { classId: string; trimester: string; academicYear: string },
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    return this.gradesService.lockTrimester(
+      user.tenantId,
+      body.classId,
+      body.trimester,
+      body.academicYear,
+      user.firstName ? `${user.firstName} ${user.lastName}` : 'Unknown',
+    );
+  }
+
+  @Delete('trimester-lock')
+  @UseGuards(RolesGuard)
+  @Roles('DIRECTOR')
+  async unlockTrimester(
+    @CurrentUser() user: any,
+    @Query('classId') classId: string,
+    @Query('trimester') trimester: string,
+    @Query('academicYear') academicYear: string,
+  ) {
+    if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    if (!classId || !trimester || !academicYear) {
+      throw new BadRequestException('classId, trimester, academicYear required');
     }
-
-    // ── Consultation des notes — disponible sur FREE ────────────────────────────
-
-    @SkipThrottle()
-    @Get()
-    @RequirePermission('grades', 'view')
-    findAll(@Request() req, @Query() filters: any) {
-        return this.gradesService.findAll(req.user.tenantId, filters);
-    }
-
-    @SkipThrottle()
-    @Get(':id')
-    @RequirePermission('grades', 'view')
-    findOne(@Request() req, @Param('id') id: string) {
-        return this.gradesService.findOne(req.user.tenantId, id);
-    }
-
-    @SkipThrottle()
-    @Get('stats')
-    @RequirePermission('grades', 'view')
-    getStats(@Request() req, @Query() filters: any) {
-        return this.gradesService.getStats(req.user.tenantId, filters);
-    }
-
-    @Patch(':id')
-    @Roles('TEACHER')
-    @RequirePermission('grades', 'edit')
-    update(
-        @Request() req,
-        @Param('id') id: string,
-        @Body() updateGradeDto: UpdateGradeDto,
-    ) {
-        return this.gradesService.update(req.user.tenantId, id, updateGradeDto);
-    }
-
-    @Delete(':id')
-    @Roles('DIRECTOR')
-    @RequirePermission('grades', 'delete')
-    remove(@Request() req, @Param('id') id: string) {
-        return this.gradesService.remove(req.user.tenantId, id);
-    }
-
-    // ── Rapports détaillés — PRO requis (alimentent les bulletins PDF) ──────────
-
-    @SkipThrottle()
-    @Get('student/:studentId/report')
-    @RequireFeature('bulletins')
-    @RequirePermission('grades', 'view')
-    getStudentReport(
-        @Request() req,
-        @Param('studentId') studentId: string,
-        @Query('term') term: string,
-        @Query('academicYear') academicYear?: string,
-    ) {
-        return this.gradesService.getStudentReport(req.user.tenantId, studentId, term, academicYear);
-    }
-
-    @SkipThrottle()
-    @Get('class/:classId/report')
-    @RequireFeature('bulletins')
-    @RequirePermission('grades', 'view')
-    getClassReport(
-        @Request() req,
-        @Param('classId') classId: string,
-        @Query('term') term: string,
-        @Query('academicYear') academicYear?: string,
-    ) {
-        return this.gradesService.getClassReport(req.user.tenantId, classId, term, academicYear);
-    }
-
-    // ── Verrou de trimestre — PRO requis (inutile sans bulletins) ───────────────
-
-    @SkipThrottle()
-    @Get('trimester-lock')
-    @RequireFeature('bulletins')
-    @RequirePermission('grades', 'view')
-    getTrimesterLock(
-        @Request() req,
-        @Query('classId') classId: string,
-        @Query('trimester') trimester: string,
-        @Query('academicYear') academicYear: string,
-    ) {
-        return this.gradesService.getTrimesterLock(req.user.tenantId, classId, trimester, academicYear);
-    }
-
-    @Post('trimester-lock')
-    @RequireFeature('bulletins')
-    @Roles('TEACHER')
-    @RequirePermission('grades', 'edit')
-    lockTrimester(
-        @Request() req,
-        @Body() body: { classId: string; trimester: string; academicYear: string },
-    ) {
-        const lockedByName = `${req.user.firstName ?? ''} ${req.user.lastName ?? ''}`.trim() || undefined;
-        return this.gradesService.lockTrimester(
-            req.user.tenantId,
-            body.classId,
-            body.trimester,
-            body.academicYear,
-            lockedByName,
-        );
-    }
-
-    @Delete('trimester-lock')
-    @RequireFeature('bulletins')
-    @Roles('TEACHER', 'DIRECTOR')
-    @RequirePermission('grades', 'edit')
-    @HttpCode(200)
-    unlockTrimester(
-        @Request() req,
-        @Query('classId') classId: string,
-        @Query('trimester') trimester: string,
-        @Query('academicYear') academicYear: string,
-    ) {
-        return this.gradesService.unlockTrimester(req.user.tenantId, classId, trimester, academicYear);
-    }
+    return this.gradesService.unlockTrimester(user.tenantId, classId, trimester, academicYear);
+  }
 }

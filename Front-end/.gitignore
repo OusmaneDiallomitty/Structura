@@ -47,3 +47,6 @@ next-env.d.ts
 
 # docker
 docker-compose.override.yml
+
+# dossier accidentel
+/Front-end/

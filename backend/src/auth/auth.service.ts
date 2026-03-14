@@ -199,8 +199,9 @@ export class AuthService {
     // Exception : SUPER_ADMIN bypass — contrôle du système, pas besoin d'auto-approbation.
     const hadActiveSession = !!matchedUser.currentSessionId;
     const isSuperAdmin = matchedUser.role === 'SUPER_ADMIN';
+    const isDevMode = this.configService.get('NODE_ENV') === 'development';
 
-    if (hadActiveSession && loginContext && !isSuperAdmin) {
+    if (hadActiveSession && loginContext && !isSuperAdmin && !isDevMode) {
       const pendingToken = crypto.randomUUID();
       const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
 

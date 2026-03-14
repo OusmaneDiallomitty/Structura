@@ -147,9 +147,6 @@ export class StudentsService {
         payments: {
           orderBy: { createdAt: 'desc' },
         },
-        grades: {
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
 

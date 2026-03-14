@@ -658,20 +658,12 @@ export default function PaymentsPage() {
         getCurrentAcademicYear(token).catch(() => null),
       ]);
 
-      // Synchroniser l'année scolaire et le calendrier depuis le backend
+      // Synchroniser l'année scolaire courante
       if (currentAcademicYear) {
-        // Année courante → selectedYear
         setSelectedYear(currentAcademicYear.name);
-
-        // Calendrier → si startMonth/durationMonths renseignés en BDD, priorité sur localStorage
-        if (currentAcademicYear.startMonth && currentAcademicYear.durationMonths) {
-          const calFromBD: SchoolCalendar = {
-            startMonth: currentAcademicYear.startMonth,
-            durationMonths: currentAcademicYear.durationMonths,
-          };
-          setSchoolCalendar(calFromBD);
-          localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(calFromBD));
-        }
+        // Le calendrier scolaire (startMonth/durationMonths) est géré exclusivement
+        // par tenant.schoolCalendar (config frais) — chargé dans le useEffect dédié.
+        // academicYear.startMonth est utilisé uniquement dans le wizard NewYearWizard.
       }
 
       setStudents(backendStudents);

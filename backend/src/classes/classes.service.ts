@@ -259,8 +259,12 @@ export class ClassesService {
 
     // Supprimer d'abord les dépendances (élèves, présences, paiements, notes)
     await this.prisma.$transaction([
-      // Supprimer les notes des élèves de cette classe
-      this.prisma.grade.deleteMany({
+      // Supprimer les évaluations des élèves de cette classe
+      this.prisma.evaluation.deleteMany({
+        where: { student: { classId: id } },
+      }),
+      // Supprimer les compositions des élèves de cette classe
+      this.prisma.composition.deleteMany({
         where: { student: { classId: id } },
       }),
       // Supprimer les présences des élèves de cette classe

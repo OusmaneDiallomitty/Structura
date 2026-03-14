@@ -25,11 +25,12 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    // Comparaison stricte — .includes() était dangereux ("TEACHER".includes("EACHER") === true)
-    const hasRole = requiredRoles.some((role) => user.role === role);
+    // Le JWT stocke le rôle en lowercase — normaliser avant comparaison
+    const roleUpper = user.role?.toUpperCase();
+    const hasRole = requiredRoles.some((role) => roleUpper === role);
 
     if (!hasRole) {
-      const roleLabel = ROLE_LABELS[user.role] ?? user.role;
+      const roleLabel = ROLE_LABELS[roleUpper] ?? user.role;
       const allowedLabels = requiredRoles
         .map((r) => ROLE_LABELS[r] ?? r)
         .join(', ');

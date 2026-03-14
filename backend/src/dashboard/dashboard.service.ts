@@ -563,8 +563,9 @@ export class DashboardService {
     if (!q || q.trim().length < 2) return { results: [] };
 
     const term = q.trim();
+    const roleUpper = user.role?.toUpperCase();
     const canView = (resource: string) => {
-      if (user.role === 'DIRECTOR') return true;
+      if (roleUpper === 'DIRECTOR') return true;
       if (user.permissions) return user.permissions[resource]?.view === true;
       const defaults: Record<string, Record<string, Record<string, boolean>>> = {
         TEACHER:    { students: { view: true }, classes: { view: true }, payments: { view: false } },
@@ -572,7 +573,7 @@ export class DashboardService {
         ACCOUNTANT: { students: { view: true }, classes: { view: true }, payments: { view: true } },
         SUPERVISOR: { students: { view: true }, classes: { view: true }, payments: { view: false } },
       };
-      return defaults[user.role]?.[resource]?.view === true;
+      return defaults[roleUpper]?.[resource]?.view === true;
     };
 
     const queries: Promise<any[]>[] = [];
@@ -587,7 +588,7 @@ export class DashboardService {
           { matricule: { contains: term, mode: 'insensitive' } },
         ],
       };
-      if (user.role === 'TEACHER') {
+      if (roleUpper === 'TEACHER') {
         const ids = Array.isArray(user.assignedClassIds) ? user.assignedClassIds.filter(Boolean) : [];
         studentWhere.classId = ids.length > 0 ? { in: ids } : null;
       }
@@ -613,7 +614,7 @@ export class DashboardService {
         tenantId,
         name: { contains: term, mode: 'insensitive' },
       };
-      if (user.role === 'TEACHER') {
+      if (roleUpper === 'TEACHER') {
         const ids = Array.isArray(user.assignedClassIds) ? user.assignedClassIds.filter(Boolean) : [];
         classWhere.id = ids.length > 0 ? { in: ids } : undefined;
         if (ids.length === 0) {

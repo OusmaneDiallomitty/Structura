@@ -367,6 +367,8 @@ export default function ClassesPage() {
       section: formData.selectedSection || undefined,
       capacity: formData.capacity,
       teacherName: formData.teacherName || undefined,
+      // Primaire/Maternel → PRIMARY, Secondaire/Lycée → SECONDARY
+      gradeMode: ['Primaire', 'Maternel'].includes(formData.level) ? 'PRIMARY' : 'SECONDARY',
     };
 
     try {

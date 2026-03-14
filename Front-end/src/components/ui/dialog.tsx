@@ -34,43 +34,12 @@ function DialogOverlay({
   className,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  // Bloquer TOTALEMENT le scroll de la page quand un dialog est ouvert
+  // Bloquer le scroll de la page pendant que le dialog est ouvert
   React.useEffect(() => {
-    // 1. CSS : overflow:hidden sur html ET body (couvre tous les navigateurs)
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    const prevBodyOverflow = document.body.style.overflow;
+    const prev = document.documentElement.style.overflow;
     document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
-
-    // 2. Listener non-passif : bloque la molette au niveau document
-    //    Laisse scroller les éléments internes scrollables du dialog
-    const preventScroll = (e: Event) => {
-      const we = e as WheelEvent;
-      let el = we.target as HTMLElement | null;
-      // Chercher un ancêtre scrollable (overflow auto/scroll + contenu > hauteur)
-      while (el && el !== document.body) {
-        const style = window.getComputedStyle(el);
-        const isScrollable =
-          (style.overflowY === "auto" || style.overflowY === "scroll") &&
-          el.scrollHeight > el.clientHeight;
-        if (isScrollable) {
-          const atTop    = el.scrollTop <= 0 && we.deltaY < 0;
-          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && we.deltaY > 0;
-          // Pas à la limite → laisser scroller l'élément
-          if (!atTop && !atBottom) return;
-          break; // À la limite → bloquer la propagation vers le body
-        }
-        el = el.parentElement;
-      }
-      we.preventDefault();
-    };
-
-    document.addEventListener("wheel", preventScroll, { passive: false });
-
     return () => {
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-      document.removeEventListener("wheel", preventScroll);
+      document.documentElement.style.overflow = prev;
     };
   }, []);
 
@@ -86,6 +55,7 @@ function DialogOverlay({
   )
 }
 
+
 function DialogContent({
   className,
   children,
@@ -94,22 +64,40 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // Séparer DialogFooter du reste pour le garder toujours visible (hors zone scroll)
+  const childrenArray = React.Children.toArray(children)
+  const footer = childrenArray.find(
+    (child) => React.isValidElement(child) && (child.type as { displayName?: string })?.displayName === 'DialogFooter'
+  )
+  const body = childrenArray.filter(
+    (child) => React.isValidElement(child) && (child.type as { displayName?: string })?.displayName !== 'DialogFooter'
+  )
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border border-gray-200 p-6 shadow-2xl duration-200 outline-none sm:max-w-lg",
+          "bg-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 flex flex-col w-full max-w-[calc(100%-2rem)] max-h-[90vh] translate-x-[-50%] translate-y-[-50%] rounded-lg border border-gray-200 shadow-2xl duration-200 outline-none overflow-hidden sm:max-w-lg",
           className
         )}
         {...props}
       >
-        {children}
+        {/* Zone scrollable — ne contient PAS le footer */}
+        <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-6 flex flex-col gap-4">
+          {footer ? body : children}
+        </div>
+        {/* Footer toujours visible en bas */}
+        {footer && (
+          <div className="px-6 pb-5 pt-2 border-t border-gray-100 bg-white">
+            {footer}
+          </div>
+        )}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-all hover:opacity-100 hover:bg-muted hover:scale-110 active:scale-90 active:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-xs opacity-70 transition-all hover:opacity-100 hover:bg-muted hover:scale-110 active:scale-90 active:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -142,6 +130,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     />
   )
 }
+DialogFooter.displayName = "DialogFooter"
 
 function DialogTitle({
   className,
@@ -181,3 +170,4 @@ export {
   DialogTitle,
   DialogTrigger,
 }
+

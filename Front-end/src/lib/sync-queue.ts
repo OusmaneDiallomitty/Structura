@@ -10,7 +10,7 @@ import { createStudent, updateStudent, deleteStudent } from "@/lib/api/students.
 import { createClass, updateClass, deleteClass } from "@/lib/api/classes.service";
 import { createPayment, updatePayment } from "@/lib/api/payments.service";
 import { createAttendance, updateAttendance } from "@/lib/api/attendance.service";
-import { bulkCreateGrades, updateGrade } from "@/lib/api/grades.service";
+// Grades sync supprimé — le nouveau système (Evaluation/Composition) utilise upsert direct
 
 /** Erreur d'authentification non-retryable : token absent ou 401 */
 class SyncAuthError extends Error {
@@ -229,16 +229,6 @@ class SyncQueue {
           } else if (action.action === "update") {
             const { id, _tempId, needsSync, ...dto } = action.data;
             await updateAttendance(token, id, dto);
-          }
-          break;
-        }
-
-        case "grade": {
-          if (action.action === "bulk_create") {
-            await bulkCreateGrades(token, action.data);
-          } else if (action.action === "update") {
-            const { id, _tempId, needsSync, ...dto } = action.data;
-            await updateGrade(token, id, dto);
           }
           break;
         }

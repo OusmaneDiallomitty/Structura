@@ -46,7 +46,7 @@ export default function DashboardLayout({
           <Header />
 
           {/* Page Content */}
-          <main className="flex-1 p-4 lg:p-8 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-hidden">
+          <main className="flex-1 p-4 lg:p-8 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-clip">
             {children}
           </main>
         </div>

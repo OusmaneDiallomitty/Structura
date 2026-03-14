@@ -79,7 +79,9 @@ model Tenant {
   attendance            Attendance[]
   classes               Class[]
   classSubjects         ClassSubject[]
-  grades                Grade[]
+  evaluations           Evaluation[]
+  compositions          Composition[]
+  subjectCoefficients   SubjectCoefficient[]
   payments              Payment[]
   students              Student[]
   users                 User[]
@@ -181,7 +183,8 @@ model Student {
   updatedAt      DateTime       @default(now()) @updatedAt
 
   attendances    Attendance[]
-  grades         Grade[]
+  evaluations    Evaluation[]
+  compositions   Composition[]
   payments       Payment[]
   class          Class          @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   academicYear   AcademicYear?  @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
@@ -209,6 +212,7 @@ model Class {
   teacherId      String?
   teacherName    String?
   room           String?
+  gradeMode      String        @default("SECONDARY") // PRIMARY (sur 10, compo seule) | SECONDARY (sur 20, eval+compo)
   academicYear   String        @default("2024-2025") // Deprecated: use academicYearId
   academicYearId String?
   tenantId       String
@@ -217,7 +221,9 @@ model Class {
 
   attendances    Attendance[]
   tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  grades         Grade[]
+  evaluations    Evaluation[]
+  compositions   Composition[]
+  subjectCoefficients SubjectCoefficient[]
   students       Student[]
   subjects       ClassSubject[]
   academicYearRel AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
@@ -236,7 +242,7 @@ model ClassSubject {
   classId     String
   tenantId    String
   name        String
-  coefficient Int      @default(1)
+  coefficient Float    @default(1)   // Décimal autorisé (ex: 1.5) ; 0 = matière sans coefficient
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
@@ -297,29 +303,74 @@ model Payment {
   @@map("payments")
 }
 
-model Grade {
+/// Évaluations mensuelles (notes de cours) — secondaire uniquement
+model Evaluation {
   id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  subject      String
-  score        Float
-  maxScore     Float    @default(20)
-  coefficient  Float?   @default(1)
-  term         String
-  academicYear String   @default("2024-2025")
-  teacherId    String?
-  teacherName  String?
-  notes        String?
   studentId    String
   classId      String
+  subject      String   // "Mathématiques", "Français", etc.
+  term         String   // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  academicYear String   @default("2024-2025")
+  month        String   // "Octobre", "Novembre", "Décembre" — dynamique selon schoolCalendar
+  score        Float    // Note du mois (sur /20)
+  teacherName  String?
+  notes        String?
   tenantId     String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
-  class        Class    @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([studentId, subject, term, academicYear])
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class        Class    @relation(fields: [classId], references: [id], onDelete: NoAction)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, classId, subject, term, academicYear, month])
+  @@index([tenantId, classId, term])
+  @@index([tenantId, studentId])
+  @@map("evaluations")
+}
+
+/// Compositions (examens trimestriels) — secondaire uniquement
+model Composition {
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  studentId         String
+  classId           String
+  subject           String   // "Mathématiques", "Français", etc.
+  term              String   // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  academicYear      String   @default("2024-2025")
+  compositionScore  Float    // Note examen (sur /20)
+  teacherName       String?
+  notes             String?
+  tenantId          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class             Class    @relation(fields: [classId], references: [id], onDelete: NoAction)
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, classId, subject, term, academicYear])
+  @@index([tenantId, classId, term])
+  @@index([tenantId, studentId])
+  @@map("compositions")
+}
+
+/// Coefficients de matière par classe — configurés par directeur
+model SubjectCoefficient {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId      String
+  subject      String
+  coefficient  Float    @default(1)
+  academicYear String   @default("2024-2025")
+  tenantId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  class        Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, classId, subject, academicYear])
   @@index([tenantId, classId])
-  @@map("grades")
+  @@map("subject_coefficients")
 }
 
 /// Verrou de trimestre — empêche la génération de bulletins tant que le trimestre n'est pas validé
@@ -338,6 +389,34 @@ model TrimesterLock {
   @@index([classId])
   @@index([tenantId])
   @@map("trimester_locks")
+}
+
+/// Snooze d'alertes admin — permet de masquer temporairement une alerte par type+tenant
+model AlertSnooze {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  alertType    String   // TRIAL_EXPIRING_SOON | TRIAL_EXPIRING_WEEK | TRIAL_EXPIRED | PAST_DUE | INACTIVE_7DAYS | NO_SETUP | LONG_FREE
+  snoozedUntil DateTime
+  snoozedBy    String   // email de l'admin
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, alertType])
+  @@index([tenantId])
+  @@index([snoozedUntil])
+  @@map("alert_snoozes")
+}
+
+/// Notes internes par tenant — visibles uniquement dans le panel admin
+model TenantNote {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId    String
+  content     String
+  authorEmail String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_notes")
 }
 
 /// Journal d'audit immuable — toutes les actions admin et événements plateforme

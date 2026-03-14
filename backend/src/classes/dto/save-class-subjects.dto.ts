@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsNumber,
   IsInt,
   IsString,
   Max,
@@ -12,8 +13,8 @@ export class SubjectItemDto {
   @IsString()
   name: string;
 
-  @IsInt()
-  @Min(1)
+  @IsNumber()
+  @Min(0)    // 0 = matière sans coefficient (ex: EPS, Dessin)
   @Max(20)
   coefficient: number;
 

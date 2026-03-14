@@ -1,2046 +1,2464 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  Save, Loader2, WifiOff, RefreshCw, BookOpen, TrendingUp,
-  Users, Plus, X, ChevronDown, ChevronUp, Award, CheckCircle, XCircle, Pencil, FileText,
-  Lock, Unlock, ShieldCheck,
+  BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
+  Users, GraduationCap, ChevronRight, AlertTriangle,
+  CheckCircle, BarChart3, FileText, X, Settings2, Plus, Trash2,
+  Download, Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOnline } from "@/hooks/use-online";
-import { useSubscription } from "@/hooks/use-subscription";
-import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
-import { syncQueue } from "@/lib/sync-queue";
-import { offlineDB, STORES } from "@/lib/offline-db";
 import { getClasses, getClassSubjects, saveClassSubjects } from "@/lib/api/classes.service";
 import { getStudents } from "@/lib/api/students.service";
+import { getTeamMembers } from "@/lib/api/users.service";
+import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
+import { getFeesConfig } from "@/lib/api/fees.service";
 import {
-  getGrades, bulkCreateGrades, updateGrade,
-  checkTrimesterLock, lockTrimester, unlockTrimester,
-  type BackendGrade, type TrimesterLock,
+  getEvaluations, bulkSaveEvaluations,
+  getCompositions, bulkSaveCompositions,
+  getClassReport, getTrimesterLock, lockTrimester, unlockTrimester,
+  getSubjectCoefficients, getStudentReport, getAnnualReport,
+  type ClassReport, type TrimesterLock, type AnnualReport,
 } from "@/lib/api/grades.service";
-import {
-  getSubjectsForLevel, TRIMESTERS, getMaxScoreForLevel,
-} from "@/lib/subjects-config";
+import { getSubjectsForLevel } from "@/lib/subjects-config";
 import { formatClassName } from "@/lib/class-helpers";
-import Link from "next/link";
+import { generateBulletinPDF, printBulletinPDF, generateAllBulletinsPDF, printAllBulletinsPDF, type BulletinData } from "@/lib/bulletin-pdf";
+import type { BackendClass } from "@/lib/api/classes.service";
+import type { BackendStudent } from "@/types";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-interface ClassOption {
-  id: string;
-  name: string;
-  section?: string | null;
-  level: string;
+const MONTHS = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+];
+
+const TERMS = ["Trimestre 1", "Trimestre 2", "Trimestre 3"] as const;
+type Term = typeof TERMS[number];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getTermMonths(
+  startMonth: string,
+  durationMonths: number,
+  term: Term,
+): string[] {
+  const startIdx = MONTHS.indexOf(startMonth);
+  if (startIdx === -1) return [];
+  const months: string[] = [];
+  for (let i = 0; i < Math.min(durationMonths, 12); i++) {
+    months.push(MONTHS[(startIdx + i) % 12]);
+  }
+  const t1End = Math.ceil(months.length / 3);
+  const t2End = t1End + Math.ceil((months.length - t1End) / 2);
+  if (term === "Trimestre 1") return months.slice(0, t1End);
+  if (term === "Trimestre 2") return months.slice(t1End, t2End);
+  return months.slice(t2End);
 }
 
-interface StudentInfo {
-  id: string;
-  name: string;
-  matricule: string;
-  gender?: string; // "M" | "F"
+type MentionKey = "TB" | "Bien" | "AB" | "Passable" | "Insuf" | "none";
+
+/** Normalise un score vers /20 pour les mentions/couleurs (primaire /10 → x2) */
+function toScore20(score: number | null, scoreMax: number): number | null {
+  if (score === null) return null;
+  return scoreMax === 10 ? score * 2 : score;
 }
 
-/** Une matière telle que configurée par l'utilisateur */
-interface SubjectRow {
-  name: string;
-  coefficient: number;
-  /** true = cochée / incluse dans la grille */
-  selected: boolean;
-  /** false = matière ajoutée manuellement (peut être supprimée) */
-  isDefault: boolean;
+function getMention(score: number | null, scoreMax = 20): { label: string; key: MentionKey } {
+  const s = toScore20(score, scoreMax);
+  if (s === null) return { label: "—", key: "none" };
+  if (s >= 16) return { label: "Très Bien", key: "TB" };
+  if (s >= 14) return { label: "Bien", key: "Bien" };
+  if (s >= 12) return { label: "Assez Bien", key: "AB" };
+  if (s >= 10) return { label: "Passable", key: "Passable" };
+  return { label: "Insuffisant", key: "Insuf" };
 }
 
-interface GradeCell {
-  score: number | null;
-  scoreInput: string;
-  existingGradeId?: string;
-  isDirty: boolean;
+const MENTION_STYLES: Record<MentionKey, string> = {
+  TB: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  Bien: "bg-blue-100 text-blue-700 border-blue-200",
+  AB: "bg-green-100 text-green-700 border-green-200",
+  Passable: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  Insuf: "bg-red-100 text-red-700 border-red-200",
+  none: "bg-gray-100 text-gray-500 border-gray-200",
+};
+
+function avgColor(avg: number | null, scoreMax = 20): string {
+  const s = toScore20(avg, scoreMax);
+  if (s === null) return "text-gray-400";
+  if (s >= 12) return "text-emerald-600 font-semibold";
+  if (s >= 10) return "text-amber-600 font-semibold";
+  return "text-red-600 font-semibold";
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function currentAcademicYear(): string {
-  const y = new Date().getFullYear();
-  return `${y}-${y + 1}`;
+function fmt(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return n.toFixed(2);
 }
 
-function scoreColor(score: number | null, maxScore: number): string {
-  if (score === null) return "text-muted-foreground";
-  const pct = score / maxScore;
-  if (pct >= 0.8) return "text-emerald-700 font-bold";
-  if (pct >= 0.7) return "text-blue-700 font-semibold";
-  if (pct >= 0.5) return "text-amber-700 font-semibold";
-  return "text-red-700 font-semibold";
+function rankMedal(rank: number): string {
+  if (rank === 1) return "🥇";
+  if (rank === 2) return "🥈";
+  if (rank === 3) return "🥉";
+  return `${rank}`;
 }
 
-function appreciation(avg: number | null, maxScore: number): string {
-  if (avg === null) return "—";
-  const pct = avg / maxScore;
-  if (pct >= 0.9) return "Excellent";
-  if (pct >= 0.8) return "Très bien";
-  if (pct >= 0.7) return "Bien";
-  if (pct >= 0.6) return "Assez bien";
-  if (pct >= 0.5) return "Passable";
-  return "Insuffisant";
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-function initials(name: string): string {
-  return name.trim().split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-}
-
-const cellKey = (studentId: string, subjectName: string) =>
-  `${studentId}__${subjectName}`;
-
-/**
- * Cache localStorage des matières par classe (fallback offline).
- * Les matières sont par classe (pas par trimestre — même liste pour T1/T2/T3).
- */
-function subjectsCacheKey(classId: string) {
-  return `structura_subjects_${classId}`;
-}
-
-function cacheSubjects(classId: string, rows: SubjectRow[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(subjectsCacheKey(classId), JSON.stringify(rows));
-  } catch { /* ignore quota errors */ }
-}
-
-function loadCachedSubjects(classId: string): SubjectRow[] | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(subjectsCacheKey(classId));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-// ─── Brouillon notes (auto-save) ──────────────────────────────────────────────
-
-function draftKey(classId: string, trimester: string, year: string) {
-  return `structura_draft_${classId}_${trimester.replace(/\s/g, "_")}_${year}`;
-}
-
-function saveDraft(
-  classId: string,
-  trimester: string,
-  year: string,
-  dirtyGrid: Record<string, GradeCell>
-) {
-  if (typeof window === "undefined") return;
-  const entries = Object.entries(dirtyGrid).filter(
-    ([, c]) => c.isDirty && c.score !== null
-  );
-  if (entries.length === 0) {
-    localStorage.removeItem(draftKey(classId, trimester, year));
-    return;
-  }
-  try {
-    const payload = Object.fromEntries(
-      entries.map(([k, c]) => [k, { score: c.score, scoreInput: c.scoreInput }])
-    );
-    localStorage.setItem(draftKey(classId, trimester, year), JSON.stringify(payload));
-  } catch { /* quota */ }
-}
-
-function loadDraft(
-  classId: string,
-  trimester: string,
-  year: string
-): Record<string, { score: number; scoreInput: string }> | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(draftKey(classId, trimester, year));
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function clearDraft(classId: string, trimester: string, year: string) {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(draftKey(classId, trimester, year));
-}
-
-// ─── Cache verrou trimestre (fallback offline) ─────────────────────────────
-
-function lockCacheKey(classId: string, trimester: string, year: string) {
-  return `structura_tlock_${classId}_${trimester.replace(/\s/g, "_")}_${year}`;
-}
-
-function saveLockCache(classId: string, trimester: string, year: string, lock: TrimesterLock) {
-  if (typeof window === "undefined") return;
-  try { localStorage.setItem(lockCacheKey(classId, trimester, year), JSON.stringify(lock)); } catch { /* quota */ }
-}
-
-function loadLockCache(classId: string, trimester: string, year: string): TrimesterLock | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(lockCacheKey(classId, trimester, year));
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function clearLockCache(classId: string, trimester: string, year: string) {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(lockCacheKey(classId, trimester, year));
-}
-
-// ─── Composant interne ────────────────────────────────────────────────────────
-
-function GradesPageContent() {
-  const { user, refreshUserProfile } = useAuth();
-  const isOnline = useOnline();
-  const { hasFeature } = useSubscription();
-  const hasBulletins = hasFeature('bulletins');
-
-  // Rafraîchit classAssignments depuis le serveur au montage de la page.
-  // Garantit que si le directeur a modifié les classes/matières du prof,
-  // celui-ci voit immédiatement les changements sans se reconnecter.
-  useEffect(() => {
-    refreshUserProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const router = useRouter();
-  /** Le directeur consulte en lecture seule — seuls les profs saisissent les notes */
-  const isDirector = user?.role === 'director';
-  const searchParams = useSearchParams();
-
-  // ── Sélections — initialisées depuis l'URL pour survivre au refresh
-  const [classes, setClasses] = useState<ClassOption[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState(
-    () => searchParams.get("classId") ?? ""
-  );
-  const [selectedTrimester, setSelectedTrimester] = useState(
-    () => searchParams.get("trimester") ?? "Trimestre 1"
-  );
-
-  // ── Matières configurées par l'utilisateur
-  const [subjectRows, setSubjectRows] = useState<SubjectRow[]>([]);
-  const [subjectsOpen, setSubjectsOpen] = useState(true);
-  /** true = le prof a cliqué "Confirmer" → le panneau se replie, la grille apparaît */
-  const [subjectsConfirmed, setSubjectsConfirmed] = useState(false);
-  // Ajout d'une matière personnalisée
-  const [isAddingSubject, setIsAddingSubject] = useState(false);
-  const [newSubjectName, setNewSubjectName] = useState("");
-  const [newSubjectCoef, setNewSubjectCoef] = useState("1");
-
-  // ── Élèves et grille de notes
-  const [students, setStudents] = useState<StudentInfo[]>([]);
-  const [grid, setGrid] = useState<Record<string, GradeCell>>({});
-  /** Cellules en mode édition (notes déjà en BDD cliquées pour modification) */
-  const [editingCells, setEditingCells] = useState<Set<string>>(new Set());
-
-  // ── Verrou de trimestre
-  const [trimesterLock, setTrimesterLock] = useState<TrimesterLock | null>(null);
-  const [isLocking, setIsLocking] = useState(false);
-
-  // ── États UI
-  const [isLoadingClasses, setIsLoadingClasses] = useState(true);
-  const [isLoadingData, setIsLoadingData] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const academicYear = currentAcademicYear();
-  const selectedClass = classes.find((c) => c.id === selectedClassId);
-  const maxScore = getMaxScoreForLevel(selectedClass?.level ?? "Primaire");
-
-  // Clé stable pour détecter les vrais changements de classAssignments (évite les
-  // re-fetch dus aux nouvelles références d'objet après refreshUserProfile).
-  const assignmentsKey = JSON.stringify(user?.classAssignments ?? null);
-
-  // ── 1. Charger les classes ────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    async function load(retries = 1) {
-      setIsLoadingClasses(true);
-      const token = storage.getAuthItem("structura_token");
-      if (!token) { setIsLoadingClasses(false); return; }
-      const isTeacher = (user?.role ?? "").toLowerCase() === "teacher";
-      const assignedClassIds = isTeacher
-        ? (user?.classAssignments ?? []).map((a) => a.classId)
-        : null;
-
-      function applyAssignmentFilter(raw: any[]) {
-        const filtered = assignedClassIds !== null
-          ? raw.filter((c: any) => assignedClassIds!.includes(c.id))
-          : raw;
-        return filtered.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          section: c.section ?? null,
-          level: c.level ?? "Primaire",
-        }));
-      }
-
-      try {
-        const res = await getClasses(token);
-        const raw = Array.isArray(res) ? res : (res as any).classes ?? [];
-        if (!cancelled) setClasses(applyAssignmentFilter(raw));
-      } catch {
-        // Retry une fois si online (token en cours de refresh, réseau instable…)
-        if (retries > 0 && !cancelled && navigator.onLine) {
-          setTimeout(() => { if (!cancelled) load(retries - 1); }, 1500);
-          return;
-        }
-        // Fallback IndexedDB (mode hors ligne)
-        try {
-          const cached = await offlineDB.getAll<any>(STORES.CLASSES);
-          if (cached.length > 0 && !cancelled) {
-            setClasses(applyAssignmentFilter(cached));
-          } else if (!cancelled) {
-            toast.error("Impossible de charger les classes");
-          }
-        } catch {
-          if (!cancelled) toast.error("Impossible de charger les classes");
-        }
-      } finally {
-        if (!cancelled) setIsLoadingClasses(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentsKey]);
-
-  // ── 2. Quand la classe change → charger les matières ──────────────────────
-  //       Priorité : API (DB partagée) > cache localStorage > config par défaut
-  useEffect(() => {
-    // Aucune classe sélectionnée → réinitialiser tout
-    if (!selectedClassId) {
-      setSubjectRows([]);
-      setStudents([]);
-      setGrid({});
-      setSubjectsConfirmed(false);
-      return;
-    }
-    // Les classes sont encore en chargement → attendre sans rien effacer
-    if (!selectedClass) return;
-
-    let cancelled = false;
-
-    async function loadSubjects() {
-      const token = storage.getAuthItem("structura_token");
-
-      // Matières autorisées pour ce prof dans cette classe (null = pas de restriction)
-      const isTeacher = (user?.role ?? "").toLowerCase() === "teacher";
-      const teacherSubjects: string[] | null = isTeacher
-        ? (() => {
-            const a = (user?.classAssignments ?? []).find((ca) => ca.classId === selectedClassId);
-            return a && a.subjects.length > 0 ? a.subjects : null;
-          })()
-        : null;
-
-      /** Filtre les rows selon les matières du prof (si applicable) */
-      function applyTeacherFilter(rows: SubjectRow[]): SubjectRow[] {
-        if (!teacherSubjects) return rows;
-        return rows.filter((r) => teacherSubjects.includes(r.name));
-      }
-
-      // Priorité 1 : API — source de vérité partagée entre tous les utilisateurs
-      if (token && isOnline) {
-        try {
-          const apiSubjects = await getClassSubjects(token, selectedClassId);
-          if (cancelled) return;
-          if (apiSubjects.length > 0) {
-            const rows: SubjectRow[] = applyTeacherFilter(
-              apiSubjects.map((s) => ({
-                name: s.name,
-                coefficient: s.coefficient,
-                selected: true,
-                isDefault: false,
-              }))
-            );
-            setSubjectRows(rows);
-            cacheSubjects(selectedClassId, rows);
-            setSubjectsConfirmed(true);
-            setSubjectsOpen(false);
-            return;
-          }
-        } catch {
-          // API indisponible → fallback
-        }
-      }
-
-      if (cancelled) return;
-
-      // Priorité 2 : cache localStorage (offline ou API vide)
-      const cached = loadCachedSubjects(selectedClassId);
-      if (cached && cached.length > 0) {
-        setSubjectRows(applyTeacherFilter(cached));
-        setSubjectsConfirmed(true);
-        setSubjectsOpen(false);
-        return;
-      }
-
-      // Priorité 3 : première fois → matières par défaut du niveau
-      const defaults = getSubjectsForLevel(selectedClass!.level);
-      setSubjectRows(
-        applyTeacherFilter(
-          defaults.map((s) => ({
-            name: s.name,
-            coefficient: s.coefficient,
-            selected: true,
-            isDefault: true,
-          }))
-        )
-      );
-      setSubjectsConfirmed(isTeacher && !!teacherSubjects);  // Auto-confirmer pour les profs avec matières assignées
-      setSubjectsOpen(!isTeacher || !teacherSubjects);
-    }
-
-    setStudents([]);
-    setGrid({});
-    loadSubjects();
-    return () => { cancelled = true; };
-  // selectedClass?.level : quand les classes finissent de charger après un refresh avec classId dans l'URL
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId, isOnline, selectedClass?.level]);
-
-  // ── 3. Charger élèves + notes → mettre à jour matières + grille ──────────
-  useEffect(() => {
-    if (!selectedClassId || !selectedClass) return;
-
-    let cancelled = false;
-
-    async function load() {
-      setIsLoadingData(true);
-      const token = storage.getAuthItem("structura_token");
-      if (!token) { setIsLoadingData(false); return; }
-
-      try {
-        const [studentsRes, gradesRes] = await Promise.all([
-          getStudents(token, { classId: selectedClassId }),
-          getGrades(token, {
-            classId: selectedClassId,
-            term: selectedTrimester,
-            academicYear,
-          }),
-        ]);
-        if (cancelled) return;
-
-        const studentsData: StudentInfo[] = (
-          Array.isArray(studentsRes) ? studentsRes : (studentsRes as any).students ?? []
-        ).map((s: any) => ({
-          id: s.id,
-          name: `${s.firstName ?? ""} ${s.lastName ?? ""}`.trim(),
-          matricule: s.matricule ?? "",
-          gender: s.gender ?? undefined,
-        }));
-
-        const gradesList = gradesRes as BackendGrade[];
-
-        // Reconstruire les matières :
-        // - On part des matières de la config (déjà dans subjectRows)
-        // - On met à jour les coefficients depuis les notes existantes (priorité BDD)
-        // - On ajoute les matières présentes en BDD mais pas dans la config
-        setSubjectRows((prev) => {
-          const prevNames = new Set(prev.map((r) => r.name.toLowerCase()));
-          const updated = prev.map((row) => {
-            const inDB = gradesList.find(
-              (g) => g.subject.toLowerCase() === row.name.toLowerCase()
-            );
-            // Met à jour le coefficient depuis la BDD, conserve selected
-            return inDB ? { ...row, coefficient: inDB.coefficient } : row;
-          });
-          // Ajouter les matières en BDD absentes de la config (auto-sélectionnées)
-          for (const g of gradesList) {
-            if (!prevNames.has(g.subject.toLowerCase())) {
-              updated.push({
-                name: g.subject,
-                coefficient: g.coefficient,
-                selected: true,
-                isDefault: false,
-              });
-              prevNames.add(g.subject.toLowerCase());
-            }
-          }
-          return updated;
-        });
-
-        // Construire la grille (toutes les matières disponibles dans subjectRows)
-        const allSubjectNames = [
-          ...new Set([
-            ...getSubjectsForLevel(selectedClass?.level ?? "Primaire").map((s) => s.name),
-            ...gradesList.map((g) => g.subject),
-          ]),
-        ];
-
-        const newGrid: Record<string, GradeCell> = {};
-        for (const student of studentsData) {
-          for (const subjectName of allSubjectNames) {
-            const key = cellKey(student.id, subjectName);
-            const existing = gradesList.find(
-              (g) => g.studentId === student.id && g.subject === subjectName
-            );
-            newGrid[key] = {
-              score: existing ? existing.score : null,
-              scoreInput: existing ? String(existing.score) : "",
-              existingGradeId: existing?.id,
-              isDirty: false,
-            };
-          }
-        }
-
-        // Restaurer le brouillon si disponible (crash / fermeture imprévue)
-        const draft = loadDraft(selectedClassId, selectedTrimester, academicYear);
-        if (draft) {
-          let restoredCount = 0;
-          for (const [key, { score, scoreInput }] of Object.entries(draft)) {
-            if (newGrid[key] !== undefined) {
-              newGrid[key] = { ...newGrid[key], score, scoreInput, isDirty: true };
-              restoredCount++;
-            }
-          }
-          if (restoredCount > 0) {
-            toast.info(`${restoredCount} note${restoredCount > 1 ? "s" : ""} brouillon restaurée${restoredCount > 1 ? "s" : ""}`, {
-              description: "Notes récupérées depuis la dernière session — pensez à enregistrer",
-              duration: 6000,
-            });
-          }
-        }
-
-        setStudents(studentsData);
-        setGrid(newGrid);
-      } catch {
-        // Fallback IndexedDB (mode hors ligne)
-        if (cancelled) return;
-        try {
-          const [cachedStudents, cachedGrades] = await Promise.all([
-            offlineDB.getAll<any>(STORES.STUDENTS),
-            offlineDB.getAll<BackendGrade>(STORES.GRADES),
-          ]);
-
-          const classStudents = cachedStudents.filter(
-            (s: any) => s.classId === selectedClassId
-          );
-          const classGrades = cachedGrades.filter(
-            (g) => g.classId === selectedClassId &&
-                   g.term === selectedTrimester &&
-                   g.academicYear === academicYear
-          );
-
-          if (classStudents.length === 0 && !cancelled) {
-            toast.error("Données non disponibles hors ligne pour cette classe");
-            return;
-          }
-
-          const studentsData: StudentInfo[] = classStudents.map((s: any) => ({
-            id: s.id,
-            name: `${s.firstName ?? ""} ${s.lastName ?? ""}`.trim(),
-            matricule: s.matricule ?? "",
-            gender: s.gender ?? undefined,
-          }));
-
-          // Reconstruire les matières depuis les notes offline
-          setSubjectRows((prev) => {
-            const prevNames = new Set(prev.map((r) => r.name.toLowerCase()));
-            const updated = [...prev];
-            for (const g of classGrades) {
-              if (!prevNames.has(g.subject.toLowerCase())) {
-                updated.push({ name: g.subject, coefficient: g.coefficient, selected: true, isDefault: false });
-                prevNames.add(g.subject.toLowerCase());
-              }
-            }
-            return updated;
-          });
-
-          const allSubjectNames = [
-            ...new Set([
-              ...getSubjectsForLevel(selectedClass?.level ?? "Primaire").map((s) => s.name),
-              ...classGrades.map((g) => g.subject),
-            ]),
-          ];
-
-          const newGrid: Record<string, GradeCell> = {};
-          for (const student of studentsData) {
-            for (const subjectName of allSubjectNames) {
-              const key = cellKey(student.id, subjectName);
-              const existing = classGrades.find(
-                (g) => g.studentId === student.id && g.subject === subjectName
-              );
-              newGrid[key] = {
-                score: existing ? existing.score : null,
-                scoreInput: existing ? String(existing.score) : "",
-                existingGradeId: existing?.id,
-                isDirty: false,
-              };
-            }
-          }
-
-          const draft = loadDraft(selectedClassId, selectedTrimester, academicYear);
-          if (draft) {
-            for (const [key, { score, scoreInput }] of Object.entries(draft)) {
-              if (newGrid[key] !== undefined) {
-                newGrid[key] = { ...newGrid[key], score, scoreInput, isDirty: true };
-              }
-            }
-          }
-
-          if (!cancelled) {
-            setStudents(studentsData);
-            setGrid(newGrid);
-            toast.info("Données chargées depuis le cache offline");
-          }
-        } catch {
-          if (!cancelled) toast.error("Impossible de charger les données");
-        }
-      } finally {
-        if (!cancelled) setIsLoadingData(false);
-      }
-    }
-
-    load();
-    return () => { cancelled = true; };
-  // selectedClass?.id : même raison que l'effet 2 — relancer quand les classes chargent après un refresh
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId, selectedTrimester, refreshKey, selectedClass?.id]);
-
-  // ── 4. Charger l'état du verrou quand classe/trimestre change ────────────
-  useEffect(() => {
-    if (!selectedClassId) { setTrimesterLock(null); return; }
-
-    let cancelled = false;
-
-    async function loadLock() {
-      const token = storage.getAuthItem("structura_token");
-
-      // Priorité 1 : API
-      if (token && isOnline) {
-        try {
-          const lock = await checkTrimesterLock(token, selectedClassId, selectedTrimester, academicYear);
-          if (!cancelled) {
-            setTrimesterLock(lock);
-            if (lock) saveLockCache(selectedClassId, selectedTrimester, academicYear, lock);
-            else clearLockCache(selectedClassId, selectedTrimester, academicYear);
-          }
-          return;
-        } catch { /* fallback cache */ }
-      }
-
-      // Priorité 2 : cache localStorage (offline)
-      if (!cancelled) {
-        const cached = loadLockCache(selectedClassId, selectedTrimester, academicYear);
-        setTrimesterLock(cached);
-      }
-    }
-
-    loadLock();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId, selectedTrimester, isOnline]);
-
-  // ── 5. Auto-save brouillon → survit au crash / fermeture d'onglet ─────────
-  useEffect(() => {
-    if (!selectedClassId) return;
-    const hasDirty = Object.values(grid).some((c) => c.isDirty && c.score !== null);
-    if (hasDirty) {
-      saveDraft(selectedClassId, selectedTrimester, academicYear, grid);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid]);
-
-  // ── Gestion des matières ──────────────────────────────────────────────────
-
-  /** Cocher / décocher une matière */
-  function toggleSubject(idx: number, checked: boolean) {
-    setSubjectRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, selected: checked } : r))
-    );
-  }
-
-  /** Modifier le coefficient */
-  function updateSubjectCoef(idx: number, raw: string) {
-    const val = parseInt(raw, 10);
-    if (raw === "" || (val >= 1 && val <= 20)) {
-      setSubjectRows((prev) =>
-        prev.map((r, i) =>
-          i === idx ? { ...r, coefficient: raw === "" ? 1 : val } : r
-        )
-      );
-    }
-  }
-
-  /** Supprimer définitivement une matière personnalisée */
-  function removeSubject(idx: number) {
-    setSubjectRows((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  /** Ajouter une matière personnalisée */
-  function handleAddSubject() {
-    const name = newSubjectName.trim();
-    const coef = parseInt(newSubjectCoef, 10) || 1;
-
-    if (!name) { toast.error("Entrez le nom de la matière"); return; }
-    if (coef < 1 || coef > 20) { toast.error("Le coefficient doit être entre 1 et 20"); return; }
-    if (subjectRows.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
-      toast.error("Cette matière existe déjà dans la liste");
-      return;
-    }
-
-    const newRow: SubjectRow = { name, coefficient: coef, selected: true, isDefault: false };
-    setSubjectRows((prev) => [...prev, newRow]);
-
-    // Créer des cellules vides dans la grille pour chaque élève
-    if (students.length > 0) {
-      setGrid((prev) => {
-        const next = { ...prev };
-        for (const student of students) {
-          const key = cellKey(student.id, name);
-          if (!next[key]) {
-            next[key] = { score: null, scoreInput: "", isDirty: false };
-          }
-        }
-        return next;
-      });
-    }
-
-    toast.success(`Matière "${name}" ajoutée`);
-    setNewSubjectName("");
-    setNewSubjectCoef("1");
-    setIsAddingSubject(false);
-  }
-
-  /**
-   * Confirmer la sélection des matières :
-   * - Sauvegarde en DB via API (partagé avec tous les utilisateurs)
-   * - Cache en localStorage (fallback offline)
-   * - Replie le panneau et affiche la grille
-   */
-  async function confirmSubjects() {
-    if (activeSubjects.length === 0) {
-      toast.error("Sélectionnez au moins une matière");
-      return;
-    }
-
-    const token = storage.getAuthItem("structura_token");
-    const subjectsToSave = activeSubjects.map((s, idx) => ({
-      name: s.name,
-      coefficient: s.coefficient,
-      order: idx,
-    }));
-
-    // Sauvegarde API (online)
-    if (token && isOnline) {
-      try {
-        await saveClassSubjects(token, selectedClassId, subjectsToSave);
-      } catch {
-        toast.warning("Sauvegardé localement — synchronisera dès la reconnexion");
-      }
-    }
-
-    // Toujours mettre à jour le cache local
-    cacheSubjects(selectedClassId, subjectRows);
-
-    setSubjectsConfirmed(true);
-    setSubjectsOpen(false);
-    toast.success(
-      `${activeSubjects.length} matière${activeSubjects.length > 1 ? "s" : ""} confirmée${activeSubjects.length > 1 ? "s" : ""}`,
-      { description: "Configuration partagée avec tous les utilisateurs" }
-    );
-  }
-
-  /**
-   * Rouvrir le panneau matières pour modifier la configuration
-   */
-  function editSubjects() {
-    setSubjectsConfirmed(false);
-    setSubjectsOpen(true);
-  }
-
-  // ── Gestion des notes ─────────────────────────────────────────────────────
-
-  /** Passer une cellule en mode édition (note existante cliquée) */
-  function enterEditMode(key: string) {
-    setEditingCells((prev) => new Set([...prev, key]));
-  }
-
-  /** Quitter le mode édition si la note n'a pas été modifiée (Blur ou Escape) */
-  function exitEditMode(key: string) {
-    setEditingCells((prev) => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-  }
-
-  function handleCellChange(
-    studentId: string,
-    subjectName: string,
-    value: string
-  ) {
-    if (value !== "" && !/^\d*[.,]?\d*$/.test(value)) return;
-    const raw = value.replace(",", ".");
-    const num = raw === "" ? null : parseFloat(raw);
-    if (num !== null && (num < 0 || num > maxScore)) return;
-
-    const key = cellKey(studentId, subjectName);
-    setGrid((prev) => ({
-      ...prev,
-      [key]: { ...prev[key], scoreInput: value, score: num, isDirty: true },
-    }));
-  }
-
-  function handleKeyDown(
-    e: React.KeyboardEvent,
-    studentIdx: number,
-    subjectIdx: number
-  ) {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    let ns = studentIdx;
-    let nsub = subjectIdx + 1;
-    if (nsub >= activeSubjects.length) { nsub = 0; ns = studentIdx + 1; }
-    if (ns >= students.length) return;
-
-    const nextStudent = students[ns];
-    const nextSubject = activeSubjects[nsub];
-    const nextKey = cellKey(nextStudent.id, nextSubject.name);
-    const nextCell = grid[nextKey];
-
-    // Si la cellule cible a déjà une note en BDD → passer en mode édition puis focus
-    if (nextCell?.existingGradeId && !nextCell.isDirty) {
-      enterEditMode(nextKey);
-      setTimeout(() => {
-        document.getElementById(`cell-${nextStudent.id}-${nextSubject.name}`)?.focus();
-      }, 0);
-    } else {
-      document.getElementById(`cell-${nextStudent.id}-${nextSubject.name}`)?.focus();
-    }
-  }
-
-  // ── Valider / déverrouiller le trimestre ──────────────────────────────────
-
-  async function handleLockTrimester() {
-    const token = storage.getAuthItem("structura_token");
-    if (!token) { toast.error("Session expirée"); return; }
-    if (dirtyCount > 0) {
-      toast.warning("Enregistrez d'abord les notes non sauvegardées");
-      return;
-    }
-    setIsLocking(true);
-    try {
-      const lock = await lockTrimester(token, selectedClassId, selectedTrimester, academicYear);
-      setTrimesterLock(lock);
-      saveLockCache(selectedClassId, selectedTrimester, academicYear, lock);
-      toast.success(`${selectedTrimester} validé`, {
-        description: "Les bulletins peuvent maintenant être générés",
-      });
-    } catch (err: any) {
-      toast.error(err.message || "Impossible de valider le trimestre");
-    } finally {
-      setIsLocking(false);
-    }
-  }
-
-  async function handleUnlockTrimester() {
-    const token = storage.getAuthItem("structura_token");
-    if (!token) { toast.error("Session expirée"); return; }
-    setIsLocking(true);
-    try {
-      await unlockTrimester(token, selectedClassId, selectedTrimester, academicYear);
-      setTrimesterLock(null);
-      clearLockCache(selectedClassId, selectedTrimester, academicYear);
-      toast.info(`${selectedTrimester} déverrouillé`, {
-        description: "Vous pouvez à nouveau modifier les notes",
-      });
-    } catch (err: any) {
-      toast.error(err.message || "Impossible de déverrouiller");
-    } finally {
-      setIsLocking(false);
-    }
-  }
-
-  // ── Enregistrer ───────────────────────────────────────────────────────────
-
-  async function handleSave() {
-    const token = storage.getAuthItem("structura_token");
-    if (!token) { toast.error("Session expirée"); return; }
-
-    const dirty = Object.entries(grid).filter(
-      ([, c]) => c.isDirty && c.score !== null
-    );
-    if (dirty.length === 0) { toast.info("Aucune modification à enregistrer"); return; }
-
-    // Mode hors ligne : mettre en queue pour sync automatique au retour online
-    if (!isOnline) {
-      setIsSaving(true);
-      try {
-        const toCreate = new Map<string, { studentId: string; score: number }[]>();
-        const toUpdate: { gradeId: string; score: number }[] = [];
-
-        for (const [key, cell] of dirty) {
-          const sep = key.indexOf("__");
-          const studentId = key.substring(0, sep);
-          const subjectName = key.substring(sep + 2);
-          if (cell.existingGradeId) {
-            toUpdate.push({ gradeId: cell.existingGradeId, score: cell.score! });
-          } else {
-            if (!toCreate.has(subjectName)) toCreate.set(subjectName, []);
-            toCreate.get(subjectName)!.push({ studentId, score: cell.score! });
-          }
-        }
-
-        for (const [subjectName, rows] of toCreate.entries()) {
-          const subRow = subjectRows.find((s) => s.name === subjectName);
-          await syncQueue.add({
-            type: "grade", action: "bulk_create",
-            data: {
-              subject: subjectName,
-              maxScore,
-              coefficient: subRow?.coefficient ?? 1,
-              term: selectedTrimester,
-              academicYear,
-              classId: selectedClassId,
-              grades: rows,
-            },
-          });
-        }
-
-        for (const { gradeId, score } of toUpdate) {
-          await syncQueue.add({
-            type: "grade", action: "update",
-            data: { id: gradeId, score, maxScore },
-          });
-        }
-
-        clearDraft(selectedClassId, selectedTrimester, academicYear);
-        setEditingCells(new Set());
-        toast.info(`${dirty.length} note(s) sauvegardées — synchronisation en attente`, {
-          description: "Envoi automatique dès le retour de la connexion.",
-          duration: 5000,
-        });
-      } catch (err: any) {
-        toast.error(err.message || "Erreur lors de la sauvegarde offline");
-      } finally {
-        setIsSaving(false);
-      }
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const toCreate = new Map<string, { studentId: string; score: number }[]>();
-      const toUpdate: { gradeId: string; score: number }[] = [];
-
-      for (const [key, cell] of dirty) {
-        const sep = key.indexOf("__");
-        const studentId = key.substring(0, sep);
-        const subjectName = key.substring(sep + 2);
-
-        if (cell.existingGradeId) {
-          toUpdate.push({ gradeId: cell.existingGradeId, score: cell.score! });
-        } else {
-          if (!toCreate.has(subjectName)) toCreate.set(subjectName, []);
-          toCreate.get(subjectName)!.push({ studentId, score: cell.score! });
-        }
-      }
-
-      // POST /grades/bulk par matière
-      for (const [subjectName, rows] of toCreate.entries()) {
-        const subRow = subjectRows.find((s) => s.name === subjectName);
-        await bulkCreateGrades(token, {
-          subject: subjectName,
-          maxScore,
-          coefficient: subRow?.coefficient ?? 1,
-          term: selectedTrimester,
-          academicYear,
-          classId: selectedClassId,
-          grades: rows,
-        });
-      }
-
-      // PATCH /grades/:id pour les modifications
-      await Promise.all(
-        toUpdate.map(({ gradeId, score }) =>
-          updateGrade(token, gradeId, { score, maxScore })
-        )
-      );
-
-      clearDraft(selectedClassId, selectedTrimester, academicYear);
-      setEditingCells(new Set());
-      toast.success(`${dirty.length} note(s) enregistrée(s)`, {
-        description: `${selectedTrimester} — ${academicYear}`,
-      });
-      setRefreshKey((k) => k + 1);
-    } catch (err: any) {
-      toast.error(err.message || "Erreur lors de l'enregistrement");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  // ── Calculs ───────────────────────────────────────────────────────────────
-
-  /** Matières cochées = celles qui apparaissent dans la grille */
-  const activeSubjects = subjectRows.filter((s) => s.selected);
-
-  function studentAvg(studentId: string): number | null {
-    let points = 0;
-    let totalCoef = 0;
-    for (const s of activeSubjects) {
-      const cell = grid[cellKey(studentId, s.name)];
-      if (cell?.score !== null && cell?.score !== undefined) {
-        points += cell.score * s.coefficient;
-        totalCoef += s.coefficient;
-      }
-    }
-    return totalCoef === 0 ? null : points / totalCoef;
-  }
-
-  function subjectAvg(subjectName: string): number | null {
-    const scores = students
-      .map((s) => grid[cellKey(s.id, subjectName)]?.score)
-      .filter((v): v is number => v !== null && v !== undefined);
-    if (scores.length === 0) return null;
-    return scores.reduce((a, b) => a + b, 0) / scores.length;
-  }
-
-  const classAvg: number | null = (() => {
-    if (students.length === 0) return null;
-    const avgs = students
-      .map((s) => studentAvg(s.id))
-      .filter((a): a is number => a !== null);
-    if (avgs.length === 0) return null;
-    return avgs.reduce((a, b) => a + b, 0) / avgs.length;
-  })();
-
-  // ── Stats réussite ────────────────────────────────────────────────────────
-
-  /** Seuil de réussite : moitié du barème (5/10 ou 10/20) */
-  const passThreshold = maxScore / 2;
-
-  const studentResults = students.map((s) => ({
-    id: s.id,
-    gender: s.gender,
-    avg: studentAvg(s.id),
-  }));
-
-  const studentsWithScores = studentResults.filter((r) => r.avg !== null).length;
-  const passCount  = studentResults.filter((r) => r.avg !== null && r.avg >= passThreshold).length;
-  const failCount  = studentResults.filter((r) => r.avg !== null && r.avg <  passThreshold).length;
-  const successRate = studentsWithScores > 0 ? (passCount / studentsWithScores) * 100 : null;
-
-  const boysCount  = students.filter((s) => s.gender === "M").length;
-  const girlsCount = students.filter((s) => s.gender === "F").length;
-
-  const passBoysCount  = studentResults.filter((r) => r.avg !== null && r.avg >= passThreshold && r.gender === "M").length;
-  const passGirlsCount = studentResults.filter((r) => r.avg !== null && r.avg >= passThreshold && r.gender === "F").length;
-  const failBoysCount  = studentResults.filter((r) => r.avg !== null && r.avg <  passThreshold && r.gender === "M").length;
-  const failGirlsCount = studentResults.filter((r) => r.avg !== null && r.avg <  passThreshold && r.gender === "F").length;
-
-  function getClassAvgMessage(avg: number | null): string {
-    if (avg === null) return "";
-    const pct = avg / maxScore;
-    if (pct >= 0.9) return "Félicitations ! Votre classe est au top niveau.";
-    if (pct >= 0.8) return "Très bonne performance ! Continuez sur cette lancée.";
-    if (pct >= 0.7) return "La classe se porte bien. Quelques efforts supplémentaires suffiraient.";
-    if (pct >= 0.6) return "Résultats corrects, mais la classe peut faire mieux.";
-    if (pct >= 0.5) return "Résultats passables. La classe doit fournir plus d'efforts.";
-    return "Résultats insuffisants. Un travail sérieux s'impose pour redresser la situation.";
-  }
-
-  function getSuccessRateMessage(rate: number | null): string {
-    if (rate === null) return "";
-    if (rate >= 90) return "Excellente réussite ! Presque tous les élèves sont au niveau.";
-    if (rate >= 75) return "Très bonne réussite ! La majorité des élèves maîtrisent les cours.";
-    if (rate >= 60) return "Bonne réussite globale. Des efforts restent à fournir pour les élèves en difficulté.";
-    if (rate >= 50) return "Réussite acceptable. La moitié des élèves sont en difficulté.";
-    if (rate >= 30) return "Trop d'élèves en difficulté. Des mesures de soutien sont nécessaires.";
-    return "La grande majorité des élèves sont en difficulté. Un soutien urgent est nécessaire.";
-  }
-
-  function getSuccessRateColor(rate: number | null): string {
-    if (rate === null) return "text-foreground";
-    if (rate >= 75) return "text-emerald-700";
-    if (rate >= 50) return "text-amber-700";
-    return "text-red-700";
-  }
-
-  const classAvgMessage    = getClassAvgMessage(classAvg);
-  const successRateMessage = getSuccessRateMessage(successRate);
-  const successRateColor   = getSuccessRateColor(successRate);
-
-  const dirtyCount = Object.values(grid).filter(
-    (c) => c.isDirty && c.score !== null
-  ).length;
-
-  // Progression de la saisie
-  const totalCells = students.length * activeSubjects.length;
-  const filledCells = students.reduce(
-    (acc, s) =>
-      acc +
-      activeSubjects.filter((sub) => {
-        const cell = grid[cellKey(s.id, sub.name)];
-        return cell?.score !== null && cell?.score !== undefined;
-      }).length,
-    0
-  );
-  const totalMissingForLock = totalCells - filledCells;
-
-  /** Vrai quand tous les élèves ont une note pour toutes les matières actives */
-  const allGradesComplete =
-    students.length > 0 &&
-    activeSubjects.length > 0 &&
-    students.every((s) =>
-      activeSubjects.every((sub) => {
-        const cell = grid[cellKey(s.id, sub.name)];
-        return cell?.score !== null && cell?.score !== undefined;
-      })
-    );
-
-  // ─── Rendu ────────────────────────────────────────────────────────────────
+function MentionBadge({ score, scoreMax = 20 }: { score: number | null; scoreMax?: number }) {
+  const m = getMention(score, scoreMax);
   return (
-    <div className="space-y-6">
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${MENTION_STYLES[m.key]}`}
+    >
+      {m.label}
+    </span>
+  );
+}
 
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Gestion des Notes
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {isDirector
-              ? "Consultation des notes · Lecture seule"
-              : "Tableau complet · Calcul automatique des moyennes pondérées"}
-          </p>
-          {!isOnline && (
-            <Badge
-              variant="outline"
-              className="mt-2 bg-amber-50 text-amber-700 border-amber-200 text-xs"
-            >
-              <WifiOff className="h-3 w-3 mr-1" /> Mode hors ligne
-            </Badge>
-          )}
+function SkeletonTable({ rows = 5, cols = 5 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="space-y-2 mt-4">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex gap-3">
+          {Array.from({ length: cols }).map((_, j) => (
+            <Skeleton key={j} className="h-9 flex-1 rounded" />
+          ))}
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-
-          {/* ── Bouton Valider / Déverrouiller le trimestre — PRO requis ── */}
-          {!hasBulletins && selectedClassId && students.length > 0 && (
-            <UpgradeBadge
-              message="Valider trimestre — Plan Pro"
-              requiredPlan="Pro"
-              variant="button"
-            />
-          )}
-          {hasBulletins && selectedClassId && students.length > 0 && (
-            trimesterLock ? (
-              <div className="flex items-center gap-2">
-                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1 px-2.5">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Trimestre validé
-                </Badge>
-                {/* Le directeur peut déverrouiller pour permettre au prof de corriger */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5 text-muted-foreground hover:text-foreground h-8 text-xs"
-                  onClick={handleUnlockTrimester}
-                  disabled={isLocking}
-                >
-                  {isLocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
-                  Déverrouiller
-                </Button>
-              </div>
-            ) : !isDirector ? (
-              /* Seul le prof peut valider un trimestre */
-              <div className="flex flex-col items-end gap-0.5">
-                <Button
-                  variant="outline"
-                  className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                  onClick={handleLockTrimester}
-                  disabled={isLocking || !allGradesComplete || dirtyCount > 0}
-                >
-                  {isLocking ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Lock className="h-4 w-4" />
-                  )}
-                  Valider le trimestre
-                </Button>
-                {!allGradesComplete && totalMissingForLock > 0 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {totalMissingForLock} note{totalMissingForLock > 1 ? "s" : ""} manquante{totalMissingForLock > 1 ? "s" : ""}
-                  </span>
-                )}
-                {dirtyCount > 0 && allGradesComplete && (
-                  <span className="text-[10px] text-amber-600">Enregistrez d'abord</span>
-                )}
-              </div>
-            ) : null
-          )}
-
-          {/* Bulletins : directeur + plan PRO requis */}
-          {isDirector && (
-            hasBulletins ? (
-              <Link
-                href={`/dashboard/grades/bulletins${selectedClassId ? `?classId=${selectedClassId}&trimester=${selectedTrimester}&academicYear=${academicYear}` : ""}`}
-              >
-                <Button variant="outline" className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  Bulletins
-                </Button>
-              </Link>
-            ) : (
-              <UpgradeBadge
-                message="Bulletins PDF — Plan Pro"
-                requiredPlan="Pro"
-                variant="button"
-              />
-            )
-          )}
-
-          {/* Enregistrer : prof uniquement */}
-          {!isDirector && dirtyCount > 0 && (
-            <Button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="gap-2"
-            >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              Enregistrer ({dirtyCount})
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Filtres : Classe + Trimestre ── */}
-      <Card>
-        <CardContent className="pt-4 pb-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {/* Classe */}
-            <div className="space-y-2">
-              <Label>Classe *</Label>
-              {isLoadingClasses ? (
-                <div className="h-10 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Chargement...
-                </div>
-              ) : (
-                <Select
-                  value={selectedClassId}
-                  onValueChange={(v) => {
-                    setSelectedClassId(v);
-                    setGrid({});
-                    setStudents([]);
-                    const params = new URLSearchParams(searchParams.toString());
-                    if (v) params.set("classId", v); else params.delete("classId");
-                    router.replace(`/dashboard/grades?${params.toString()}`, { scroll: false });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choisir une classe" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classes.map((cls) => (
-                      <SelectItem key={cls.id} value={cls.id}>
-                        {formatClassName(cls.name, cls.section)}
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({cls.level})
-                        </span>
-                      </SelectItem>
-                    ))}
-                    {classes.length === 0 && (
-                      <div className="p-3 text-sm text-muted-foreground text-center">
-                        Aucune classe disponible
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* Trimestre */}
-            <div className="space-y-2">
-              <Label>Trimestre *</Label>
-              <Select
-                value={selectedTrimester}
-                onValueChange={(v) => {
-                    setSelectedTrimester(v);
-                    const params = new URLSearchParams(searchParams.toString());
-                    params.set("trimester", v);
-                    router.replace(`/dashboard/grades?${params.toString()}`, { scroll: false });
-                  }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TRIMESTERS.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Actualiser */}
-            <div className="space-y-2">
-              <Label>&nbsp;</Label>
-              <Button
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => setRefreshKey((k) => k + 1)}
-                disabled={!selectedClassId || isLoadingData}
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${isLoadingData ? "animate-spin" : ""}`}
-                />
-                Actualiser
-              </Button>
-            </div>
-          </div>
-
-          {selectedClass && (
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <Badge variant="outline" className="text-xs">
-                {formatClassName(selectedClass.name, selectedClass.section)}
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                {selectedTrimester}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="text-xs bg-blue-50 text-blue-700 border-blue-200"
-              >
-                Notes sur {maxScore}
-              </Badge>
-              <Badge variant="outline" className="text-xs text-muted-foreground">
-                {academicYear}
-              </Badge>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Matières — visible dès qu'une classe est sélectionnée ── */}
-      {selectedClassId && (
-        <Card className={subjectsConfirmed ? "border-emerald-200 bg-emerald-50/30" : ""}>
-          <CardHeader
-            className="cursor-pointer select-none"
-            onClick={() => setSubjectsOpen((o) => !o)}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BookOpen className={`h-5 w-5 ${subjectsConfirmed ? "text-emerald-600" : ""}`} />
-                  Matières
-                  {subjectsConfirmed ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs font-normal">
-                      ✓ {activeSubjects.length} confirmée{activeSubjects.length > 1 ? "s" : ""}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="text-xs font-normal">
-                      {activeSubjects.length}/{subjectRows.length} sélectionnée{activeSubjects.length > 1 ? "s" : ""}
-                    </Badge>
-                  )}
-                </CardTitle>
-                {subjectsConfirmed ? (
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {activeSubjects.map((s) => s.name).join(" · ")}
-                  </p>
-                ) : (
-                  <CardDescription className="mt-0.5">
-                    Niveau <strong>{selectedClass?.level}</strong> — cochez les matières, modifiez les coefficients, puis confirmez
-                  </CardDescription>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {subjectsConfirmed && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-8"
-                    onClick={(e) => { e.stopPropagation(); editSubjects(); }}
-                  >
-                    Modifier
-                  </Button>
-                )}
-                {subjectsOpen ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </div>
-            </div>
-          </CardHeader>
-
-          {subjectsOpen && (
-            <CardContent className="pt-0">
-              {subjectRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Aucune matière — ajoutez-en ci-dessous
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {/* En-tête */}
-                  <div className="grid grid-cols-[auto_1fr_auto_auto] gap-3 px-1 pb-1 mb-1 border-b">
-                    <span className="w-5" />
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Matière
-                    </span>
-                    <span className="text-xs font-medium text-muted-foreground text-center w-24">
-                      Coefficient
-                    </span>
-                    <span className="w-8" />
-                  </div>
-
-                  {subjectRows.map((row, idx) => (
-                    <div
-                      key={`${row.name}-${idx}`}
-                      className={`grid grid-cols-[auto_1fr_auto_auto] gap-3 items-center px-1 py-1.5 rounded-md transition-colors ${
-                        row.selected ? "hover:bg-muted/40" : "opacity-50 hover:bg-muted/20"
-                      }`}
-                    >
-                      {/* Checkbox sélection */}
-                      <Checkbox
-                        id={`subject-${idx}`}
-                        checked={row.selected}
-                        onCheckedChange={(checked) => toggleSubject(idx, !!checked)}
-                      />
-
-                      {/* Nom */}
-                      <label
-                        htmlFor={`subject-${idx}`}
-                        className={`text-sm select-none cursor-pointer ${
-                          !row.selected ? "line-through text-muted-foreground" : ""
-                        }`}
-                      >
-                        {row.name}
-                      </label>
-
-                      {/* Coefficient — éditable */}
-                      <div className="flex items-center gap-1.5 w-24">
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          Coef.
-                        </span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={row.coefficient}
-                          onChange={(e) => updateSubjectCoef(idx, e.target.value)}
-                          disabled={!row.selected}
-                          className="w-14 h-8 text-center text-sm"
-                        />
-                      </div>
-
-                      {/* Supprimer — matières personnalisées seulement */}
-                      {!row.isDefault ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-                          onClick={() => removeSubject(idx)}
-                          title="Supprimer cette matière"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : (
-                        <span className="w-7" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── Ajouter une matière + Confirmer ── */}
-              <Separator className="my-4" />
-
-              {isAddingSubject ? (
-                <div className="flex items-end gap-3 flex-wrap">
-                  <div className="flex-1 min-w-[200px] space-y-1.5">
-                    <Label className="text-xs">Nom de la matière</Label>
-                    <Input
-                      placeholder="Ex : Informatique, Arabe, EPS..."
-                      value={newSubjectName}
-                      onChange={(e) => setNewSubjectName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddSubject()}
-                      className="h-9"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="w-28 space-y-1.5">
-                    <Label className="text-xs">Coefficient</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={20}
-                      placeholder="1"
-                      value={newSubjectCoef}
-                      onChange={(e) => setNewSubjectCoef(e.target.value)}
-                      className="h-9 text-center"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleAddSubject}
-                      disabled={!newSubjectName.trim()}
-                      className="h-9 gap-2"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Ajouter
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-9"
-                      onClick={() => {
-                        setIsAddingSubject(false);
-                        setNewSubjectName("");
-                        setNewSubjectCoef("1");
-                      }}
-                    >
-                      Annuler
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setIsAddingSubject(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Ajouter une matière
-                </Button>
-              )}
-
-              {/* ── Bouton Confirmer ── */}
-              <div className="mt-4 pt-4 border-t flex items-center justify-between gap-3">
-                <p className="text-xs text-muted-foreground">
-                  {activeSubjects.length === 0
-                    ? "Cochez au moins une matière"
-                    : `${activeSubjects.length} matière${activeSubjects.length > 1 ? "s" : ""} sélectionnée${activeSubjects.length > 1 ? "s" : ""} · La configuration sera mémorisée pour cette classe`}
-                </p>
-                <Button
-                  onClick={confirmSubjects}
-                  disabled={activeSubjects.length === 0}
-                  className="gap-2 shrink-0"
-                >
-                  <Save className="h-4 w-4" />
-                  Confirmer la sélection
-                </Button>
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      )}
-
-      {/* ── Stats ── */}
-      {students.length > 0 && !isLoadingData && (
-        <div className="space-y-3">
-
-          {/* Ligne 1 : Moyenne générale + Taux de réussite */}
-          <div className="grid gap-3 sm:grid-cols-2">
-
-            {/* Moyenne générale */}
-            <Card className="border-l-4 border-l-blue-500">
-              <CardContent className="pt-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-0.5">
-                  <TrendingUp className="h-3 w-3" />
-                  <span className="font-medium uppercase tracking-wide">Moyenne générale</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground mb-2">
-                  Note moyenne de toute la classe, pondérée par les coefficients. Donne le niveau global de la classe en un seul chiffre.
-                </p>
-                <p className={`text-2xl font-bold ${scoreColor(classAvg, maxScore)}`}>
-                  {classAvg !== null ? classAvg.toFixed(2) : "—"}
-                  <span className="text-sm font-normal text-muted-foreground">/{maxScore}</span>
-                </p>
-                {classAvg !== null && (
-                  <>
-                    <p className="text-xs font-semibold mt-0.5">{appreciation(classAvg, maxScore)}</p>
-                    <p className="text-[11px] text-muted-foreground mt-1 italic">{classAvgMessage}</p>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Taux de réussite */}
-            <Card className="border-l-4 border-l-emerald-500">
-              <CardContent className="pt-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-0.5">
-                  <Award className="h-3 w-3" />
-                  <span className="font-medium uppercase tracking-wide">Taux de réussite</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground mb-2">
-                  Pourcentage d'élèves ayant obtenu la moyenne ({passThreshold}/{maxScore} ou plus). Indique si la classe réussit globalement.
-                </p>
-                <p className={`text-2xl font-bold ${successRateColor}`}>
-                  {successRate !== null ? `${successRate.toFixed(0)}%` : "—"}
-                </p>
-                {successRate !== null && (
-                  <>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {passCount} élève{passCount > 1 ? "s" : ""} sur {studentsWithScores} noté{studentsWithScores > 1 ? "s" : ""}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-1 italic">{successRateMessage}</p>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Ligne 2 : Élèves total + Ont eu la moyenne + N'ont pas eu */}
-          <div className="grid gap-3 sm:grid-cols-3">
-
-            {/* Total élèves */}
-            <Card className="border-l-4 border-l-primary">
-              <CardContent className="pt-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                  <Users className="h-3 w-3" />
-                  <span className="font-medium">Total élèves</span>
-                </div>
-                <p className="text-2xl font-bold">{students.length}</p>
-                <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
-                  <span>♂ {boysCount} garçon{boysCount > 1 ? "s" : ""}</span>
-                  <span>♀ {girlsCount} fille{girlsCount > 1 ? "s" : ""}</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-1">{activeSubjects.length} matière{activeSubjects.length > 1 ? "s" : ""} actives</p>
-              </CardContent>
-            </Card>
-
-            {/* Ont eu la moyenne */}
-            <Card className="border-l-4 border-l-emerald-400">
-              <CardContent className="pt-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-emerald-700 mb-1">
-                  <CheckCircle className="h-3 w-3" />
-                  <span className="font-medium">Ont eu la moyenne</span>
-                </div>
-                <p className="text-2xl font-bold text-emerald-700">{passCount}</p>
-                <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
-                  <span>♂ {passBoysCount} garçon{passBoysCount > 1 ? "s" : ""}</span>
-                  <span>♀ {passGirlsCount} fille{passGirlsCount > 1 ? "s" : ""}</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-1">≥ {passThreshold}/{maxScore}</p>
-              </CardContent>
-            </Card>
-
-            {/* N'ont pas eu la moyenne */}
-            <Card className="border-l-4 border-l-red-400">
-              <CardContent className="pt-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-red-700 mb-1">
-                  <XCircle className="h-3 w-3" />
-                  <span className="font-medium">N'ont pas eu la moyenne</span>
-                </div>
-                <p className="text-2xl font-bold text-red-700">{failCount}</p>
-                <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
-                  <span>♂ {failBoysCount} garçon{failBoysCount > 1 ? "s" : ""}</span>
-                  <span>♀ {failGirlsCount} fille{failGirlsCount > 1 ? "s" : ""}</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-1">&lt; {passThreshold}/{maxScore}</p>
-              </CardContent>
-            </Card>
-
-          </div>
-        </div>
-      )}
-
-      {/* ── Tableau de saisie ── */}
-      {!selectedClassId ? (
-        <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <BookOpen className="h-10 w-10 mx-auto opacity-30 mb-3" />
-            <p className="text-sm">
-              Sélectionnez une classe et un trimestre pour commencer
-            </p>
-          </CardContent>
-        </Card>
-      ) : isLoadingData ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground mt-2">
-              Chargement des élèves et notes...
-            </p>
-          </CardContent>
-        </Card>
-      ) : students.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <Users className="h-10 w-10 mx-auto opacity-30 mb-3" />
-            <p className="text-sm">Aucun élève dans cette classe</p>
-          </CardContent>
-        </Card>
-      ) : activeSubjects.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <BookOpen className="h-10 w-10 mx-auto opacity-30 mb-3" />
-            <p className="text-sm">
-              Cochez au moins une matière pour commencer la saisie
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader className="pb-0">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-                Saisie des notes — {selectedTrimester}
-                {dirtyCount > 0 && (
-                  <Badge className="bg-amber-100 text-amber-700 border-amber-200 font-normal text-xs">
-                    {dirtyCount} non enregistré{dirtyCount > 1 ? "s" : ""}
-                  </Badge>
-                )}
-                {totalCells > 0 && (
-                  <Badge
-                    variant="outline"
-                    className={`text-xs font-normal ${
-                      filledCells === totalCells
-                        ? "text-emerald-700 border-emerald-200 bg-emerald-50"
-                        : "text-muted-foreground"
-                    }`}
-                  >
-                    {filledCells}/{totalCells} notes saisies
-                  </Badge>
-                )}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                <kbd className="px-1 border rounded text-xs">Entrée</kbd> pour avancer
-              </p>
-              {!trimesterLock && !isDirector && (
-                <Button
-                  onClick={handleSave}
-                  disabled={isSaving || dirtyCount === 0}
-                  size="sm"
-                  className="gap-2"
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  Enregistrer {dirtyCount > 0 ? `(${dirtyCount})` : ""}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-
-          <CardContent className="p-0 mt-4">
-            {/* ── Bannière verrou trimestre ── */}
-            {trimesterLock && (
-              <div className="px-4 py-3 bg-emerald-50 border-b border-emerald-200 flex items-center gap-2 text-sm text-emerald-700">
-                <ShieldCheck className="h-4 w-4 shrink-0" />
-                <span>
-                  Trimestre validé le{" "}
-                  {new Date(trimesterLock.lockedAt).toLocaleDateString("fr-FR")}{" "}
-                  {trimesterLock.lockedByName && `par ${trimesterLock.lockedByName}`}{" "}
-                  — Les notes sont en lecture seule. Déverrouillez pour modifier.
-                </span>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-muted/60 border-b">
-                    {/* Colonne nom — sticky */}
-                    <th className="sticky left-0 z-20 bg-muted/60 px-4 py-3 text-left font-semibold min-w-[190px] border-r">
-                      Élève
-                    </th>
-                    {activeSubjects.map((s) => {
-                      const filledForSubject = students.filter((st) => {
-                        const c = grid[cellKey(st.id, s.name)];
-                        return c?.score !== null && c?.score !== undefined;
-                      }).length;
-                      return (
-                        <th
-                          key={s.name}
-                          className="px-2 py-3 text-center font-semibold min-w-[80px] border-r last:border-r-0"
-                        >
-                          <div className="text-xs leading-tight" title={s.name}>{s.name}</div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            Coef.&nbsp;{s.coefficient}
-                          </div>
-                          {students.length > 0 && (
-                            <div className={`text-[9px] mt-0.5 font-medium ${
-                              filledForSubject === students.length
-                                ? "text-emerald-600"
-                                : filledForSubject === 0
-                                ? "text-muted-foreground/50"
-                                : "text-amber-600"
-                            }`}>
-                              {filledForSubject}/{students.length}
-                            </div>
-                          )}
-                        </th>
-                      );
-                    })}
-                    <th className="px-4 py-3 text-center font-semibold min-w-[110px] bg-blue-50 border-l">
-                      Moyenne
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {students.map((student, sIdx) => {
-                    const avg = studentAvg(student.id);
-                    const rowDirty = activeSubjects.some(
-                      (sub) => grid[cellKey(student.id, sub.name)]?.isDirty
-                    );
-                    const missingCount = activeSubjects.filter((sub) => {
-                      const c = grid[cellKey(student.id, sub.name)];
-                      return c?.score === null || c?.score === undefined;
-                    }).length;
-
-                    return (
-                      <tr
-                        key={student.id}
-                        className={`border-b last:border-b-0 transition-colors ${
-                          rowDirty ? "bg-amber-50/50" : "hover:bg-muted/20"
-                        }`}
-                      >
-                        {/* Nom — sticky */}
-                        <td
-                          className={`sticky left-0 z-10 px-4 py-2 border-r ${
-                            rowDirty ? "bg-amber-50" : "bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
-                              {initials(student.name)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate">
-                                {student.name}
-                              </p>
-                              <p className="text-[10px] font-mono text-muted-foreground">
-                                {student.matricule}
-                              </p>
-                              {activeSubjects.length > 0 && (
-                                missingCount > 0 ? (
-                                  <p className="text-[9px] text-amber-600 font-medium leading-none mt-0.5">
-                                    {missingCount} manquante{missingCount > 1 ? "s" : ""}
-                                  </p>
-                                ) : (
-                                  <p className="text-[9px] text-emerald-600 font-medium leading-none mt-0.5">
-                                    ✓ Complet
-                                  </p>
-                                )
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Cellules notes */}
-                        {activeSubjects.map((subject, subIdx) => {
-                          const key = cellKey(student.id, subject.name);
-                          const cell = grid[key] ?? {
-                            score: null,
-                            scoreInput: "",
-                            isDirty: false,
-                          };
-
-                          /**
-                           * Mode lecture : note enregistrée en BDD, non modifiée, non en cours d'édition.
-                           * Affiche le score en texte. Un clic ouvre le mode édition.
-                           * Forcé si le trimestre est verrouillé OU si l'utilisateur est directeur.
-                           */
-                          const isLocked = !!trimesterLock || isDirector;
-                          const isReadMode =
-                            isLocked ||
-                            (cell.score !== null &&
-                              !!cell.existingGradeId &&
-                              !cell.isDirty &&
-                              !editingCells.has(key));
-
-                          return (
-                            <td
-                              key={subject.name}
-                              className={`px-1.5 py-1.5 text-center border-r last:border-r-0 ${
-                                cell.score === null && !cell.isDirty && !editingCells.has(key)
-                                  ? "bg-slate-50/70"
-                                  : ""
-                              }`}
-                            >
-                              {isReadMode ? (
-                                /* ── Affichage lecture ── */
-                                isLocked ? (
-                                  /* Verrouillé : texte simple, non cliquable */
-                                  <div
-                                    className={`w-14 h-8 mx-auto flex items-center justify-center text-sm font-semibold ${
-                                      cell.score !== null
-                                        ? scoreColor(cell.score, maxScore)
-                                        : "text-muted-foreground"
-                                    }`}
-                                  >
-                                    {cell.score !== null ? cell.score.toFixed(1) : "—"}
-                                  </div>
-                                ) : (
-                                  /* Non verrouillé : cliquable pour modifier */
-                                  <button
-                                    type="button"
-                                    onClick={() => enterEditMode(key)}
-                                    title="Cliquer pour modifier"
-                                    className={`
-                                      w-14 h-8 mx-auto flex items-center justify-center gap-0.5 rounded-md
-                                      border border-transparent text-sm font-semibold
-                                      hover:border-muted-foreground/30 hover:bg-muted/40
-                                      transition-all cursor-pointer group
-                                      ${scoreColor(cell.score, maxScore)}
-                                    `}
-                                  >
-                                    {cell.score?.toFixed(1)}
-                                    <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-40 transition-opacity shrink-0" />
-                                  </button>
-                                )
-                              ) : (
-                                /* ── Mode saisie / édition ── */
-                                <Input
-                                  id={`cell-${student.id}-${subject.name}`}
-                                  type="text"
-                                  inputMode="decimal"
-                                  autoFocus={editingCells.has(key)}
-                                  value={cell.scoreInput}
-                                  onChange={(e) =>
-                                    handleCellChange(student.id, subject.name, e.target.value)
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Escape" && !cell.isDirty && cell.existingGradeId) {
-                                      exitEditMode(key);
-                                      return;
-                                    }
-                                    handleKeyDown(e, sIdx, subIdx);
-                                  }}
-                                  onBlur={() => {
-                                    // Quitter le mode édition si rien n'a changé
-                                    if (editingCells.has(key) && !cell.isDirty && cell.existingGradeId) {
-                                      exitEditMode(key);
-                                    }
-                                  }}
-                                  placeholder="—"
-                                  className={`w-14 h-8 text-center px-1 text-xs mx-auto ${
-                                    cell.isDirty
-                                      ? "border-amber-400 bg-amber-50/80 ring-1 ring-amber-300"
-                                      : editingCells.has(key)
-                                      ? "border-primary ring-1 ring-primary/30"
-                                      : cell.score === null
-                                      ? "border-dashed border-muted-foreground/30 text-muted-foreground/60"
-                                      : ""
-                                  } ${cell.isDirty ? scoreColor(cell.score, maxScore) : ""}`}
-                                />
-                              )}
-                            </td>
-                          );
-                        })}
-
-                        {/* Moyenne élève — calculée en temps réel */}
-                        <td className="px-4 py-2 text-center bg-blue-50/40 border-l">
-                          {avg !== null ? (
-                            <div>
-                              <span
-                                className={`font-bold text-sm ${scoreColor(avg, maxScore)}`}
-                              >
-                                {avg.toFixed(2)}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                /{maxScore}
-                              </span>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                {appreciation(avg, maxScore)}
-                              </p>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {/* Ligne moyenne de classe par matière */}
-                  <tr className="bg-muted/40 border-t-2 font-semibold">
-                    <td className="sticky left-0 z-10 bg-muted/40 px-4 py-2.5 text-sm border-r">
-                      Moy. classe
-                    </td>
-                    {activeSubjects.map((subject) => {
-                      const avg = subjectAvg(subject.name);
-                      return (
-                        <td
-                          key={subject.name}
-                          className="px-2 py-2.5 text-center border-r last:border-r-0"
-                        >
-                          {avg !== null ? (
-                            <span className={`text-sm ${scoreColor(avg, maxScore)}`}>
-                              {avg.toFixed(1)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">—</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-4 py-2.5 text-center bg-blue-100/60 border-l">
-                      {classAvg !== null ? (
-                        <span
-                          className={`font-bold text-sm ${scoreColor(classAvg, maxScore)}`}
-                        >
-                          {classAvg.toFixed(2)}/{maxScore}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer save — masqué si trimestre verrouillé ou si directeur */}
-            {dirtyCount > 0 && !trimesterLock && !isDirector && (
-              <div className="p-4 border-t bg-amber-50/60 flex items-center justify-between gap-3">
-                <p className="text-sm text-amber-700 font-medium">
-                  {dirtyCount} note{dirtyCount > 1 ? "s" : ""} non
-                  enregistrée{dirtyCount > 1 ? "s" : ""}
-                </p>
-                <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  Enregistrer tout
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      ))}
     </div>
   );
 }
 
-// ─── Export : Suspense requis par useSearchParams (Next.js App Router) ─────────
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+      <GraduationCap className="w-12 h-12 opacity-30" />
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+function GradesPageInner() {
+  useSearchParams(); // required for Suspense boundary
+
+  const { user, getValidToken } = useAuth();
+  const isDirector = user?.role === "director";
+  const teacherAssignments = user?.classAssignments ?? [];
+  console.log("[grades] user.role=", user?.role, "isDirector=", isDirector);
+
+  // Academic year
+  const [academicYear, setAcademicYear] = useState<string>("");
+  const [startMonth, setStartMonth] = useState<string>("Septembre");
+  const [durationMonths, setDurationMonths] = useState<number>(9);
+
+  // Classes
+  const [classes, setClasses] = useState<BackendClass[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+
+  // Shared filters
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedTerm, setSelectedTerm] = useState<Term>("Trimestre 1");
+
+  // Evaluations tab
+  const [evalSubject, setEvalSubject] = useState<string>("");
+  const [evalMonth, setEvalMonth] = useState<string>("");
+  const [evalStudents, setEvalStudents] = useState<BackendStudent[]>([]);
+  const [evalScores, setEvalScores] = useState<Record<string, string>>({});
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalSaving, setEvalSaving] = useState(false);
+  // Noms des profs détectés dans les évaluations chargées (peut être plusieurs si remplacement)
+  const [evalTeacherNames, setEvalTeacherNames] = useState<string[]>([]);
+
+  // Compositions tab
+  const [compSubject, setCompSubject] = useState<string>("");
+  const [compStudents, setCompStudents] = useState<BackendStudent[]>([]);
+  const [compScores, setCompScores] = useState<Record<string, string>>({});   // compositionScore
+  const [compCourseAvg, setCompCourseAvg] = useState<Record<string, number | null>>({}); // avg cours pre-loaded
+  const [compLoading, setCompLoading] = useState(false);
+  const [compSaving, setCompSaving] = useState(false);
+  // Noms des profs détectés dans les compositions chargées
+  const [compTeacherNames, setCompTeacherNames] = useState<string[]>([]);
+
+  // Bulletin tab
+  const [bulletinReport, setBulletinReport] = useState<ClassReport | null>(null);
+  const [bulletinLoading, setBulletinLoading] = useState(false);
+  const [trimesterLock, setTrimesterLock] = useState<TrimesterLock | null>(null);
+  const [lockLoading, setLockLoading] = useState(false);
+
+  // Subject detail sheet
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetSubject, setSheetSubject] = useState<string>("");
+
+  // Active tab — prof: évaluations/compositions | directeur: bulletin/configuration
+  const [activeTab, setActiveTab] = useState<"evaluations" | "compositions" | "bulletin" | "configuration">("evaluations");
+
+  // Rediriger vers le bon tab dès que le rôle est connu
+  useEffect(() => {
+    if (user?.role === "director") setActiveTab("bulletin");
+    else if (user?.role) setActiveTab("evaluations");
+  }, [user?.role]);
+
+  // Configuration tab
+  const [configClassId, setConfigClassId] = useState("");
+  const [configSubjects, setConfigSubjects] = useState<Array<{name: string; coefficient: number; enabled: boolean}>>([]);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [newSubjectCoeff, setNewSubjectCoeff] = useState(1);
+
+  // Teacher map : subject → teacherName (directeur uniquement)
+  const [subjectTeacherMap, setSubjectTeacherMap] = useState<Record<string, string>>({});
+
+  // PDF generation
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  // Dialog confirmation verrou
+  const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
+
+  // Rapport annuel (primaire)
+  const [annualReport, setAnnualReport] = useState<AnnualReport | null>(null);
+  const [annualLoading, setAnnualLoading] = useState(false);
+
+  // ── Dérivés classe sélectionnée — déclarés tôt pour être accessibles dans les callbacks ──
+  // PRIMARY si gradeMode explicite OU si le niveau est Primaire/Maternelle (rétrocompat)
+  const selectedClass   = classes.find((c) => c.id === selectedClassId);
+  const isPrimaryClass  =
+    selectedClass?.gradeMode === 'PRIMARY' ||
+    ['Primaire', 'Maternelle'].includes(selectedClass?.level ?? '') ||
+    /^(CP|CE|CM)\d/i.test(selectedClass?.name ?? '') ||
+    /^(Petite|Moyenne|Grande)\s+Section$/i.test(selectedClass?.name ?? '');
+  const scoreMax = isPrimaryClass ? 10 : 20;
+
+  // ── Init: academic year + classes ─────────────────────────────────────────
+
+  useEffect(() => {
+    async function init() {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) return;
+
+      try {
+        const [yr, cls, feesConfig] = await Promise.all([
+          getCurrentAcademicYear(token),
+          getClasses(token),
+          getFeesConfig(token).catch(() => null),
+        ]);
+
+        if (yr) {
+          setAcademicYear(yr.name);
+          // Priorité : AcademicYear → Tenant.schoolCalendar → défaut
+          const calStart = yr.startMonth || feesConfig?.schoolCalendar?.startMonth;
+          const calDuration = yr.durationMonths || feesConfig?.schoolCalendar?.durationMonths;
+          if (calStart) setStartMonth(calStart);
+          if (calDuration) setDurationMonths(calDuration);
+        } else {
+          const now = new Date();
+          const y = now.getFullYear();
+          setAcademicYear(`${y}-${y + 1}`);
+          // Fallback depuis tenant si pas d'année courante
+          if (feesConfig?.schoolCalendar?.startMonth) setStartMonth(feesConfig.schoolCalendar.startMonth);
+          if (feesConfig?.schoolCalendar?.durationMonths) setDurationMonths(feesConfig.schoolCalendar.durationMonths);
+        }
+
+        // Filter classes for teacher
+        let filteredClasses = cls;
+        if (!isDirector && teacherAssignments.length > 0) {
+          const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
+          filteredClasses = cls.filter((c) => assignedIds.has(c.id));
+        }
+        setClasses(filteredClasses);
+      } catch (e) {
+        toast.error("Impossible de charger les données initiales");
+        console.error(e);
+      } finally {
+        setClassesLoading(false);
+      }
+    }
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Subjects available for selected class ─────────────────────────────────
+
+  const availableSubjects = useCallback((): string[] => {
+    if (!selectedClassId) return [];
+    if (!isDirector) {
+      const assignment = teacherAssignments.find((a) => a.classId === selectedClassId);
+      return assignment?.subjects ?? [];
+    }
+    // Director: return from coefficients (loaded lazily) or empty
+    return [];
+  }, [selectedClassId, isDirector, teacherAssignments]);
+
+  const [directorSubjects, setDirectorSubjects] = useState<string[]>([]);
+
+  // Load subjects for selected class — director: from ClassSubject, teacher: from classAssignments
+  useEffect(() => {
+    if (!selectedClassId) {
+      setDirectorSubjects([]);
+      return;
+    }
+    // Pour les profs, les matières viennent de classAssignments (pas besoin d'API)
+    if (!isDirector) {
+      setDirectorSubjects([]);
+      return;
+    }
+    // Pour le directeur : charger depuis l'API ClassSubject
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    getClassSubjects(token, selectedClassId)
+      .then((items) => setDirectorSubjects(items.map((s) => s.name)))
+      .catch((err) => {
+        console.error("[grades] loadSubjects error:", err);
+        toast.error("Impossible de charger les matières: " + (err instanceof Error ? err.message : String(err)));
+        setDirectorSubjects([]);
+      });
+  }, [isDirector, selectedClassId]);
+
+  // Load teacher names for selected class (directeur seulement)
+  useEffect(() => {
+    if (!isDirector || !selectedClassId) {
+      setSubjectTeacherMap({});
+      return;
+    }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    getTeamMembers(token)
+      .then((members) => {
+        const map: Record<string, string> = {};
+        for (const m of members) {
+          if (m.role === "TEACHER" && m.classAssignments) {
+            const assignment = m.classAssignments.find((a) => a.classId === selectedClassId);
+            if (assignment) {
+              const name = `${m.firstName} ${m.lastName}`;
+              for (const subj of assignment.subjects) {
+                map[subj] = name;
+              }
+            }
+          }
+        }
+        setSubjectTeacherMap(map);
+      })
+      .catch(() => setSubjectTeacherMap({}));
+  }, [isDirector, selectedClassId]);
+
+  const subjectOptions: string[] = isDirector
+    ? directorSubjects
+    : availableSubjects();
+
+  const termMonths = getTermMonths(startMonth, durationMonths, selectedTerm);
+
+  // Reset subject / month when class or term changes
+  useEffect(() => {
+    setEvalSubject("");
+    setCompSubject("");
+    setEvalMonth("");
+    setEvalStudents([]);
+    setEvalScores({});
+    setEvalTeacherNames([]);
+    setCompStudents([]);
+    setCompScores({});
+    setCompCourseAvg({});
+    setCompTeacherNames([]);
+  }, [selectedClassId, selectedTerm]);
+
+  // ── Evaluations ───────────────────────────────────────────────────────────
+
+  const loadEvaluations = useCallback(async () => {
+    if (!selectedClassId || !evalSubject || !evalMonth) {
+      toast.error("Sélectionnez une classe, une matière et un mois");
+      return;
+    }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setEvalLoading(true);
+    try {
+      const [studentsData, existingEvals] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getEvaluations(token, {
+          classId: selectedClassId,
+          subject: evalSubject,
+          term: selectedTerm,
+          academicYear: academicYear || undefined,
+        }),
+      ]);
+
+      setEvalStudents(studentsData);
+
+      // Pre-fill scores from existing evaluations (month filter)
+      const scoreMap: Record<string, string> = {};
+      for (const ev of existingEvals) {
+        if (ev.month === evalMonth) {
+          scoreMap[ev.studentId] = String(ev.score);
+        }
+      }
+      setEvalScores(scoreMap);
+
+      // Extraire les noms de profs uniques qui ont saisi des notes ce mois
+      const names = Array.from(
+        new Set(
+          existingEvals
+            .filter((ev) => ev.month === evalMonth && ev.teacherName)
+            .map((ev) => ev.teacherName as string),
+        ),
+      );
+      setEvalTeacherNames(names);
+    } catch (e) {
+      toast.error("Erreur lors du chargement des notes");
+      console.error(e);
+    } finally {
+      setEvalLoading(false);
+    }
+  }, [selectedClassId, evalSubject, evalMonth, selectedTerm, academicYear]);
+
+  const saveEvaluations = useCallback(async () => {
+    if (!selectedClassId || !evalSubject || !evalMonth) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    const evaluations = evalStudents
+      .map((s) => {
+        const raw = evalScores[s.id];
+        if (raw === undefined || raw === "") return null;
+        const score = parseFloat(raw);
+        if (isNaN(score) || score < 0 || score > 20) return null;
+        return { studentId: s.id, score };
+      })
+      .filter((x): x is { studentId: string; score: number } => x !== null);
+
+    if (evaluations.length === 0) {
+      toast.error("Aucune note valide à enregistrer");
+      return;
+    }
+
+    setEvalSaving(true);
+    try {
+      await bulkSaveEvaluations(token, {
+        classId: selectedClassId,
+        subject: evalSubject,
+        term: selectedTerm,
+        month: evalMonth,
+        academicYear: academicYear || undefined,
+        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+        evaluations,
+      });
+      toast.success(`${evaluations.length} note(s) enregistrée(s)`);
+    } catch (e) {
+      toast.error("Erreur lors de l'enregistrement");
+      console.error(e);
+    } finally {
+      setEvalSaving(false);
+    }
+  }, [selectedClassId, evalSubject, evalMonth, selectedTerm, academicYear, evalStudents, evalScores, user]);
+
+  // Eval stats
+  const evalValidScores = evalStudents
+    .map((s) => parseFloat(evalScores[s.id] ?? ""))
+    .filter((n) => !isNaN(n) && n >= 0 && n <= 20);
+  const evalClassAvg =
+    evalValidScores.length > 0
+      ? evalValidScores.reduce((a, b) => a + b, 0) / evalValidScores.length
+      : null;
+
+  // ── Compositions ──────────────────────────────────────────────────────────
+
+  const loadCompositions = useCallback(async () => {
+    if (!selectedClassId || !compSubject) {
+      toast.error("Sélectionnez une classe et une matière");
+      return;
+    }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setCompLoading(true);
+    try {
+      const [studentsData, existingComps, existingEvals] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getCompositions(token, {
+          classId: selectedClassId,
+          subject: compSubject,
+          term: selectedTerm,
+          academicYear: academicYear || undefined,
+        }),
+        getEvaluations(token, {
+          classId: selectedClassId,
+          subject: compSubject,
+          term: selectedTerm,
+          academicYear: academicYear || undefined,
+        }),
+      ]);
+
+      setCompStudents(studentsData);
+
+      // Build composition score map
+      const compMap: Record<string, string> = {};
+      for (const c of existingComps) {
+        compMap[c.studentId] = String(c.compositionScore);
+      }
+      setCompScores(compMap);
+
+      // Calculate course average per student (mean of monthly evaluations)
+      const evalsByStudent: Record<string, number[]> = {};
+      for (const ev of existingEvals) {
+        if (!evalsByStudent[ev.studentId]) evalsByStudent[ev.studentId] = [];
+        evalsByStudent[ev.studentId].push(ev.score);
+      }
+      const avgMap: Record<string, number | null> = {};
+      for (const s of studentsData) {
+        const scores = evalsByStudent[s.id];
+        if (scores && scores.length > 0) {
+          avgMap[s.id] = scores.reduce((a, b) => a + b, 0) / scores.length;
+        } else {
+          avgMap[s.id] = null;
+        }
+      }
+      setCompCourseAvg(avgMap);
+
+      // Extraire les noms de profs uniques qui ont saisi des compositions
+      const compNames = Array.from(
+        new Set(
+          existingComps
+            .filter((c) => c.teacherName)
+            .map((c) => c.teacherName as string),
+        ),
+      );
+      setCompTeacherNames(compNames);
+    } catch (e) {
+      toast.error("Erreur lors du chargement des compositions");
+      console.error(e);
+    } finally {
+      setCompLoading(false);
+    }
+  }, [selectedClassId, compSubject, selectedTerm, academicYear]);
+
+  const saveCompositions = useCallback(async () => {
+    if (!selectedClassId || !compSubject) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    const compositions = compStudents
+      .map((s) => {
+        const raw = compScores[s.id];
+        if (raw === undefined || raw === "") return null;
+        const score = parseFloat(raw);
+        if (isNaN(score) || score < 0 || score > scoreMax) return null;
+        return { studentId: s.id, compositionScore: score };
+      })
+      .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
+
+    if (compositions.length === 0) {
+      toast.error("Aucune note valide à enregistrer");
+      return;
+    }
+
+    setCompSaving(true);
+    try {
+      await bulkSaveCompositions(token, {
+        classId: selectedClassId,
+        subject: compSubject,
+        term: selectedTerm,
+        academicYear: academicYear || undefined,
+        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+        compositions,
+      });
+      toast.success(`${compositions.length} composition(s) enregistrée(s)`);
+    } catch (e) {
+      toast.error("Erreur lors de l'enregistrement");
+      console.error(e);
+    } finally {
+      setCompSaving(false);
+    }
+  // scoreMax est dérivé de selectedClassId (dans les deps) — pas besoin de l'ajouter séparément
+  }, [selectedClassId, compSubject, selectedTerm, academicYear, compStudents, compScores, user]);
+
+  // Comp stats
+  const compValidComps = compStudents
+    .map((s) => parseFloat(compScores[s.id] ?? ""))
+    .filter((n) => !isNaN(n) && n >= 0 && n <= scoreMax);
+  const compAvg =
+    compValidComps.length > 0
+      ? compValidComps.reduce((a, b) => a + b, 0) / compValidComps.length
+      : null;
+
+  const compSubjectAvgs = compStudents.map((s) => {
+    const comp = parseFloat(compScores[s.id] ?? "");
+    const course = compCourseAvg[s.id];
+    if (isPrimaryClass) {
+      // Primaire : moy. matière = note de composition
+      return !isNaN(comp) && comp >= 0 && comp <= scoreMax ? comp : null;
+    }
+    if (!isNaN(comp) && comp >= 0 && comp <= scoreMax && course !== null && course !== undefined) {
+      return (course + comp) / 2;
+    }
+    return null;
+  }).filter((n): n is number => n !== null);
+
+  const compSubjectAvgMean =
+    compSubjectAvgs.length > 0
+      ? compSubjectAvgs.reduce((a, b) => a + b, 0) / compSubjectAvgs.length
+      : null;
+
+  // ── Bulletin ──────────────────────────────────────────────────────────────
+
+  const loadBulletin = useCallback(async () => {
+    if (!selectedClassId) {
+      toast.error("Sélectionnez une classe");
+      return;
+    }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setBulletinLoading(true);
+    try {
+      const [report, lock] = await Promise.all([
+        getClassReport(token, selectedClassId, selectedTerm, academicYear || undefined),
+        getTrimesterLock(token, selectedClassId, selectedTerm, academicYear),
+      ]);
+      setBulletinReport(report);
+      setTrimesterLock(lock);
+    } catch (e) {
+      toast.error("Erreur lors du chargement du bulletin");
+      console.error(e);
+    } finally {
+      setBulletinLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  const handleToggleLock = useCallback(async () => {
+    if (!selectedClassId || !academicYear) return;
+    if (trimesterLock) {
+      // Déverrouiller directement (pas besoin de confirmation)
+      const token = storage.getAuthItem("structura_token");
+      if (!token) return;
+      setLockLoading(true);
+      try {
+        await unlockTrimester(token, selectedClassId, selectedTerm, academicYear);
+        setTrimesterLock(null);
+        toast.success("Trimestre déverrouillé — les notes peuvent à nouveau être modifiées.");
+      } catch (e) {
+        toast.error("Erreur lors du déverrouillage");
+        console.error(e);
+      } finally {
+        setLockLoading(false);
+      }
+    } else {
+      // Verrouiller → ouvrir le dialog de confirmation avec les stats
+      setLockConfirmOpen(true);
+    }
+  }, [selectedClassId, selectedTerm, academicYear, trimesterLock]);
+
+  const handleConfirmLock = useCallback(async () => {
+    if (!selectedClassId || !academicYear) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setLockLoading(true);
+    try {
+      const lock = await lockTrimester(token, selectedClassId, selectedTerm, academicYear);
+      setTrimesterLock(lock);
+      toast.success("Trimestre verrouillé — vous pouvez maintenant générer les bulletins.");
+    } catch (e) {
+      toast.error("Erreur lors du verrouillage");
+      console.error(e);
+    } finally {
+      setLockLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  // ── Configuration tab ─────────────────────────────────────────────────────
+
+  const loadConfigSubjects = useCallback(async (classId: string) => {
+    if (!classId) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setConfigLoading(true);
+    try {
+      const items = await getClassSubjects(token, classId);
+      setConfigSubjects(items.map((s) => ({
+        name: s.name,
+        // coefficient null/undefined → 1 par défaut (évite d'afficher "Sans coeff" par erreur)
+        coefficient: s.coefficient != null ? s.coefficient : 1,
+        enabled: true,
+      })));
+    } catch {
+      setConfigSubjects([]);
+    } finally {
+      setConfigLoading(false);
+    }
+  }, []);
+
+  const saveConfig = useCallback(async () => {
+    if (!configClassId) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setConfigSaving(true);
+    try {
+      const activeSubjects = configSubjects
+        .filter((s) => s.enabled)
+        .map((s, i) => ({ name: s.name, coefficient: s.coefficient, order: i }));
+      await saveClassSubjects(token, configClassId, activeSubjects);
+      const cls = classes.find((c) => c.id === configClassId);
+      toast.success(`Matières de ${cls?.name ?? "la classe"} enregistrées`);
+      // Fermer le panel après enregistrement
+      setConfigClassId("");
+      setConfigSubjects([]);
+      setNewSubjectName("");
+      setNewSubjectCoeff(1);
+    } catch (e: unknown) {
+      toast.error("Erreur lors de l'enregistrement: " + (e instanceof Error ? e.message : "Erreur inconnue"));
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [configClassId, configSubjects, classes]);
+
+  // ── Auto-chargement bulletin quand tab actif + classe + trimestre changent ─
+  useEffect(() => {
+    if (activeTab === "bulletin" && isDirector && selectedClassId && academicYear) {
+      loadBulletin();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedClassId, selectedTerm, academicYear]);
+
+  // ── PDF generation ────────────────────────────────────────────────────────
+
+  const generateStudentBulletin = useCallback(async (
+    studentRow: ClassReport["students"][number],
+    mode: "download" | "print" = "download",
+  ) => {
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    try {
+      const report = await getStudentReport(token, studentRow.student.id, selectedTerm, academicYear);
+      const reportScoreMax = report.scoreMax ?? (isPrimaryClass ? 10 : 20);
+      const bulletinData: BulletinData = {
+        studentName: `${studentRow.student.firstName} ${studentRow.student.lastName}`,
+        matricule: studentRow.student.matricule,
+        className: bulletinReport?.class?.name
+          ? formatClassName(bulletinReport.class.name, bulletinReport.class.section)
+          : "",
+        trimester: selectedTerm,
+        academicYear: academicYear,
+        schoolName: user?.schoolName || undefined,
+        grades: report.subjects.map((s) => ({
+          subject: s.subject,
+          score: s.averageSubject,
+          maxScore: reportScoreMax,
+          coefficient: s.coefficient,
+          teacherName: s.teacherName,
+        })),
+        weightedAvg: report.generalAverage,
+        maxScore: reportScoreMax,
+        classAvg: bulletinReport?.classAverage,
+        classRank: studentRow.rank,
+        totalStudents: bulletinReport?.totalStudents,
+      };
+      if (mode === "print") printBulletinPDF(bulletinData);
+      else generateBulletinPDF(bulletinData);
+    } catch (err: unknown) {
+      toast.error("Erreur génération bulletin: " + (err instanceof Error ? err.message : "Erreur inconnue"));
+    }
+  }, [selectedTerm, academicYear, bulletinReport, user]);
+
+  const generateAllBulletins = useCallback(async (mode: "download" | "print" = "download") => {
+    if (!bulletinReport) return;
+    setIsGeneratingPDF(true);
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    try {
+      const allData: BulletinData[] = [];
+      for (const studentRow of bulletinReport.students) {
+        try {
+          const report = await getStudentReport(token, studentRow.student.id, selectedTerm, academicYear);
+          const rScoreMax = report.scoreMax ?? (isPrimaryClass ? 10 : 20);
+          allData.push({
+            studentName: `${studentRow.student.firstName} ${studentRow.student.lastName}`,
+            matricule: studentRow.student.matricule,
+            className: bulletinReport.class?.name
+              ? formatClassName(bulletinReport.class.name, bulletinReport.class.section)
+              : "",
+            trimester: selectedTerm,
+            academicYear,
+            schoolName: user?.schoolName || undefined,
+            grades: report.subjects.map((s) => ({
+              subject: s.subject,
+              score: s.averageSubject,
+              maxScore: rScoreMax,
+              coefficient: s.coefficient,
+              teacherName: s.teacherName,
+            })),
+            weightedAvg: report.generalAverage,
+            maxScore: rScoreMax,
+            classAvg: bulletinReport.classAverage,
+            classRank: studentRow.rank,
+            totalStudents: bulletinReport.totalStudents,
+          });
+        } catch { /* élève sans notes, skip */ }
+      }
+      const className = bulletinReport.class?.name
+        ? formatClassName(bulletinReport.class.name, bulletinReport.class.section)
+        : "";
+      if (allData.length === 0) {
+        toast.warning("Aucun élève n'a encore de notes pour ce trimestre. Impossible de générer les bulletins.");
+        return;
+      }
+      if (mode === "print") printAllBulletinsPDF(allData, className);
+      else generateAllBulletinsPDF(allData, className, selectedTerm);
+      toast.success(`${allData.length} bulletin(s) ${mode === "print" ? "envoyés à l'impression" : "téléchargés"}`);
+    } catch (err: unknown) {
+      toast.error("Erreur: " + (err instanceof Error ? err.message : "Erreur inconnue"));
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  }, [bulletinReport, selectedTerm, academicYear, user]);
+
+  // Collect all subjects from bulletin
+  const bulletinSubjects = bulletinReport
+    ? Array.from(
+        new Set(
+          bulletinReport.students.flatMap((s) => {
+            // subjects come from StudentReport.subjects — but ClassReport.students only has student+avg+rank
+            // We need subjects from getClassReport — check the type
+            return [];
+          })
+        )
+      )
+    : [];
+  // Actually ClassReport doesn't embed per-subject data in students array — it only has generalAverage
+  // We collect subjects from the sheetSubject opening
+  void bulletinSubjects;
+
+  // ── Sheet: subject detail ─────────────────────────────────────────────────
+
+  const [sheetData, setSheetData] = useState<Array<{
+    student: { id: string; firstName: string; lastName: string; matricule: string };
+    averageCourse: number | null;
+    compositionScore: number | null;
+    averageSubject: number | null;
+  }>>([]);
+  const [sheetLoading, setSheetLoading] = useState(false);
+
+  const openSubjectSheet = useCallback(async (subject: string) => {
+    if (!selectedClassId || !academicYear) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setSheetSubject(subject);
+    setSheetOpen(true);
+    setSheetLoading(true);
+    try {
+      const [evals, comps, students] = await Promise.all([
+        getEvaluations(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear }),
+        getCompositions(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear }),
+        getStudents(token, { classId: selectedClassId }),
+      ]);
+
+      // Build per-student data
+      const evalsByStudent: Record<string, number[]> = {};
+      for (const ev of evals) {
+        if (!evalsByStudent[ev.studentId]) evalsByStudent[ev.studentId] = [];
+        evalsByStudent[ev.studentId].push(ev.score);
+      }
+      const compByStudent: Record<string, number> = {};
+      for (const c of comps) {
+        compByStudent[c.studentId] = c.compositionScore;
+      }
+
+      const rows = students.map((s) => {
+        const scores = evalsByStudent[s.id];
+        const avgCourse =
+          scores && scores.length > 0
+            ? scores.reduce((a, b) => a + b, 0) / scores.length
+            : null;
+        const compScore = compByStudent[s.id] ?? null;
+        // Primaire : pas d'évaluations mensuelles → la note de composition est la moyenne de matière
+        // Secondaire : (cours + composition) / 2
+        const avgSubject = isPrimaryClass
+          ? compScore
+          : avgCourse !== null && compScore !== null
+            ? (avgCourse + compScore) / 2
+            : null;
+        return {
+          student: {
+            id: s.id,
+            firstName: s.firstName,
+            lastName: s.lastName,
+            matricule: s.matricule,
+          },
+          averageCourse: avgCourse,
+          compositionScore: compScore,
+          averageSubject: avgSubject,
+        };
+      });
+
+      setSheetData(rows);
+    } catch (e) {
+      toast.error("Erreur lors du chargement du détail matière");
+      console.error(e);
+    } finally {
+      setSheetLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  // ── Shared filter bar ─────────────────────────────────────────────────────
+
+  // Pour le primaire : pas d'évaluations, rediriger vers compositions
+  useEffect(() => {
+    if (isPrimaryClass && activeTab === "evaluations") {
+      setActiveTab("compositions");
+    }
+  }, [isPrimaryClass, activeTab]);
+
+  // Reset rapport annuel quand la classe change
+  useEffect(() => { setAnnualReport(null); }, [selectedClassId, academicYear]);
+
+  const loadAnnualReport = useCallback(async (studentId: string) => {
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setAnnualLoading(true);
+    try {
+      const report = await getAnnualReport(token, studentId, academicYear || undefined);
+      setAnnualReport(report);
+    } catch {
+      toast.error("Rapport annuel non disponible (tous les trimestres doivent avoir des notes)");
+    } finally {
+      setAnnualLoading(false);
+    }
+  }, [academicYear]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-gray-50/50">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="bg-white border-b px-6 py-5 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-100 rounded-lg">
+            <BookOpen className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Notes &amp; Évaluations</h1>
+            <p className="text-sm text-gray-500">
+              Gestion des notes mensuelles, compositions et bulletins
+            </p>
+          </div>
+        </div>
+        {academicYear && (
+          <Badge variant="outline" className="self-start sm:self-auto text-indigo-600 border-indigo-200 bg-indigo-50">
+            <GraduationCap className="w-3.5 h-3.5 mr-1.5" />
+            {academicYear}
+          </Badge>
+        )}
+      </div>
+
+      <div className="px-4 sm:px-6 py-6 max-w-screen-xl mx-auto space-y-6">
+        {/* ── Shared filters ──────────────────────────────────────────────── */}
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Classe */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                  Classe
+                </label>
+                {classesLoading ? (
+                  <Skeleton className="h-10 w-full rounded-md" />
+                ) : (
+                  <Select
+                    value={selectedClassId}
+                    onValueChange={(v) => {
+                      setSelectedClassId(v);
+                      setBulletinReport(null);
+                      setTrimesterLock(null);
+                    }}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="Sélectionner une classe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.length === 0 && (
+                        <SelectItem value="__none" disabled>
+                          Aucune classe disponible
+                        </SelectItem>
+                      )}
+                      {classes.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {formatClassName(c.name, c.section)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Trimestre */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                  Trimestre
+                </label>
+                <Select
+                  value={selectedTerm}
+                  onValueChange={(v) => {
+                    setSelectedTerm(v as Term);
+                    setBulletinReport(null);
+                    setTrimesterLock(null);
+                  }}
+                >
+                  <SelectTrigger className="bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TERMS.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                        {getTermMonths(startMonth, durationMonths, t).length > 0 && (
+                          <span className="ml-2 text-gray-400 text-xs">
+                            ({getTermMonths(startMonth, durationMonths, t).join(", ")})
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Info classe */}
+              {selectedClass && (
+                <div className="flex items-end">
+                  <div className="px-3 py-2 bg-indigo-50 rounded-md text-sm text-indigo-700 flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    <span className="font-medium">{formatClassName(selectedClass.name, selectedClass.section)}</span>
+                    {isPrimaryClass && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">Primaire /10</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Affichage des professeurs par matière (directeur uniquement) */}
+            {isDirector && selectedClassId && Object.keys(subjectTeacherMap).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  Professeurs affectés
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(subjectTeacherMap).map(([subj, teacher]) => (
+                    <span
+                      key={subj}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs bg-white border border-indigo-100 rounded-full text-gray-700"
+                    >
+                      <span className="font-medium text-indigo-700">{subj}</span>
+                      <span className="text-gray-400">·</span>
+                      <span>{teacher}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Tabs ────────────────────────────────────────────────────────── */}
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+        >
+          <TabsList className="bg-gray-100 border border-gray-200 shadow-sm p-1 gap-0.5">
+            {/* Évaluations : cachées pour le primaire (pas de notes mensuelles) */}
+            {!isPrimaryClass && (
+              <TabsTrigger value="evaluations" className="flex items-center gap-1.5">
+                <BarChart3 className="w-4 h-4" />
+                <span className="hidden sm:inline">Évaluations</span>
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="compositions" className="flex items-center gap-1.5">
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">Compositions</span>
+            </TabsTrigger>
+            {/* Bulletin et Configuration : directeur uniquement */}
+            {isDirector && (
+              <>
+                <TabsTrigger value="bulletin" className="flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4" />
+                  <span className="hidden sm:inline">Bulletin</span>
+                </TabsTrigger>
+                <TabsTrigger value="configuration" className="flex items-center gap-1.5">
+                  <Settings2 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Configuration</span>
+                </TabsTrigger>
+              </>
+            )}
+          </TabsList>
+
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* TAB 1 — EVALUATIONS (professeur uniquement)                   */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          <TabsContent value="evaluations" className="mt-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-indigo-500" />
+                  Notes mensuelles
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Filters row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Matière */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                      Matière
+                    </label>
+                    <Select
+                      value={evalSubject}
+                      onValueChange={setEvalSubject}
+                      disabled={!selectedClassId}
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Choisir une matière" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subjectOptions.length === 0 && (
+                          <SelectItem value="__none" disabled>
+                            {selectedClassId
+                              ? "Aucune matière disponible"
+                              : "Sélectionnez d'abord une classe"}
+                          </SelectItem>
+                        )}
+                        {subjectOptions.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Mois */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                      Mois
+                    </label>
+                    <Select
+                      value={evalMonth}
+                      onValueChange={setEvalMonth}
+                      disabled={!selectedClassId}
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Choisir un mois" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {termMonths.length === 0 ? (
+                          <SelectItem value="__none" disabled>
+                            Sélectionnez un trimestre
+                          </SelectItem>
+                        ) : (
+                          termMonths.map((m) => (
+                            <SelectItem key={m} value={m}>
+                              {m}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-end gap-2 sm:col-span-2">
+                    <Button
+                      variant="outline"
+                      onClick={loadEvaluations}
+                      disabled={evalLoading || !selectedClassId || !evalSubject || !evalMonth}
+                      className="flex-1"
+                    >
+                      {evalLoading ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Charger les élèves
+                    </Button>
+                    <Button
+                      onClick={saveEvaluations}
+                      disabled={evalSaving || evalStudents.length === 0}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {evalSaving ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Enregistrer
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Bannière prof (directeur uniquement) */}
+                {isDirector && evalTeacherNames.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
+                    <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                    <span className="text-indigo-700">
+                      <span className="font-medium">Notes saisies par : </span>
+                      {evalTeacherNames.join(", ")}
+                    </span>
+                  </div>
+                )}
+
+                {/* Table */}
+                {evalLoading ? (
+                  <SkeletonTable rows={6} cols={4} />
+                ) : evalStudents.length === 0 ? (
+                  <EmptyState message="Chargez les élèves pour saisir les notes" />
+                ) : (
+                  <div className="rounded-lg border overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">
+                              Matricule
+                            </th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
+                              Note /20
+                            </th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">
+                              Mention
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {evalStudents.map((student, idx) => {
+                            const rawScore = evalScores[student.id] ?? "";
+                            const score =
+                              rawScore !== "" ? parseFloat(rawScore) : null;
+                            const isValid =
+                              score === null ||
+                              (!isNaN(score) && score >= 0 && score <= 20);
+
+                            return (
+                              <tr
+                                key={student.id}
+                                className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
+                                  idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                }`}
+                              >
+                                <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
+                                <td className="px-4 py-3 font-medium text-gray-800">
+                                  {student.firstName} {student.lastName}
+                                </td>
+                                <td className="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs font-mono">
+                                  {student.matricule}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={20}
+                                    step={0.25}
+                                    value={rawScore}
+                                    onChange={(e) =>
+                                      setEvalScores((prev) => ({
+                                        ...prev,
+                                        [student.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="—"
+                                    className={`w-24 h-8 text-center font-medium text-base ${
+                                      !isValid ? "border-red-400 focus:ring-red-400" : ""
+                                    }`}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <MentionBadge
+                                    score={isValid && score !== null ? score : null}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Stats footer */}
+                    <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Notes saisies:</span>
+                        <span className="font-semibold text-indigo-700">
+                          {evalValidScores.length} / {evalStudents.length}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Moyenne classe:</span>
+                        <span className={`font-semibold ${avgColor(evalClassAvg)}`}>
+                          {evalClassAvg !== null ? evalClassAvg.toFixed(2) + " /20" : "—"}
+                        </span>
+                      </div>
+                      {evalClassAvg !== null && (
+                        <MentionBadge score={evalClassAvg} />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* TAB 2 — COMPOSITIONS                                          */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          <TabsContent value="compositions" className="mt-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-indigo-500" />
+                  Compositions de fin de trimestre
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                      Matière
+                    </label>
+                    <Select
+                      value={compSubject}
+                      onValueChange={setCompSubject}
+                      disabled={!selectedClassId}
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Choisir une matière" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subjectOptions.length === 0 && (
+                          <SelectItem value="__none" disabled>
+                            {selectedClassId
+                              ? "Aucune matière disponible"
+                              : "Sélectionnez d'abord une classe"}
+                          </SelectItem>
+                        )}
+                        {subjectOptions.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-end gap-2 sm:col-span-2">
+                    <Button
+                      variant="outline"
+                      onClick={loadCompositions}
+                      disabled={compLoading || !selectedClassId || !compSubject}
+                      className="flex-1"
+                    >
+                      {compLoading ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Charger
+                    </Button>
+                    <Button
+                      onClick={saveCompositions}
+                      disabled={compSaving || compStudents.length === 0}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {compSaving ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Enregistrer
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Bannière prof (directeur uniquement) */}
+                {isDirector && compTeacherNames.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
+                    <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                    <span className="text-indigo-700">
+                      <span className="font-medium">Compositions saisies par : </span>
+                      {compTeacherNames.join(", ")}
+                    </span>
+                  </div>
+                )}
+
+                {/* Table */}
+                {compLoading ? (
+                  <SkeletonTable rows={6} cols={5} />
+                ) : compStudents.length === 0 ? (
+                  <EmptyState message="Chargez les élèves pour saisir les compositions" />
+                ) : (
+                  <div className="rounded-lg border overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
+                            {!isPrimaryClass && (
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell w-28">
+                                Moy. Cours
+                              </th>
+                            )}
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
+                              Composition /{scoreMax}
+                            </th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell w-28">
+                              Moy. Matière
+                            </th>
+                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">
+                              Mention
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {compStudents.map((student, idx) => {
+                            const rawComp = compScores[student.id] ?? "";
+                            const comp =
+                              rawComp !== "" ? parseFloat(rawComp) : null;
+                            const isValidComp =
+                              comp === null ||
+                              (!isNaN(comp) && comp >= 0 && comp <= scoreMax);
+                            const course = compCourseAvg[student.id] ?? null;
+                            // Primaire : moyenne matière = composition seule
+                            // Secondaire : (cours + compo) / 2
+                            const subjAvg = isPrimaryClass
+                              ? (comp !== null && !isNaN(comp) && comp >= 0 && comp <= scoreMax ? comp : null)
+                              : (course !== null &&
+                                  comp !== null &&
+                                  !isNaN(comp) &&
+                                  comp >= 0 &&
+                                  comp <= scoreMax
+                                    ? (course + comp) / 2
+                                    : null);
+
+                            return (
+                              <tr
+                                key={student.id}
+                                className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
+                                  idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                }`}
+                              >
+                                <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
+                                <td className="px-4 py-3 font-medium text-gray-800">
+                                  {student.firstName} {student.lastName}
+                                </td>
+                                {!isPrimaryClass && (
+                                  <td className="px-4 py-3 hidden sm:table-cell">
+                                    <span className="text-gray-500 bg-gray-100 px-2 py-1 rounded text-xs font-mono">
+                                      {fmt(course)}
+                                    </span>
+                                  </td>
+                                )}
+                                <td className="px-4 py-3">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={scoreMax}
+                                    step={0.25}
+                                    value={rawComp}
+                                    onChange={(e) =>
+                                      setCompScores((prev) => ({
+                                        ...prev,
+                                        [student.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="—"
+                                    className={`w-24 h-8 text-center font-medium text-base ${
+                                      !isValidComp ? "border-red-400 focus:ring-red-400" : ""
+                                    }`}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <span className={`font-semibold ${avgColor(subjAvg, scoreMax)}`}>
+                                    {fmt(subjAvg)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 hidden lg:table-cell">
+                                  <MentionBadge score={subjAvg} scoreMax={scoreMax} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Stats footer */}
+                    <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Notes saisies :</span>
+                        <span className="font-semibold text-indigo-700">
+                          {compValidComps.length} / {compStudents.length}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">
+                          {isPrimaryClass ? "Moy. matière (classe) :" : "Moy. composition (classe) :"}
+                        </span>
+                        <span className={`font-semibold ${avgColor(compAvg, scoreMax)}`}>
+                          {compAvg !== null ? `${compAvg.toFixed(2)} /${scoreMax}` : "—"}
+                        </span>
+                      </div>
+                      {!isPrimaryClass && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">Moy. matière (classe) :</span>
+                          <span className={`font-semibold ${avgColor(compSubjectAvgMean, scoreMax)}`}>
+                            {compSubjectAvgMean !== null
+                              ? `${compSubjectAvgMean.toFixed(2)} /${scoreMax}`
+                              : "—"}
+                          </span>
+                        </div>
+                      )}
+                      {isPrimaryClass && (
+                        <span className="text-xs text-gray-400 italic self-center">
+                          La moyenne générale (toutes matières) est visible dans l&apos;onglet Bulletin
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* TAB 3 — BULLETIN (directeur uniquement)                       */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {isDirector && (
+          <TabsContent value="bulletin" className="mt-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-indigo-500" />
+                    Bulletin de classe
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={loadBulletin}
+                      disabled={bulletinLoading || !selectedClassId}
+                    >
+                      {bulletinLoading ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Charger
+                    </Button>
+                    {isDirector && bulletinReport && (
+                      <Button
+                        variant={trimesterLock ? "outline" : "outline"}
+                        onClick={handleToggleLock}
+                        disabled={lockLoading}
+                        className={
+                          trimesterLock
+                            ? "border-green-400 text-green-700 hover:bg-green-50"
+                            : "border-orange-400 text-orange-700 hover:bg-orange-50"
+                        }
+                      >
+                        {lockLoading ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : trimesterLock ? (
+                          <Unlock className="w-4 h-4 mr-2" />
+                        ) : (
+                          <Lock className="w-4 h-4 mr-2" />
+                        )}
+                        {trimesterLock ? "Déverrouiller" : "Verrouiller"}
+                      </Button>
+                    )}
+                    {trimesterLock && bulletinReport && (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => generateAllBulletins("download")}
+                          disabled={isGeneratingPDF}
+                          title="Télécharger tous les bulletins en PDF"
+                        >
+                          {isGeneratingPDF ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4 mr-2" />
+                          )}
+                          Télécharger tout
+                        </Button>
+                        <Button
+                          onClick={() => generateAllBulletins("print")}
+                          disabled={isGeneratingPDF}
+                          className="bg-indigo-600 hover:bg-indigo-700"
+                          title="Imprimer tous les bulletins"
+                        >
+                          {isGeneratingPDF ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Printer className="w-4 h-4 mr-2" />
+                          )}
+                          Imprimer tout
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Lock banner */}
+                {trimesterLock && (
+                  <div className="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-lg px-4 py-3">
+                    <CheckCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-semibold text-orange-800">
+                        Trimestre verrouillé — validé le{" "}
+                        {new Date(trimesterLock.lockedAt).toLocaleDateString("fr-FR", {
+                          day: "2-digit",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </p>
+                      {trimesterLock.lockedByName && (
+                        <p className="text-orange-700 mt-0.5">
+                          Par : {trimesterLock.lockedByName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Bannière : trimestre non verrouillé */}
+                {bulletinReport && !trimesterLock && (
+                  <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                    <Lock className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-semibold text-blue-800">Trimestre non verrouillé</p>
+                      <p className="text-blue-700 mt-0.5">
+                        Vérifiez que toutes les notes sont saisies, puis cliquez sur <strong>Verrouiller</strong> pour valider le trimestre et activer la génération des bulletins.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Table */}
+                {bulletinLoading ? (
+                  <SkeletonTable rows={8} cols={5} />
+                ) : !bulletinReport ? (
+                  <EmptyState message="Sélectionnez une classe pour afficher les résultats" />
+                ) : bulletinReport.students.length === 0 ? (
+                  <EmptyState message="Aucun élève trouvé pour cette classe" />
+                ) : (
+                  <>
+                    {/* Summary stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="bg-indigo-50 rounded-lg px-4 py-3">
+                        <p className="text-xs text-indigo-500 font-medium uppercase tracking-wide">
+                          Élèves
+                        </p>
+                        <p className="text-2xl font-bold text-indigo-700 mt-1">
+                          {bulletinReport.totalStudents}
+                        </p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-lg px-4 py-3">
+                        <p className="text-xs text-emerald-500 font-medium uppercase tracking-wide">
+                          Moy. Classe
+                        </p>
+                        <p className={`text-2xl font-bold mt-1 ${avgColor(bulletinReport.classAverage, scoreMax)}`}>
+                          {fmt(bulletinReport.classAverage)} <span className="text-sm font-normal text-emerald-400">/{scoreMax}</span>
+                        </p>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg px-4 py-3 col-span-2 sm:col-span-1">
+                        <p className="text-xs text-purple-500 font-medium uppercase tracking-wide">
+                          Trimestre
+                        </p>
+                        <p className="text-lg font-bold text-purple-700 mt-1">
+                          {bulletinReport.term}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Ranking table */}
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b sticky top-0">
+                            <tr>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 w-16">
+                                Rang
+                              </th>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600">
+                                Élève
+                              </th>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell w-24">
+                                Matières
+                              </th>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
+                                Moy. Générale
+                              </th>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">
+                                Appréciation
+                              </th>
+                              <th className="text-left px-4 py-3 font-medium text-gray-600 w-16">
+                                Détail
+                              </th>
+                              {trimesterLock && (
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 w-20">
+                                  Bulletin
+                                </th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bulletinReport.students.map((row, idx) => {
+                              const avg =
+                                row.generalAverage > 0 ? row.generalAverage : null;
+                              return (
+                                <tr
+                                  key={row.student.id}
+                                  className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
+                                    idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                  }`}
+                                >
+                                  <td className="px-4 py-3 text-lg font-bold">
+                                    {rankMedal(row.rank)}
+                                  </td>
+                                  <td className="px-4 py-3 font-medium text-gray-800">
+                                    {row.student.firstName} {row.student.lastName}
+                                    <div className="text-xs text-gray-400 font-mono">
+                                      {row.student.matricule}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 hidden sm:table-cell text-gray-500 text-center">
+                                    {row.totalSubjects}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span
+                                      className={`text-lg font-bold ${avgColor(avg, scoreMax)}`}
+                                    >
+                                      {avg !== null ? `${avg.toFixed(2)} /${scoreMax}` : "—"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 hidden md:table-cell">
+                                    <MentionBadge score={avg} scoreMax={scoreMax} />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => {
+                                        if (isPrimaryClass) {
+                                          // Primaire : charger le rapport annuel
+                                          loadAnnualReport(row.student.id);
+                                        } else {
+                                          setSheetSubject("__student__" + row.student.id);
+                                          setSheetOpen(true);
+                                        }
+                                      }}
+                                      className="text-indigo-500 hover:text-indigo-700 hover:underline text-xs"
+                                      title={isPrimaryClass ? "Voir le rapport annuel" : "Voir le détail"}
+                                    >
+                                      <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                  </td>
+                                  {trimesterLock && (
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => generateStudentBulletin(row, "download")}
+                                          className="text-gray-500 hover:text-indigo-700"
+                                          title="Télécharger le bulletin PDF"
+                                        >
+                                          <Download className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => generateStudentBulletin(row, "print")}
+                                          className="text-gray-500 hover:text-indigo-700"
+                                          title="Imprimer le bulletin"
+                                        >
+                                          <Printer className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Subject columns hint */}
+                    {subjectOptions.length > 0 && (
+                      <div className="pt-2">
+                        <p className="text-xs text-gray-500 mb-2 font-medium">
+                          Voir le détail par matière :
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {subjectOptions.map((subject) => (
+                            <button
+                              key={subject}
+                              onClick={() => openSubjectSheet(subject)}
+                              className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-full hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors font-medium"
+                            >
+                              {subject}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Rapport annuel (primaire uniquement) ── */}
+                    {isPrimaryClass && (
+                      <div className="mt-4 border-t pt-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <GraduationCap className="w-4 h-4 text-indigo-500" />
+                            Rapport annuel — {academicYear}
+                          </p>
+                          <p className="text-xs text-gray-400">Cliquez sur un élève pour voir sa décision</p>
+                        </div>
+                        {annualLoading ? (
+                          <Skeleton className="h-24 w-full rounded-lg" />
+                        ) : annualReport ? (
+                          <div className="rounded-lg border bg-white overflow-hidden">
+                            <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+                              <div>
+                                <p className="font-semibold text-gray-800">
+                                  {annualReport.student.firstName} {annualReport.student.lastName}
+                                </p>
+                                <p className="text-xs text-gray-400 font-mono mt-0.5">{annualReport.student.matricule}</p>
+                              </div>
+                              <button onClick={() => setAnnualReport(null)} className="text-gray-400 hover:text-gray-600">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="px-4 py-3 space-y-3">
+                              <div className="flex flex-wrap gap-4 text-sm">
+                                {annualReport.termAverages.map((t) => (
+                                  <div key={t.term} className="flex items-center gap-1.5">
+                                    <span className="text-gray-500 font-medium">{t.term} :</span>
+                                    <span className={`font-bold ${avgColor(t.average, annualReport.scoreMax)}`}>
+                                      {t.average.toFixed(2)} /{annualReport.scoreMax}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-4 pt-2 border-t">
+                                <div>
+                                  <p className="text-xs text-gray-500">Moyenne annuelle</p>
+                                  <p className={`text-2xl font-bold ${avgColor(annualReport.annualAverage, annualReport.scoreMax)}`}>
+                                    {annualReport.annualAverage.toFixed(2)} <span className="text-sm font-normal">/{annualReport.scoreMax}</span>
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Décision</p>
+                                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold mt-1 ${
+                                    annualReport.decision === 'ADMIS'
+                                      ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                      : 'bg-red-100 text-red-700 border border-red-200'
+                                  }`}>
+                                    {annualReport.decision}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-400">
+                                  Seuil : {annualReport.passThreshold}/{annualReport.scoreMax}
+                                  <br />
+                                  ({annualReport.termsCount} trimestre{annualReport.termsCount > 1 ? 's' : ''})
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400 italic">
+                            Cliquez sur l&apos;icône <ChevronRight className="w-3 h-3 inline" /> d&apos;un élève pour afficher son rapport annuel.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>)}
+
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* TAB 4 — CONFIGURATION (director only)                         */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {isDirector && (
+            <TabsContent value="configuration" className="mt-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-indigo-500" />
+                    Configuration des matières
+                  </CardTitle>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Définissez les matières et coefficients pour chaque classe
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-5">
+
+                  {/* ── Vue liste des classes (quand aucune classe ouverte) ── */}
+                  {!configClassId && (
+                    <>
+                      {classesLoading ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {[1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+                        </div>
+                      ) : classes.length === 0 ? (
+                        <EmptyState message="Aucune classe disponible" />
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {classes.map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => {
+                                setConfigClassId(c.id);
+                                setConfigSubjects([]);
+                                loadConfigSubjects(c.id);
+                              }}
+                              className="text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-sm transition-all group"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <p className="font-semibold text-gray-800 group-hover:text-indigo-700 transition-colors">
+                                    {formatClassName(c.name, c.section)}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <p className="text-xs text-gray-400">{c.level}</p>
+                                    {(c.gradeMode === 'PRIMARY' || ['Primaire', 'Maternelle'].includes(c.level ?? '') || /^(CP|CE|CM)\d/i.test(c.name ?? '')) && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">
+                                        /10
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 mt-0.5 transition-colors" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* ── Panel édition d'une classe ── */}
+                  {configClassId && (
+                    <>
+                      {/* Header du panel avec bouton retour */}
+                      <div className="flex items-center gap-3 pb-2 border-b">
+                        <button
+                          onClick={() => { setConfigClassId(""); setConfigSubjects([]); }}
+                          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4 rotate-180" />
+                          Toutes les classes
+                        </button>
+                        <span className="text-gray-300">/</span>
+                        <span className="text-sm font-semibold text-gray-800">
+                          {(() => {
+                            const cls = classes.find((c) => c.id === configClassId);
+                            return cls ? formatClassName(cls.name, cls.section) : "";
+                          })()}
+                        </span>
+                      </div>
+
+                      {/* Subjects table */}
+                      {configLoading ? (
+                        <SkeletonTable rows={4} cols={3} />
+                      ) : (
+                        <>
+                          {configSubjects.length > 0 && (
+                            <>
+                            <div className="rounded-lg border overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead className="bg-gray-50 border-b">
+                                  <tr>
+                                    <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">
+                                      Actif
+                                    </th>
+                                    <th className="text-left px-4 py-3 font-medium text-gray-600">
+                                      Matière
+                                    </th>
+                                    <th className="text-left px-4 py-3 font-medium text-gray-600 w-44">
+                                      Coefficient
+                                    </th>
+                                    <th className="w-12 px-4 py-3"></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {configSubjects.map((subject, idx) => (
+                                    <tr
+                                      key={idx}
+                                      className={`border-b last:border-0 ${
+                                        subject.enabled ? "bg-white" : "bg-gray-50 opacity-60"
+                                      }`}
+                                    >
+                                      <td className="px-4 py-3">
+                                        <input
+                                          type="checkbox"
+                                          checked={subject.enabled}
+                                          onChange={(e) =>
+                                            setConfigSubjects((prev) =>
+                                              prev.map((s, i) =>
+                                                i === idx ? { ...s, enabled: e.target.checked } : s
+                                              )
+                                            )
+                                          }
+                                          className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                      </td>
+                                      <td className="px-4 py-3 font-medium text-gray-800">
+                                        {subject.name}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {subject.coefficient === 0 ? (
+                                          <button
+                                            onClick={() =>
+                                              setConfigSubjects((prev) =>
+                                                prev.map((s, i) => i === idx ? { ...s, coefficient: 1 } : s)
+                                              )
+                                            }
+                                            className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors border border-dashed border-gray-300"
+                                            title="Cliquer pour ajouter un coefficient"
+                                          >
+                                            Sans coeff
+                                          </button>
+                                        ) : (
+                                          <div className="flex items-center gap-1">
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              max={10}
+                                              step={0.5}
+                                              value={subject.coefficient}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                const parsed = parseFloat(val);
+                                                if (!isNaN(parsed) && parsed >= 1 && parsed <= 10) {
+                                                  setConfigSubjects((prev) =>
+                                                    prev.map((s, i) => i === idx ? { ...s, coefficient: parsed } : s)
+                                                  );
+                                                }
+                                              }}
+                                              className="w-16 h-8 text-center"
+                                            />
+                                            <button
+                                              onClick={() =>
+                                                setConfigSubjects((prev) =>
+                                                  prev.map((s, i) => i === idx ? { ...s, coefficient: 0 } : s)
+                                                )
+                                              }
+                                              className="text-gray-300 hover:text-gray-500 transition-colors"
+                                              title="Supprimer le coefficient (matière sans coefficient)"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <button
+                                          onClick={() =>
+                                            setConfigSubjects((prev) => prev.filter((_, i) => i !== idx))
+                                          }
+                                          className="text-red-400 hover:text-red-600 transition-colors"
+                                          title="Supprimer"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="text-xs text-gray-400 flex items-center gap-1 mt-1">
+                              <span className="inline-block w-3 h-3 rounded border border-dashed border-gray-300 bg-gray-100 text-center leading-none text-[9px]">0</span>
+                              <strong>Sans coeff</strong> = la matière apparaît dans le bulletin mais ne compte pas dans la moyenne générale (ex : EPS, Dessin).
+                            </p>
+                            </>
+                          )}
+
+                          {/* Suggested subjects */}
+                          {(() => {
+                            const configClass = classes.find((c) => c.id === configClassId);
+                            if (!configClass?.level) return null;
+                            const suggested = getSubjectsForLevel(configClass.level);
+                            const existingNames = new Set(configSubjects.map((s) => s.name.toLowerCase()));
+                            const filtered = suggested.filter(
+                              (s) => !existingNames.has(s.name.toLowerCase())
+                            );
+                            if (filtered.length === 0) return null;
+                            return (
+                              <div className="space-y-2">
+                                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                  Matières suggérées pour ce niveau
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {filtered.map((s) => (
+                                    <button
+                                      key={s.name}
+                                      onClick={() =>
+                                        setConfigSubjects((prev) => [
+                                          ...prev,
+                                          { name: s.name, coefficient: s.coefficient, enabled: true },
+                                        ])
+                                      }
+                                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-full hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors font-medium"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      {s.name}
+                                      <span className="text-gray-400 ml-1">×{s.coefficient}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Add custom subject */}
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              Ajouter une matière personnalisée
+                            </p>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <Input
+                                placeholder="Nom de la matière"
+                                value={newSubjectName}
+                                onChange={(e) => setNewSubjectName(e.target.value)}
+                                className="bg-white max-w-xs"
+                              />
+                              {newSubjectCoeff === 0 ? (
+                                <button
+                                  onClick={() => setNewSubjectCoeff(1)}
+                                  className="text-xs px-3 py-2 rounded bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors border border-dashed border-gray-300"
+                                  title="Cliquer pour ajouter un coefficient"
+                                >
+                                  Sans coeff
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={10}
+                                    step={0.5}
+                                    value={newSubjectCoeff}
+                                    onChange={(e) => {
+                                      const parsed = parseFloat(e.target.value);
+                                      if (!isNaN(parsed) && parsed >= 1 && parsed <= 10) setNewSubjectCoeff(parsed);
+                                    }}
+                                    className="bg-white w-16 text-center"
+                                    placeholder="Coeff"
+                                  />
+                                  <button
+                                    onClick={() => setNewSubjectCoeff(0)}
+                                    className="text-gray-300 hover:text-gray-500 transition-colors"
+                                    title="Sans coefficient"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
+                              <Button
+                                variant="outline"
+                                disabled={!newSubjectName.trim()}
+                                onClick={() => {
+                                  if (!newSubjectName.trim()) return;
+                                  setConfigSubjects((prev) => [
+                                    ...prev,
+                                    { name: newSubjectName.trim(), coefficient: newSubjectCoeff, enabled: true },
+                                  ]);
+                                  setNewSubjectName("");
+                                  setNewSubjectCoeff(1);
+                                }}
+                              >
+                                <Plus className="w-4 h-4 mr-1" />
+                                Ajouter
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Save button */}
+                          <div className="pt-2">
+                            <Button
+                              onClick={saveConfig}
+                              disabled={configSaving}
+                              className="bg-indigo-600 hover:bg-indigo-700"
+                            >
+                              {configSaving ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Save className="w-4 h-4 mr-2" />
+                              )}
+                              Enregistrer la configuration
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
+      </div>
+
+      {/* ── Dialog confirmation verrouillage trimestre ───────────────────────── */}
+      <AlertDialog open={lockConfirmOpen} onOpenChange={setLockConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-orange-600" />
+              Verrouiller le {selectedTerm} ?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  Une fois verrouillé, les professeurs <strong>ne pourront plus modifier</strong> les notes de ce trimestre.
+                  Vous pourrez déverrouiller si nécessaire.
+                </p>
+                {bulletinReport && (() => {
+                  const total = bulletinReport.students.length;
+                  const withGrades = bulletinReport.students.filter((s) => s.totalSubjects > 0).length;
+                  const without = total - withGrades;
+                  return (
+                    <div className="rounded-lg border bg-gray-50 p-3 space-y-1.5">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Total élèves</span>
+                        <span className="font-semibold">{total}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-emerald-700">✓ Avec notes et compositions</span>
+                        <span className="font-semibold text-emerald-700">{withGrades}</span>
+                      </div>
+                      {without > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-amber-700">⚠ Sans notes complètes</span>
+                          <span className="font-semibold text-amber-700">{without}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                {bulletinReport && bulletinReport.students.filter((s) => s.totalSubjects === 0).length > 0 && (
+                  <p className="text-amber-700 font-medium">
+                    Attention : {bulletinReport.students.filter((s) => s.totalSubjects === 0).length} élève(s) n&apos;ont pas encore toutes leurs notes. Leurs bulletins afficheront des moyennes incomplètes.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmLock}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              <Lock className="w-4 h-4 mr-2" />
+              Confirmer le verrouillage
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Subject Detail Sheet ─────────────────────────────────────────────── */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-indigo-500" />
+              {sheetSubject.startsWith("__student__")
+                ? "Détail élève"
+                : `${sheetSubject} — ${selectedTerm}`}
+            </SheetTitle>
+          </SheetHeader>
+
+          {sheetLoading ? (
+            <SkeletonTable rows={6} cols={4} />
+          ) : sheetSubject.startsWith("__student__") ? (
+            // Student detail view — show all subjects from bulletin
+            <div className="space-y-3">
+              {bulletinReport ? (() => {
+                const studentId = sheetSubject.replace("__student__", "");
+                const studentRow = bulletinReport.students.find(
+                  (s) => s.student.id === studentId
+                );
+                if (!studentRow) return <EmptyState message="Élève non trouvé" />;
+                return (
+                  <div className="space-y-3">
+                    <div className="bg-indigo-50 rounded-lg px-4 py-3">
+                      <p className="font-semibold text-indigo-800 text-lg">
+                        {studentRow.student.firstName} {studentRow.student.lastName}
+                      </p>
+                      <p className="text-sm text-indigo-600 font-mono">
+                        {studentRow.student.matricule}
+                      </p>
+                      <div className="mt-2 flex items-center gap-3">
+                        <span className="text-sm text-indigo-700">Rang:</span>
+                        <span className="text-xl">{rankMedal(studentRow.rank)}</span>
+                        <span className="text-sm text-indigo-700 ml-4">Moy. générale:</span>
+                        <span className={`font-bold text-lg ${avgColor(studentRow.generalAverage > 0 ? studentRow.generalAverage : null)}`}>
+                          {studentRow.generalAverage > 0
+                            ? studentRow.generalAverage.toFixed(2)
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                        <span>
+                          Pour voir le détail par matière, cliquez sur les boutons matières
+                          dans le bulletin.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })() : <EmptyState message="Aucune donnée" />}
+            </div>
+          ) : sheetData.length === 0 ? (
+            <EmptyState message="Aucune donnée disponible pour cette matière" />
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600">Élève</th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600 w-24">
+                        Moy. Cours
+                      </th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600 w-24">
+                        Compo.
+                      </th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600 w-28">
+                        Moy. Matière
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheetData
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          (b.averageSubject ?? -1) - (a.averageSubject ?? -1)
+                      )
+                      .map((row, idx) => (
+                        <tr
+                          key={row.student.id}
+                          className={`border-b last:border-0 hover:bg-gray-50/70 ${
+                            idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                          }`}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-gray-800">
+                            {row.student.firstName} {row.student.lastName}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs font-mono">
+                            {fmt(row.averageCourse)}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 font-mono">
+                            {fmt(row.compositionScore)}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span
+                              className={`font-bold ${avgColor(row.averageSubject)}`}
+                            >
+                              {fmt(row.averageSubject)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Sheet stats */}
+              {(() => {
+                const valids = sheetData
+                  .map((r) => r.averageSubject)
+                  .filter((n): n is number => n !== null);
+                const mean =
+                  valids.length > 0
+                    ? valids.reduce((a, b) => a + b, 0) / valids.length
+                    : null;
+                return (
+                  <div className="bg-indigo-50 rounded-lg px-4 py-3 flex gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">Moy. de la matière: </span>
+                      <span className={`font-bold ${avgColor(mean)}`}>
+                        {mean !== null ? mean.toFixed(2) : "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Élèves: </span>
+                      <span className="font-semibold text-indigo-700">
+                        {valids.length} / {sheetData.length}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <button
+                onClick={() => setSheetOpen(false)}
+                className="w-full mt-2 flex items-center justify-center gap-2 py-2 text-sm text-gray-500 hover:text-gray-700 border rounded-lg hover:border-gray-300 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                Fermer
+              </button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// ─── Export with Suspense ─────────────────────────────────────────────────────
 
 export default function GradesPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="min-h-screen bg-gray-50/50 flex items-center justify-center">
+          <div className="flex items-center gap-3 text-gray-500">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Chargement des notes…</span>
+          </div>
         </div>
       }
     >
-      <GradesPageContent />
+      <GradesPageInner />
     </Suspense>
   );
 }
