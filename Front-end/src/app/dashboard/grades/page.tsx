@@ -1013,7 +1013,7 @@ function GradesPageInner() {
     compGridAutoSaveTimers.current[subject] = setTimeout(() => {
       autoSaveCompSubject(subject, compGridStudents, compGridScoresRef.current);
     }, 1000);
-  }, [autoSaveCompSubject]);
+  }, [autoSaveCompSubject, compGridStudents]);
 
   // Auto-save silencieux par matière — appelé après 1s d'inactivité sur une colonne
   const autoSaveSubject = useCallback(async (subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
