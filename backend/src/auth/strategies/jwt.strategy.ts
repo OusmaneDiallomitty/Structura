@@ -31,6 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           },
         },
       },
+      // classAssignments est sélectionné automatiquement via findUnique
     });
 
     // Compte inexistant ou désactivé
@@ -72,9 +73,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       emailVerified:    user.emailVerified,
       isActive:         user.isActive,
       permissions:      user.permissions,
-      assignedClassIds: user.taughtClasses.map((c) => c.id),
-      createdAt:        user.createdAt,
-      updatedAt:        user.updatedAt,
+      assignedClassIds:  user.taughtClasses.map((c) => c.id),
+      classAssignments:  user.classAssignments ?? [],
+      createdAt:         user.createdAt,
+      updatedAt:         user.updatedAt,
     };
   }
 }

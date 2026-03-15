@@ -33,6 +33,7 @@ export class GradesController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async createEvaluation(@CurrentUser() user: any, @Body() createDto: CreateEvaluationDto) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    this.gradesService.assertSubjectAccess(user, createDto.classId, createDto.subject);
     return this.gradesService.createEvaluation(user.tenantId, createDto);
   }
 
@@ -42,6 +43,7 @@ export class GradesController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async bulkCreateEvaluations(@CurrentUser() user: any, @Body() bulkDto: BulkCreateEvaluationDto) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    this.gradesService.assertSubjectAccess(user, bulkDto.classId, bulkDto.subject);
     return this.gradesService.bulkCreateEvaluations(user.tenantId, bulkDto);
   }
 
@@ -65,6 +67,7 @@ export class GradesController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async createComposition(@CurrentUser() user: any, @Body() createDto: CreateCompositionDto) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    this.gradesService.assertSubjectAccess(user, createDto.classId, createDto.subject);
     return this.gradesService.createComposition(user.tenantId, createDto);
   }
 
@@ -74,6 +77,7 @@ export class GradesController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async bulkCreateCompositions(@CurrentUser() user: any, @Body() bulkDto: BulkCreateCompositionDto) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
+    this.gradesService.assertSubjectAccess(user, bulkDto.classId, bulkDto.subject);
     return this.gradesService.bulkCreateCompositions(user.tenantId, bulkDto);
   }
 
@@ -98,7 +102,7 @@ export class GradesController {
     @Body() updateDto: UpdateCompositionDto,
   ) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
-    return this.gradesService.updateComposition(user.tenantId, compositionId, updateDto);
+    return this.gradesService.updateComposition(user.tenantId, compositionId, updateDto, user);
   }
 
   // ── RAPPORTS (Bulletins) — DIRECTEUR uniquement ──────────────────────────

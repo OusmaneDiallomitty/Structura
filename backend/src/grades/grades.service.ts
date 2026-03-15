@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEvaluationDto, BulkCreateEvaluationDto } from './dto/create-evaluation.dto';
 import { CreateCompositionDto, BulkCreateCompositionDto, UpdateCompositionDto } from './dto/create-composition.dto';
@@ -8,6 +8,47 @@ import { getMonthsForTerm, getTermsMonths } from './utils/months';
 @Injectable()
 export class GradesService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Vérifie qu'un professeur est autorisé à écrire sur une matière d'une classe.
+   * Les DIRECTOR/SECRETARY/ACCOUNTANT/SUPERVISOR ont accès à tout.
+   * Un TEACHER ne peut écrire que sur les matières qui lui sont affectées via classAssignments.
+   *
+   * Structure classAssignments : [{ classId: string, subjects: string[] }]
+   */
+  assertSubjectAccess(user: any, classId: string, subject: string): void {
+    const role: string = (user?.role ?? '').toUpperCase();
+
+    // Les non-professeurs (directeur, etc.) passent sans restriction
+    if (role !== 'TEACHER') return;
+
+    const assignments: { classId: string; subjects: string[] }[] =
+      Array.isArray(user.classAssignments) ? user.classAssignments : [];
+
+    // Si aucune affectation configurée → accès refusé (sécurité par défaut)
+    if (assignments.length === 0) {
+      throw new ForbiddenException(
+        'Aucune classe ou matière ne vous a été affectée. Contactez votre directeur.',
+      );
+    }
+
+    const classEntry = assignments.find((a) => a.classId === classId);
+
+    if (!classEntry) {
+      throw new ForbiddenException(
+        `Vous n'êtes pas affecté à cette classe.`,
+      );
+    }
+
+    // Si subjects est vide → le prof a accès à toutes les matières de cette classe
+    if (!classEntry.subjects || classEntry.subjects.length === 0) return;
+
+    if (!classEntry.subjects.includes(subject)) {
+      throw new ForbiddenException(
+        `Vous n'êtes pas autorisé à saisir des notes pour la matière "${subject}" dans cette classe.`,
+      );
+    }
+  }
 
   /**
    * Vérifie que le trimestre n'est pas verrouillé avant toute écriture
@@ -242,12 +283,16 @@ export class GradesService {
     tenantId: string,
     compositionId: string,
     updateDto: UpdateCompositionDto,
+    user?: any,
   ) {
     const comp = await this.prisma.composition.findFirst({
       where: { id: compositionId, tenantId },
     });
 
     if (!comp) throw new NotFoundException('Composition non trouvée');
+
+    // Vérification accès matière pour les professeurs
+    if (user) this.assertSubjectAccess(user, comp.classId, comp.subject);
 
     await this.checkNotLocked(tenantId, comp.classId, comp.term, comp.academicYear);
 
