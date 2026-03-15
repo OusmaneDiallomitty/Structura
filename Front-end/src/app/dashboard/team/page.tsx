@@ -580,7 +580,7 @@ export default function TeamPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Gestion de l&apos;Équipe</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Gestion de l&apos;Équipe</h1>
           <p className="text-muted-foreground mt-1">
             Gérez les membres de votre équipe et leurs permissions
           </p>
@@ -927,7 +927,7 @@ export default function TeamPage() {
 
       {/* ── Dialog : Ajouter ─────────────────────────────────────────────────── */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Ajouter un Membre</DialogTitle>
             <DialogDescription>
@@ -1113,7 +1113,7 @@ export default function TeamPage() {
 
       {/* ── Dialog : Modifier ────────────────────────────────────────────────── */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifier le Membre</DialogTitle>
             <DialogDescription>
@@ -1347,7 +1347,7 @@ export default function TeamPage() {
         open={isPermissionsDialogOpen}
         onOpenChange={setIsPermissionsDialogOpen}
       >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Permissions de {selectedMember?.firstName} {selectedMember?.lastName}

@@ -1570,7 +1570,7 @@ export default function PaymentsPage() {
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border overflow-hidden">
+        <div className="rounded-lg border overflow-hidden overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40">

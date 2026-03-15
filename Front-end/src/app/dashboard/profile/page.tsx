@@ -157,7 +157,7 @@ export default function ProfilePage() {
 
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Mon Profil</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Mon Profil</h1>
         <p className="text-muted-foreground mt-1">
           Gérez vos informations personnelles et la sécurité de votre compte.
         </p>

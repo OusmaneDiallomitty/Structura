@@ -388,7 +388,7 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Paramètres</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Paramètres</h1>
           <p className="text-muted-foreground mt-1">
             Gérez les informations et préférences de votre établissement.
           </p>

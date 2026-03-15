@@ -672,7 +672,7 @@ export default function ClassesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
             {isTeacher ? 'Mes Classes' : 'Gestion des Classes'}
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -1121,7 +1121,7 @@ export default function ClassesPage() {
 
       {/* Dialog Ajouter */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Ajouter une classe</DialogTitle>
             <DialogDescription>
@@ -1284,7 +1284,7 @@ export default function ClassesPage() {
 
       {/* Dialog Modifier */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifier la classe</DialogTitle>
             <DialogDescription>

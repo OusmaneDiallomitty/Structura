@@ -1857,7 +1857,7 @@ function GradesPageInner() {
                                               triggerEvalAutoSave(sub, evalMonth);
                                             }}
                                             placeholder="—"
-                                            className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
+                                            className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
                                           />
                                         </td>
                                       );
@@ -2094,7 +2094,7 @@ function GradesPageInner() {
                                                 triggerAutoSave(sub);
                                               }}
                                               placeholder="—"
-                                              className={`w-20 h-8 text-center font-medium mx-auto ${
+                                              className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${
                                                 isInvalid ? "border-red-400 focus:ring-red-400" : ""
                                               }`}
                                             />
@@ -2272,7 +2272,7 @@ function GradesPageInner() {
                                                 triggerCompAutoSave(sub);
                                               }}
                                               placeholder="—"
-                                              className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400' : ''}`}
+                                              className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400' : ''}`}
                                             />
                                             {course !== null && (
                                               <span className="text-[10px] text-gray-400">cours: {course.toFixed(1)}</span>

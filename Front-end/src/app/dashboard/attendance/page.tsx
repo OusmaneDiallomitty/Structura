@@ -688,7 +688,7 @@ export default function AttendancePage() {
       {/* ── En-tête ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Présences</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Présences</h1>
           <p className="text-muted-foreground mt-1 capitalize">{formatDate(selectedDate)}</p>
         </div>
         <div className="flex items-center gap-2">
