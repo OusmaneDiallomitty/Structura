@@ -229,21 +229,14 @@ export class AuthService {
         loginTime,
       ).catch(() => {});
 
-      // Notifier les directeurs du tenant
-      this.notificationsService.notifyDirectors(
-        matchedUser.tenantId,
-        'LOGIN_APPROVAL',
-        'Connexion en attente',
-        `${matchedUser.firstName} ${matchedUser.lastName} demande l'approbation pour se connecter.`,
-        '/dashboard/team',
-      ).catch(() => {});
-
       return { status: 'PENDING_APPROVAL', pendingToken };
     }
 
     // ─── Première connexion (aucune session active) → générer JWT directement ────
     const tokens      = await this.generateTokens(matchedUser);
     const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    const isFirstLogin = !matchedUser.lastLoginAt;
 
     await this.prisma.user.update({
       where: { id: matchedUser.id },
@@ -253,6 +246,17 @@ export class AuthService {
         refreshTokenHash: refreshHash,
       },
     });
+
+    // Notifier les directeurs quand un membre active son compte pour la première fois
+    if (isFirstLogin && matchedUser.role !== 'DIRECTOR' && matchedUser.role !== 'SUPER_ADMIN') {
+      this.notificationsService.notifyDirectors(
+        matchedUser.tenantId,
+        'MEMBER_ACTIVATED',
+        'Compte activé',
+        `${matchedUser.firstName} ${matchedUser.lastName} a activé son compte et s'est connecté(e).`,
+        '/dashboard/team',
+      ).catch(() => {});
+    }
 
     return {
       user: {

@@ -28,9 +28,9 @@ const POLL_INTERVAL = 60_000; // 60 secondes
 
 function getIcon(type: string) {
   switch (type) {
-    case 'LOGIN_APPROVAL':      return <AlertCircle className="h-4 w-4 text-amber-600" />;
     case 'PAYMENT_OVERDUE':     return <AlertCircle className="h-4 w-4 text-red-600" />;
     case 'MEMBER_PENDING':      return <Info className="h-4 w-4 text-blue-600" />;
+    case 'MEMBER_ACTIVATED':    return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
     case 'ATTENDANCE':          return <Clock className="h-4 w-4 text-orange-600" />;
     case 'SUBSCRIPTION_EXPIRY': return <AlertCircle className="h-4 w-4 text-red-600" />;
     case 'TRIMESTER_LOCKED':    return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;

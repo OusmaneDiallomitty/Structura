@@ -202,7 +202,7 @@ export class UsersService {
       tenantId,
       'MEMBER_PENDING',
       'Nouveau membre invité',
-      `${dto.firstName} ${dto.lastName} a été invité(e) — en attente d'activation.`,
+      `${dto.firstName} ${dto.lastName} a été invité(e) et recevra un email d'activation.`,
       '/dashboard/team',
     ).catch(() => {});
 
