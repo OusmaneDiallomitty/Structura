@@ -38,6 +38,7 @@ import {
   getClassReport, getTrimesterLock, lockTrimester, unlockTrimester,
   getSubjectCoefficients, getStudentReport, getAnnualReport,
   type ClassReport, type TrimesterLock, type AnnualReport,
+  type Evaluation, type Composition,
 } from "@/lib/api/grades.service";
 import { getSubjectsForLevel } from "@/lib/subjects-config";
 import { formatClassName } from "@/lib/class-helpers";
@@ -158,6 +159,38 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
+/** Construit la map scores [studentId][subject] pour un mois donné depuis le cache */
+function buildEvalGridScores(
+  month: string,
+  allEvals: Evaluation[],
+  students: BackendStudent[],
+  subjects: string[],
+): Record<string, Record<string, string>> {
+  const scores: Record<string, Record<string, string>> = {};
+  for (const s of students) scores[s.id] = {};
+  for (const ev of allEvals) {
+    if (ev.month === month && scores[ev.studentId] && subjects.includes(ev.subject)) {
+      scores[ev.studentId][ev.subject] = String(ev.score);
+    }
+  }
+  return scores;
+}
+
+/** Retourne le nombre d'évals saisies pour un mois parmi students × subjects */
+function getMonthCompletion(
+  month: string,
+  allEvals: Evaluation[],
+  studentIds: Set<string>,
+  subjects: string[],
+): { filled: number; total: number } {
+  const total = studentIds.size * subjects.length;
+  if (total === 0) return { filled: 0, total: 0 };
+  const filled = allEvals.filter(
+    (ev) => ev.month === month && studentIds.has(ev.studentId) && subjects.includes(ev.subject),
+  ).length;
+  return { filled, total };
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 function GradesPageInner() {
@@ -250,6 +283,25 @@ function GradesPageInner() {
   const [gridAutoSavingSubjects, setGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   // Timers debounce par matière — clé = nom matière, valeur = timeout id
   const autoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // ── Grille évaluations secondaire ────────────────────────────────────────
+  // Un seul chargement pour tout le trimestre — switching mois = instantané
+  const [evalGridStudents, setEvalGridStudents] = useState<BackendStudent[]>([]);
+  const [evalGridAllEvals, setEvalGridAllEvals] = useState<Evaluation[]>([]);
+  const [evalGridScores, setEvalGridScores] = useState<Record<string, Record<string, string>>>({});
+  const [evalGridLoading, setEvalGridLoading] = useState(false);
+  const [evalGridSavedSubjects, setEvalGridSavedSubjects] = useState<Set<string>>(new Set());
+  const [evalGridAutoSavingSubjects, setEvalGridAutoSavingSubjects] = useState<Set<string>>(new Set());
+  const evalGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // ── Grille compositions secondaire ───────────────────────────────────────
+  const [compGridStudents, setCompGridStudents] = useState<BackendStudent[]>([]);
+  const [compGridScores, setCompGridScores] = useState<Record<string, Record<string, string>>>({});
+  const [compGridCourseAvgs, setCompGridCourseAvgs] = useState<Record<string, Record<string, number | null>>>({});
+  const [compGridLoading, setCompGridLoading] = useState(false);
+  const [compGridSavedSubjects, setCompGridSavedSubjects] = useState<Set<string>>(new Set());
+  const [compGridAutoSavingSubjects, setCompGridAutoSavingSubjects] = useState<Set<string>>(new Set());
+  const compGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // ── Dérivés classe sélectionnée — déclarés tôt pour être accessibles dans les callbacks ──
   // PRIMARY si gradeMode explicite OU si le niveau est Primaire/Maternelle (rétrocompat)
@@ -395,6 +447,15 @@ function GradesPageInner() {
     setGridStudents([]);
     setGridScores({});
     setGridSavedSubjects(new Set());
+    // Reset grilles secondaire
+    setEvalGridStudents([]);
+    setEvalGridAllEvals([]);
+    setEvalGridScores({});
+    setEvalGridSavedSubjects(new Set());
+    setCompGridStudents([]);
+    setCompGridScores({});
+    setCompGridCourseAvgs({});
+    setCompGridSavedSubjects(new Set());
   }, [selectedClassId, selectedTerm]);
 
   // ── Evaluations ───────────────────────────────────────────────────────────
@@ -698,6 +759,256 @@ function GradesPageInner() {
       setGridSaving(false);
     }
   }, [selectedClassId, selectedTerm, academicYear, gridStudents, gridScores, user]);
+
+  // ── Chargement grille évaluations secondaire ──────────────────────────────
+
+  const loadSecondaryEvalGrid = useCallback(async (subjects: string[]) => {
+    if (!selectedClassId || subjects.length === 0) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    setEvalGridLoading(true);
+    try {
+      const [students, allEvals] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: academicYear || undefined }),
+      ]);
+      setEvalGridStudents(students);
+      setEvalGridAllEvals(allEvals);
+      // Le useEffect reactive rebuildera evalGridScores depuis le cache + evalMonth
+    } catch (e) {
+      toast.error('Erreur lors du chargement des évaluations');
+      console.error(e);
+    } finally {
+      setEvalGridLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  const saveEvalGrid = useCallback(async (subjects: string[], month: string, scores: Record<string, Record<string, string>>) => {
+    if (!selectedClassId || !month || subjects.length === 0 || evalGridStudents.length === 0) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    setEvalGridSavedSubjects(new Set());
+    let totalSaved = 0;
+    await Promise.all(
+      subjects.map(async (sub) => {
+        const evaluations = evalGridStudents
+          .map((s) => {
+            const raw = scores[s.id]?.[sub];
+            if (raw === undefined || raw === '') return null;
+            const score = parseFloat(raw);
+            if (isNaN(score) || score < 0 || score > 20) return null;
+            return { studentId: s.id, score };
+          })
+          .filter((x): x is { studentId: string; score: number } => x !== null);
+        if (evaluations.length === 0) return;
+        totalSaved += evaluations.length;
+        await bulkSaveEvaluations(token, {
+          classId: selectedClassId,
+          subject: sub,
+          term: selectedTerm,
+          month,
+          academicYear: academicYear || undefined,
+          teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+          evaluations,
+        });
+        setEvalGridSavedSubjects((prev) => new Set([...prev, sub]));
+        // Mettre à jour le cache local
+        setEvalGridAllEvals((prev) => {
+          const filtered = prev.filter((ev) => !(ev.month === month && ev.subject === sub));
+          const newEvals = evaluations.map((ev) => ({
+            id: `${sub}-${ev.studentId}-${month}`,
+            studentId: ev.studentId,
+            classId: selectedClassId,
+            subject: sub,
+            term: selectedTerm,
+            month,
+            score: ev.score,
+            academicYear: academicYear || '',
+          } as Evaluation));
+          return [...filtered, ...newEvals];
+        });
+      }),
+    );
+    if (totalSaved > 0) toast.success(`${totalSaved} note(s) enregistrée(s)`);
+    else toast.warning('Aucune note valide à enregistrer');
+  }, [selectedClassId, selectedTerm, academicYear, evalGridStudents, user]);
+
+  const autoSaveEvalSubject = useCallback(async (subject: string, month: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    if (!selectedClassId || !month) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    const evaluations = students
+      .map((s) => {
+        const raw = scores[s.id]?.[subject];
+        if (raw === undefined || raw === '') return null;
+        const score = parseFloat(raw);
+        if (isNaN(score) || score < 0 || score > 20) return null;
+        return { studentId: s.id, score };
+      })
+      .filter((x): x is { studentId: string; score: number } => x !== null);
+    if (evaluations.length === 0) return;
+    setEvalGridAutoSavingSubjects((prev) => new Set([...prev, subject]));
+    try {
+      await bulkSaveEvaluations(token, {
+        classId: selectedClassId,
+        subject,
+        term: selectedTerm,
+        month,
+        academicYear: academicYear || undefined,
+        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+        evaluations,
+      });
+      setEvalGridSavedSubjects((prev) => new Set([...prev, subject]));
+      setEvalGridAllEvals((prev) => {
+        const filtered = prev.filter((ev) => !(ev.month === month && ev.subject === subject));
+        const newEvals = evaluations.map((ev) => ({
+          id: `${subject}-${ev.studentId}-${month}`,
+          studentId: ev.studentId,
+          classId: selectedClassId,
+          subject,
+          term: selectedTerm,
+          month,
+          score: ev.score,
+          academicYear: academicYear || '',
+        } as Evaluation));
+        return [...filtered, ...newEvals];
+      });
+    } catch { /* silencieux */ } finally {
+      setEvalGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
+    }
+  }, [selectedClassId, selectedTerm, academicYear, user]);
+
+  const triggerEvalAutoSave = useCallback((subject: string, month: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    if (evalGridAutoSaveTimers.current[subject]) clearTimeout(evalGridAutoSaveTimers.current[subject]);
+    setEvalGridSavedSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
+    evalGridAutoSaveTimers.current[subject] = setTimeout(() => {
+      autoSaveEvalSubject(subject, month, students, scores);
+    }, 1000);
+  }, [autoSaveEvalSubject]);
+
+  // ── Chargement grille compositions secondaire ─────────────────────────────
+
+  const loadSecondaryCompGrid = useCallback(async (subjects: string[]) => {
+    if (!selectedClassId || subjects.length === 0) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    setCompGridLoading(true);
+    try {
+      const [students, allEvals, ...compsPerSubject] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: academicYear || undefined }),
+        ...subjects.map((sub) =>
+          getCompositions(token, { classId: selectedClassId, subject: sub, term: selectedTerm, academicYear: academicYear || undefined }),
+        ),
+      ]);
+
+      // Moyennes cours par [studentId][subject]
+      const evalsByStudentSubject: Record<string, Record<string, number[]>> = {};
+      for (const ev of allEvals) {
+        if (!evalsByStudentSubject[ev.studentId]) evalsByStudentSubject[ev.studentId] = {};
+        if (!evalsByStudentSubject[ev.studentId][ev.subject]) evalsByStudentSubject[ev.studentId][ev.subject] = [];
+        evalsByStudentSubject[ev.studentId][ev.subject].push(ev.score);
+      }
+      const courseAvgs: Record<string, Record<string, number | null>> = {};
+      for (const s of students) {
+        courseAvgs[s.id] = {};
+        for (const sub of subjects) {
+          const sc = evalsByStudentSubject[s.id]?.[sub];
+          courseAvgs[s.id][sub] = sc && sc.length > 0 ? sc.reduce((a, b) => a + b, 0) / sc.length : null;
+        }
+      }
+
+      // Scores compositions par [studentId][subject]
+      const compScores: Record<string, Record<string, string>> = {};
+      for (const s of students) compScores[s.id] = {};
+      for (let i = 0; i < subjects.length; i++) {
+        for (const c of (compsPerSubject[i] as Composition[])) {
+          if (compScores[c.studentId]) compScores[c.studentId][subjects[i]] = String(c.compositionScore);
+        }
+      }
+
+      setCompGridStudents(students);
+      setCompGridCourseAvgs(courseAvgs);
+      setCompGridScores(compScores);
+      setCompGridSavedSubjects(new Set());
+    } catch (e) {
+      toast.error('Erreur lors du chargement des compositions');
+      console.error(e);
+    } finally {
+      setCompGridLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  const saveCompGrid = useCallback(async (subjects: string[]) => {
+    if (!selectedClassId || subjects.length === 0 || compGridStudents.length === 0) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    let totalSaved = 0;
+    await Promise.all(
+      subjects.map(async (sub) => {
+        const compositions = compGridStudents
+          .map((s) => {
+            const raw = compGridScores[s.id]?.[sub];
+            if (raw === undefined || raw === '') return null;
+            const score = parseFloat(raw);
+            if (isNaN(score) || score < 0 || score > 20) return null;
+            return { studentId: s.id, compositionScore: score };
+          })
+          .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
+        if (compositions.length === 0) return;
+        totalSaved += compositions.length;
+        await bulkSaveCompositions(token, {
+          classId: selectedClassId,
+          subject: sub,
+          term: selectedTerm,
+          academicYear: academicYear || undefined,
+          teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+          compositions,
+        });
+        setCompGridSavedSubjects((prev) => new Set([...prev, sub]));
+      }),
+    );
+    if (totalSaved > 0) toast.success(`${totalSaved} composition(s) enregistrée(s)`);
+    else toast.warning('Aucune note valide à enregistrer');
+  }, [selectedClassId, selectedTerm, academicYear, compGridStudents, compGridScores, user]);
+
+  const autoSaveCompSubject = useCallback(async (subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    if (!selectedClassId) return;
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    const compositions = students
+      .map((s) => {
+        const raw = scores[s.id]?.[subject];
+        if (raw === undefined || raw === '') return null;
+        const score = parseFloat(raw);
+        if (isNaN(score) || score < 0 || score > 20) return null;
+        return { studentId: s.id, compositionScore: score };
+      })
+      .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
+    if (compositions.length === 0) return;
+    setCompGridAutoSavingSubjects((prev) => new Set([...prev, subject]));
+    try {
+      await bulkSaveCompositions(token, {
+        classId: selectedClassId,
+        subject,
+        term: selectedTerm,
+        academicYear: academicYear || undefined,
+        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+        compositions,
+      });
+      setCompGridSavedSubjects((prev) => new Set([...prev, subject]));
+    } catch { /* silencieux */ } finally {
+      setCompGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
+    }
+  }, [selectedClassId, selectedTerm, academicYear, user]);
+
+  const triggerCompAutoSave = useCallback((subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    if (compGridAutoSaveTimers.current[subject]) clearTimeout(compGridAutoSaveTimers.current[subject]);
+    setCompGridSavedSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
+    compGridAutoSaveTimers.current[subject] = setTimeout(() => {
+      autoSaveCompSubject(subject, students, scores);
+    }, 1000);
+  }, [autoSaveCompSubject]);
 
   // Auto-save silencieux par matière — appelé après 1s d'inactivité sur une colonne
   const autoSaveSubject = useCallback(async (subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
@@ -1093,6 +1404,37 @@ function GradesPageInner() {
     }
   }, [isPrimaryClass, activeTab]);
 
+  // Rebuild evalGridScores quand le mois change OU quand le cache change — switching mois = instantané
+  useEffect(() => {
+    if (isPrimaryClass || evalGridStudents.length === 0 || !evalMonth || subjectOptions.length === 0) return;
+    const scores = buildEvalGridScores(evalMonth, evalGridAllEvals, evalGridStudents, subjectOptions);
+    setEvalGridScores(scores);
+    setEvalGridSavedSubjects(new Set());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evalMonth, evalGridAllEvals, evalGridStudents.length, subjectOptions.join(','), isPrimaryClass]);
+
+  // Auto-charger grille évaluations secondaire + présélectionner mois actuel
+  useEffect(() => {
+    if (isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
+    if (evalGridStudents.length > 0) return; // déjà chargé
+    // Présélectionner le mois actuel s'il est dans le trimestre, sinon le premier mois
+    if (!evalMonth && termMonths.length > 0) {
+      const currentMonthName = MONTHS[new Date().getMonth()];
+      const autoMonth = termMonths.includes(currentMonthName) ? currentMonthName : termMonths[0];
+      setEvalMonth(autoMonth);
+    }
+    loadSecondaryEvalGrid(subjectOptions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(',')]);
+
+  // Auto-charger grille compositions secondaire
+  useEffect(() => {
+    if (isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
+    if (compGridStudents.length > 0) return; // déjà chargé
+    loadSecondaryCompGrid(subjectOptions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(',')]);
+
   // Auto-charger la grille primaire dès que classe + matières sont prêtes
   useEffect(() => {
     if (!isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
@@ -1289,211 +1631,212 @@ function GradesPageInner() {
           <TabsContent value="evaluations" className="mt-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-indigo-500" />
-                  Notes mensuelles
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Filters row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Matière */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
-                      Matière
-                    </label>
-                    <Select
-                      value={evalSubject}
-                      onValueChange={setEvalSubject}
-                      disabled={!selectedClassId}
-                    >
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Choisir une matière" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subjectOptions.length === 0 && (
-                          <SelectItem value="__none" disabled>
-                            {selectedClassId
-                              ? "Aucune matière disponible"
-                              : "Sélectionnez d'abord une classe"}
-                          </SelectItem>
-                        )}
-                        {subjectOptions.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Mois */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
-                      Mois
-                    </label>
-                    <Select
-                      value={evalMonth}
-                      onValueChange={setEvalMonth}
-                      disabled={!selectedClassId}
-                    >
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Choisir un mois" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {termMonths.length === 0 ? (
-                          <SelectItem value="__none" disabled>
-                            Sélectionnez un trimestre
-                          </SelectItem>
-                        ) : (
-                          termMonths.map((m) => (
-                            <SelectItem key={m} value={m}>
-                              {m}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-end gap-2 sm:col-span-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-indigo-500" />
+                    Notes mensuelles
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">/20</span>
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
-                      onClick={loadEvaluations}
-                      disabled={evalLoading || !selectedClassId || !evalSubject || !evalMonth}
-                      className="flex-1"
+                      size="sm"
+                      onClick={() => loadSecondaryEvalGrid(subjectOptions)}
+                      disabled={evalGridLoading || !selectedClassId}
                     >
-                      {evalLoading ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                      )}
-                      Charger les élèves
+                      {evalGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
+                      Recharger
                     </Button>
                     <Button
-                      onClick={saveEvaluations}
-                      disabled={evalSaving || evalStudents.length === 0}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                      size="sm"
+                      onClick={() => saveEvalGrid(subjectOptions, evalMonth, evalGridScores)}
+                      disabled={!evalMonth || evalGridStudents.length === 0}
+                      className="bg-indigo-600 hover:bg-indigo-700"
                     >
-                      {evalSaving ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Save className="w-4 h-4 mr-2" />
-                      )}
-                      Enregistrer
+                      <Save className="w-4 h-4 mr-1.5" />
+                      Enregistrer tout
                     </Button>
                   </div>
                 </div>
-
-                {/* Bannière prof (directeur uniquement) */}
-                {isDirector && evalTeacherNames.length > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
-                    <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                    <span className="text-indigo-700">
-                      <span className="font-medium">Notes saisies par : </span>
-                      {evalTeacherNames.join(", ")}
-                    </span>
-                  </div>
-                )}
-
-                {/* Table */}
-                {evalLoading ? (
-                  <SkeletonTable rows={6} cols={4} />
-                ) : evalStudents.length === 0 ? (
-                  <EmptyState message="Chargez les élèves pour saisir les notes" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!selectedClassId ? (
+                  <EmptyState message="Sélectionnez une classe pour commencer" />
+                ) : subjectOptions.length === 0 ? (
+                  <EmptyState message="Aucune matière configurée pour cette classe" />
                 ) : (
-                  <div className="rounded-lg border overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">
-                              Matricule
-                            </th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
-                              Note /20
-                            </th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">
-                              Mention
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {evalStudents.map((student, idx) => {
-                            const rawScore = evalScores[student.id] ?? "";
-                            const score =
-                              rawScore !== "" ? parseFloat(rawScore) : null;
-                            const isValid =
-                              score === null ||
-                              (!isNaN(score) && score >= 0 && score <= 20);
+                  <>
+                    {/* Onglets mois avec complétion */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {termMonths.map((month) => {
+                        const studentIds = new Set(evalGridStudents.map((s) => s.id));
+                        const { filled, total } = getMonthCompletion(month, evalGridAllEvals, studentIds, subjectOptions);
+                        const isComplete = total > 0 && filled === total;
+                        const isActive = evalMonth === month;
+                        return (
+                          <button
+                            key={month}
+                            onClick={() => setEvalMonth(month)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                              isActive
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                                : isComplete
+                                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {isComplete && !isActive && <CheckCircle className="w-3.5 h-3.5" />}
+                            {month}
+                            {total > 0 && (
+                              <span className={`text-xs ${isActive ? 'text-indigo-200' : isComplete ? 'text-green-500' : 'text-gray-400'}`}>
+                                {filled}/{total}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                            return (
-                              <tr
-                                key={student.id}
-                                className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
-                                  idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                                }`}
-                              >
-                                <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                                <td className="px-4 py-3 font-medium text-gray-800">
-                                  {student.firstName} {student.lastName}
-                                </td>
-                                <td className="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs font-mono">
-                                  {student.matricule}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    max={20}
-                                    step={0.25}
-                                    value={rawScore}
-                                    onChange={(e) =>
-                                      setEvalScores((prev) => ({
-                                        ...prev,
-                                        [student.id]: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="—"
-                                    className={`w-24 h-8 text-center font-medium text-base ${
-                                      !isValid ? "border-red-400 focus:ring-red-400" : ""
-                                    }`}
+                    {/* Indicateurs par matière */}
+                    {evalMonth && evalGridStudents.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {subjectOptions.map((sub) => {
+                          const filled = evalGridStudents.filter((s) => {
+                            const raw = evalGridScores[s.id]?.[sub];
+                            return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                          }).length;
+                          const total = evalGridStudents.length;
+                          const isSaved = evalGridSavedSubjects.has(sub);
+                          const isAutoSaving = evalGridAutoSavingSubjects.has(sub);
+                          return (
+                            <div
+                              key={sub}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                                isSaved ? 'bg-green-50 border-green-200 text-green-700'
+                                : isAutoSaving ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                : filled === total ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-600'
+                              }`}
+                            >
+                              {isAutoSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : isSaved ? <CheckCircle className="w-3.5 h-3.5" /> : null}
+                              <span>{sub}</span>
+                              <span className="text-gray-400">·</span>
+                              <span>{filled}/{total}</span>
+                              {filled > 0 && (
+                                <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${filled === total ? 'bg-indigo-500' : 'bg-amber-400'}`}
+                                    style={{ width: `${Math.round((filled / total) * 100)}%` }}
                                   />
-                                </td>
-                                <td className="px-4 py-3 hidden md:table-cell">
-                                  <MentionBadge
-                                    score={isValid && score !== null ? score : null}
-                                  />
-                                </td>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Grille */}
+                    {evalGridLoading ? (
+                      <SkeletonTable rows={8} cols={Math.min(subjectOptions.length + 2, 7)} />
+                    ) : !evalMonth ? (
+                      <EmptyState message="Sélectionnez un mois ci-dessus" />
+                    ) : evalGridStudents.length === 0 ? (
+                      <EmptyState message="Aucun élève dans cette classe" />
+                    ) : (
+                      <div className="rounded-lg border overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
+                                {subjectOptions.map((sub) => (
+                                  <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
+                                      <span className="text-[10px] text-gray-400 font-normal">/20</span>
+                                    </div>
+                                  </th>
+                                ))}
+                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[70px]">Moy.</th>
                               </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Stats footer */}
-                    <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">Notes saisies:</span>
-                        <span className="font-semibold text-indigo-700">
-                          {evalValidScores.length} / {evalStudents.length}
-                        </span>
+                            </thead>
+                            <tbody>
+                              {evalGridStudents.map((student, idx) => {
+                                const subScores = subjectOptions
+                                  .map((sub) => {
+                                    const raw = evalGridScores[student.id]?.[sub];
+                                    if (!raw || raw === '') return null;
+                                    const v = parseFloat(raw);
+                                    return !isNaN(v) && v >= 0 && v <= 20 ? v : null;
+                                  })
+                                  .filter((n): n is number => n !== null);
+                                const rowAvg = subScores.length > 0 ? subScores.reduce((a, b) => a + b, 0) / subScores.length : null;
+                                return (
+                                  <tr
+                                    key={student.id}
+                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
+                                  >
+                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
+                                      {student.firstName} {student.lastName}
+                                    </td>
+                                    {subjectOptions.map((sub) => {
+                                      const raw = evalGridScores[student.id]?.[sub] ?? '';
+                                      const val = raw !== '' ? parseFloat(raw) : null;
+                                      const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 20);
+                                      return (
+                                        <td key={sub} className="px-2 py-2 text-center">
+                                          <Input
+                                            type="number"
+                                            min={0}
+                                            max={20}
+                                            step={0.25}
+                                            value={raw}
+                                            onChange={(e) => {
+                                              const newScores = {
+                                                ...evalGridScores,
+                                                [student.id]: { ...evalGridScores[student.id], [sub]: e.target.value },
+                                              };
+                                              setEvalGridScores(newScores);
+                                              triggerEvalAutoSave(sub, evalMonth, evalGridStudents, newScores);
+                                            }}
+                                            placeholder="—"
+                                            className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
+                                          />
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
+                                        {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Mois :</span>
+                            <span className="font-semibold text-indigo-700">{evalMonth}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Élèves :</span>
+                            <span className="font-semibold text-indigo-700">{evalGridStudents.length}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Matières :</span>
+                            <span className="font-semibold text-indigo-700">{subjectOptions.length}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">Moyenne classe:</span>
-                        <span className={`font-semibold ${avgColor(evalClassAvg)}`}>
-                          {evalClassAvg !== null ? evalClassAvg.toFixed(2) + " /20" : "—"}
-                        </span>
-                      </div>
-                      {evalClassAvg !== null && (
-                        <MentionBadge score={evalClassAvg} />
-                      )}
-                    </div>
-                  </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -1730,150 +2073,141 @@ function GradesPageInner() {
                     )}
                   </>
                 ) : (
-                  /* ── VUE SECONDAIRE : ancienne UI matière par matière ─── */
+                  /* ── VUE SECONDAIRE : grille unifiée compositions ─── */
                   <>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
-                          Matière
-                        </label>
-                        <Select
-                          value={compSubject}
-                          onValueChange={setCompSubject}
-                          disabled={!selectedClassId}
-                        >
-                          <SelectTrigger className="bg-white">
-                            <SelectValue placeholder="Choisir une matière" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {subjectOptions.length === 0 && (
-                              <SelectItem value="__none" disabled>
-                                {selectedClassId
-                                  ? "Aucune matière disponible"
-                                  : "Sélectionnez d'abord une classe"}
-                              </SelectItem>
-                            )}
-                            {subjectOptions.map((s) => (
-                              <SelectItem key={s} value={s}>{s}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex flex-wrap gap-2">
+                        {subjectOptions.map((sub) => {
+                          const filled = compGridStudents.filter((s) => {
+                            const raw = compGridScores[s.id]?.[sub];
+                            return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                          }).length;
+                          const total = compGridStudents.length;
+                          const isSaved = compGridSavedSubjects.has(sub);
+                          const isAutoSaving = compGridAutoSavingSubjects.has(sub);
+                          return (
+                            <div
+                              key={sub}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                                isSaved ? 'bg-green-50 border-green-200 text-green-700'
+                                : isAutoSaving ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                : filled === total && total > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-600'
+                              }`}
+                            >
+                              {isAutoSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : isSaved ? <CheckCircle className="w-3.5 h-3.5" /> : null}
+                              <span>{sub}</span>
+                              {total > 0 && <><span className="text-gray-400">·</span><span>{filled}/{total}</span></>}
+                            </div>
+                          );
+                        })}
                       </div>
-
-                      <div className="flex items-end gap-2 sm:col-span-2">
-                        <Button
-                          variant="outline"
-                          onClick={loadCompositions}
-                          disabled={compLoading || !selectedClassId || !compSubject}
-                          className="flex-1"
-                        >
-                          {compLoading ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                          )}
-                          Charger
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => loadSecondaryCompGrid(subjectOptions)} disabled={compGridLoading || !selectedClassId}>
+                          {compGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
+                          Recharger
                         </Button>
-                        <Button
-                          onClick={saveCompositions}
-                          disabled={compSaving || compStudents.length === 0}
-                          className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                        >
-                          {compSaving ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <Save className="w-4 h-4 mr-2" />
-                          )}
-                          Enregistrer
+                        <Button size="sm" onClick={() => saveCompGrid(subjectOptions)} disabled={compGridStudents.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                          <Save className="w-4 h-4 mr-1.5" />
+                          Enregistrer tout
                         </Button>
                       </div>
                     </div>
 
-                    {isDirector && compTeacherNames.length > 0 && (
-                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
-                        <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                        <span className="text-indigo-700">
-                          <span className="font-medium">Compositions saisies par : </span>
-                          {compTeacherNames.join(", ")}
-                        </span>
-                      </div>
-                    )}
-
-                    {compLoading ? (
-                      <SkeletonTable rows={6} cols={5} />
-                    ) : compStudents.length === 0 ? (
-                      <EmptyState message="Chargez les élèves pour saisir les compositions" />
+                    {compGridLoading ? (
+                      <SkeletonTable rows={8} cols={Math.min(subjectOptions.length + 2, 6)} />
+                    ) : !selectedClassId ? (
+                      <EmptyState message="Sélectionnez une classe pour commencer" />
+                    ) : compGridStudents.length === 0 ? (
+                      <EmptyState message="Chargement de la grille…" />
                     ) : (
                       <div className="rounded-lg border overflow-hidden">
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 border-b">
                               <tr>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell w-28">
-                                  Moy. Cours
-                                </th>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
-                                  Composition /{scoreMax}
-                                </th>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell w-28">
-                                  Moy. Matière
-                                </th>
-                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">
-                                  Mention
-                                </th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
+                                {subjectOptions.map((sub) => (
+                                  <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[110px]">
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
+                                      <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
+                                    </div>
+                                  </th>
+                                ))}
+                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">Moy. gén.</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {compStudents.map((student, idx) => {
-                                const rawComp = compScores[student.id] ?? "";
-                                const comp = rawComp !== "" ? parseFloat(rawComp) : null;
-                                const isValidComp = comp === null || (!isNaN(comp) && comp >= 0 && comp <= scoreMax);
-                                const course = compCourseAvg[student.id] ?? null;
-                                const subjAvg =
-                                  course !== null && comp !== null && !isNaN(comp) && comp >= 0 && comp <= scoreMax
-                                    ? (course + comp) / 2
-                                    : null;
+                              {compGridStudents.map((student, idx) => {
+                                // Moyenne générale preview : (cours + compo) / 2 par matière, puis moyenne pondérée
+                                const subjectAvgs = subjectOptions
+                                  .map((sub) => {
+                                    const raw = compGridScores[student.id]?.[sub];
+                                    const comp = raw && raw !== '' ? parseFloat(raw) : null;
+                                    const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
+                                    if (comp === null || isNaN(comp) || comp < 0 || comp > 20) return null;
+                                    return course !== null ? (course + comp) / 2 : comp;
+                                  })
+                                  .filter((n): n is number => n !== null);
+                                const rowAvg = subjectAvgs.length > 0
+                                  ? subjectAvgs.reduce((a, b) => a + b, 0) / subjectAvgs.length
+                                  : null;
                                 return (
                                   <tr
                                     key={student.id}
-                                    className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
-                                      idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                                    }`}
+                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
                                   >
-                                    <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                                    <td className="px-4 py-3 font-medium text-gray-800">
+                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
                                       {student.firstName} {student.lastName}
                                     </td>
-                                    <td className="px-4 py-3 hidden sm:table-cell">
-                                      <span className="text-gray-500 bg-gray-100 px-2 py-1 rounded text-xs font-mono">
-                                        {fmt(course)}
+                                    {subjectOptions.map((sub) => {
+                                      const raw = compGridScores[student.id]?.[sub] ?? '';
+                                      const comp = raw !== '' ? parseFloat(raw) : null;
+                                      const isInvalid = comp !== null && (isNaN(comp) || comp < 0 || comp > 20);
+                                      const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
+                                      const subjAvg = comp !== null && !isInvalid && course !== null
+                                        ? (course + comp) / 2
+                                        : comp !== null && !isInvalid ? comp : null;
+                                      return (
+                                        <td key={sub} className="px-2 py-1.5 text-center">
+                                          <div className="flex flex-col items-center gap-0.5">
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              max={20}
+                                              step={0.25}
+                                              value={raw}
+                                              onChange={(e) => {
+                                                const newScores = {
+                                                  ...compGridScores,
+                                                  [student.id]: { ...compGridScores[student.id], [sub]: e.target.value },
+                                                };
+                                                setCompGridScores(newScores);
+                                                triggerCompAutoSave(sub, compGridStudents, newScores);
+                                              }}
+                                              placeholder="—"
+                                              className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400' : ''}`}
+                                            />
+                                            {course !== null && (
+                                              <span className="text-[10px] text-gray-400">cours: {course.toFixed(1)}</span>
+                                            )}
+                                            {subjAvg !== null && (
+                                              <span className={`text-[10px] font-semibold ${avgColor(subjAvg, 20)}`}>
+                                                → {subjAvg.toFixed(2)}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
+                                        {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
                                       </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        max={scoreMax}
-                                        step={0.25}
-                                        value={rawComp}
-                                        onChange={(e) =>
-                                          setCompScores((prev) => ({ ...prev, [student.id]: e.target.value }))
-                                        }
-                                        placeholder="—"
-                                        className={`w-24 h-8 text-center font-medium text-base ${
-                                          !isValidComp ? "border-red-400 focus:ring-red-400" : ""
-                                        }`}
-                                      />
-                                    </td>
-                                    <td className="px-4 py-3 hidden md:table-cell">
-                                      <span className={`font-semibold ${avgColor(subjAvg, scoreMax)}`}>
-                                        {fmt(subjAvg)}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 hidden lg:table-cell">
-                                      <MentionBadge score={subjAvg} scoreMax={scoreMax} />
                                     </td>
                                   </tr>
                                 );
@@ -1881,25 +2215,25 @@ function GradesPageInner() {
                             </tbody>
                           </table>
                         </div>
-                        <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
+                        <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
                           <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Notes saisies :</span>
+                            <span className="text-gray-500">Élèves :</span>
+                            <span className="font-semibold text-indigo-700">{compGridStudents.length}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Matières complètes :</span>
                             <span className="font-semibold text-indigo-700">
-                              {compValidComps.length} / {compStudents.length}
+                              {subjectOptions.filter((sub) =>
+                                compGridStudents.every((s) => {
+                                  const raw = compGridScores[s.id]?.[sub];
+                                  return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                                })
+                              ).length} / {subjectOptions.length}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Moy. composition (classe) :</span>
-                            <span className={`font-semibold ${avgColor(compAvg, scoreMax)}`}>
-                              {compAvg !== null ? `${compAvg.toFixed(2)} /${scoreMax}` : "—"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Moy. matière (classe) :</span>
-                            <span className={`font-semibold ${avgColor(compSubjectAvgMean, scoreMax)}`}>
-                              {compSubjectAvgMean !== null ? `${compSubjectAvgMean.toFixed(2)} /${scoreMax}` : "—"}
-                            </span>
-                          </div>
+                          <span className="text-xs text-gray-400 italic self-center">
+                            La moyenne générale officielle est calculée par le serveur (onglet Bulletin)
+                          </span>
                         </div>
                       </div>
                     )}
