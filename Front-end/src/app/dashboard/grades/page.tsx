@@ -1797,15 +1797,25 @@ function GradesPageInner() {
                             </thead>
                             <tbody>
                               {evalGridStudents.map((student, idx) => {
-                                const subScores = subjectOptions
-                                  .map((sub) => {
+                                // Moyenne pondérée par coefficients
+                                let rowAvg: number | null = null;
+                                const hasCoeffsE = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
+                                if (hasCoeffsE) {
+                                  let tp = 0, tc = 0;
+                                  for (const sub of subjectOptions) {
+                                    const coeff = subjectCoeffMap[sub] ?? 1;
+                                    if (coeff === 0) continue;
                                     const raw = evalGridScores[student.id]?.[sub];
-                                    if (!raw || raw === '') return null;
+                                    if (!raw || raw === '') continue;
                                     const v = parseFloat(raw);
-                                    return !isNaN(v) && v >= 0 && v <= 20 ? v : null;
-                                  })
-                                  .filter((n): n is number => n !== null);
-                                const rowAvg = subScores.length > 0 ? subScores.reduce((a, b) => a + b, 0) / subScores.length : null;
+                                    if (isNaN(v) || v < 0 || v > 20) continue;
+                                    tp += v * coeff; tc += coeff;
+                                  }
+                                  rowAvg = tc > 0 ? tp / tc : null;
+                                } else {
+                                  const ss = subjectOptions.map((sub) => { const raw = evalGridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const v = parseFloat(raw); return !isNaN(v) && v >= 0 && v <= 20 ? v : null; }).filter((n): n is number => n !== null);
+                                  rowAvg = ss.length > 0 ? ss.reduce((a, b) => a + b, 0) / ss.length : null;
+                                }
                                 return (
                                   <tr
                                     key={student.id}
@@ -2018,19 +2028,29 @@ function GradesPageInner() {
                               </thead>
                               <tbody>
                                 {gridStudents.map((student, idx) => {
-                                  // Calculer la moyenne de l'élève sur toutes les matières saisies
-                                  const subScores = subjectOptions
-                                    .map((sub) => {
+                                  // Moyenne pondérée par coefficients (identique au bulletin)
+                                  // coeff=0 → matière exclue. Si aucun coeff configuré → moyenne simple
+                                  let rowAvg: number | null = null;
+                                  const hasCoeffs = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
+                                  if (hasCoeffs) {
+                                    let totalPoints = 0, totalCoeffs = 0;
+                                    for (const sub of subjectOptions) {
+                                      const coeff = subjectCoeffMap[sub] ?? 1;
+                                      if (coeff === 0) continue;
                                       const raw = gridScores[student.id]?.[sub];
-                                      if (!raw || raw === "") return null;
+                                      if (!raw || raw === '') continue;
                                       const v = parseFloat(raw);
-                                      return !isNaN(v) && v >= 0 && v <= 10 ? v : null;
-                                    })
-                                    .filter((n): n is number => n !== null);
-                                  const rowAvg =
-                                    subScores.length > 0
-                                      ? subScores.reduce((a, b) => a + b, 0) / subScores.length
-                                      : null;
+                                      if (isNaN(v) || v < 0 || v > 10) continue;
+                                      totalPoints += v * coeff;
+                                      totalCoeffs += coeff;
+                                    }
+                                    rowAvg = totalCoeffs > 0 ? totalPoints / totalCoeffs : null;
+                                  } else {
+                                    const subScores = subjectOptions
+                                      .map((sub) => { const raw = gridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const v = parseFloat(raw); return !isNaN(v) && v >= 0 && v <= 10 ? v : null; })
+                                      .filter((n): n is number => n !== null);
+                                    rowAvg = subScores.length > 0 ? subScores.reduce((a, b) => a + b, 0) / subScores.length : null;
+                                  }
 
                                   return (
                                     <tr
@@ -2192,19 +2212,21 @@ function GradesPageInner() {
                             </thead>
                             <tbody>
                               {compGridStudents.map((student, idx) => {
-                                // Moyenne générale preview : (cours + compo) / 2 par matière, puis moyenne pondérée
-                                const subjectAvgs = subjectOptions
-                                  .map((sub) => {
-                                    const raw = compGridScores[student.id]?.[sub];
-                                    const comp = raw && raw !== '' ? parseFloat(raw) : null;
-                                    const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
-                                    if (comp === null || isNaN(comp) || comp < 0 || comp > 20) return null;
-                                    return course !== null ? (course + comp) / 2 : comp;
-                                  })
-                                  .filter((n): n is number => n !== null);
-                                const rowAvg = subjectAvgs.length > 0
-                                  ? subjectAvgs.reduce((a, b) => a + b, 0) / subjectAvgs.length
-                                  : null;
+                                // Moyenne générale preview pondérée : (cours + compo) / 2 par matière × coeff
+                                let rowAvg: number | null = null;
+                                const hasCoeffsC = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
+                                let tp = 0, tc = 0;
+                                for (const sub of subjectOptions) {
+                                  const coeff = hasCoeffsC ? (subjectCoeffMap[sub] ?? 1) : 1;
+                                  if (coeff === 0) continue;
+                                  const raw = compGridScores[student.id]?.[sub];
+                                  const comp = raw && raw !== '' ? parseFloat(raw) : null;
+                                  if (comp === null || isNaN(comp) || comp < 0 || comp > 20) continue;
+                                  const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
+                                  const subjAvg = course !== null ? (course + comp) / 2 : comp;
+                                  tp += subjAvg * coeff; tc += coeff;
+                                }
+                                rowAvg = tc > 0 ? tp / tc : null;
                                 return (
                                   <tr
                                     key={student.id}
