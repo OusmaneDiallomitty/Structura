@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
 import { CreateEvaluationDto, BulkCreateEvaluationDto } from './dto/create-evaluation.dto';
 import { CreateCompositionDto, BulkCreateCompositionDto, UpdateCompositionDto } from './dto/create-composition.dto';
 import { SetSubjectCoefficientsDto, UpdateSubjectCoefficientDto } from './dto/subject-coefficient.dto';
@@ -7,7 +8,23 @@ import { getMonthsForTerm, getTermsMonths } from './utils/months';
 
 @Injectable()
 export class GradesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
+
+  /** Détecte si une classe est en mode primaire (sur 10) */
+  private detectPrimary(classInfo: any): boolean {
+    const gradeMode  = classInfo?.gradeMode ?? 'SECONDARY';
+    const classLevel = classInfo?.level ?? '';
+    const className  = classInfo?.name  ?? '';
+    return (
+      gradeMode === 'PRIMARY' ||
+      ['Primaire', 'Maternelle'].includes(classLevel) ||
+      /^(CP|CE|CM)\d/i.test(className) ||
+      /^(Petite|Moyenne|Grande)\s+Section$/i.test(className)
+    );
+  }
 
   /**
    * Vérifie qu'un professeur est autorisé à écrire sur une matière d'une classe.
@@ -105,7 +122,7 @@ export class GradesService {
       );
     }
 
-    return this.prisma.evaluation.upsert({
+    const result = await this.prisma.evaluation.upsert({
       where: {
         tenantId_studentId_classId_subject_term_academicYear_month: {
           tenantId,
@@ -124,6 +141,11 @@ export class GradesService {
         notes: createDto.notes,
       },
     });
+    await this.cache.del(
+      `grades:evals:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+      `grades:classreport:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+    );
+    return result;
   }
 
   async bulkCreateEvaluations(tenantId: string, bulkDto: BulkCreateEvaluationDto) {
@@ -178,6 +200,10 @@ export class GradesService {
       ),
     );
 
+    await this.cache.del(
+      `grades:evals:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+      `grades:classreport:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+    );
     return { count: results.length, message: `${results.length} évaluations enregistrées` };
   }
 
@@ -191,6 +217,17 @@ export class GradesService {
       academicYear?: string;
     },
   ) {
+    // Cache uniquement quand la requête est ciblée (grille notes d'une classe/trimestre)
+    const cacheKey =
+      filters?.classId && filters?.term && filters?.academicYear && !filters?.studentId
+        ? `grades:evals:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}`
+        : null;
+
+    if (cacheKey) {
+      const cached = await this.cache.get<any[]>(cacheKey);
+      if (cached) return cached;
+    }
+
     const where: any = { tenantId };
     if (filters?.classId) where.classId = filters.classId;
     if (filters?.subject) where.subject = filters.subject;
@@ -198,7 +235,7 @@ export class GradesService {
     if (filters?.studentId) where.studentId = filters.studentId;
     if (filters?.academicYear) where.academicYear = filters.academicYear;
 
-    return this.prisma.evaluation.findMany({
+    const result = await this.prisma.evaluation.findMany({
       where,
       include: { student: true, class: true },
       orderBy: [
@@ -207,6 +244,9 @@ export class GradesService {
         { month: 'asc' },
       ],
     });
+
+    if (cacheKey) await this.cache.set(cacheKey, result, 180);
+    return result;
   }
 
   // ── COMPOSITIONS (Examens) ──────────────────────────────────────────────
@@ -217,7 +257,7 @@ export class GradesService {
 
     await this.checkNotLocked(tenantId, createDto.classId, createDto.term, academicYear);
 
-    return this.prisma.composition.upsert({
+    const result = await this.prisma.composition.upsert({
       where: {
         tenantId_studentId_classId_subject_term_academicYear: {
           tenantId,
@@ -235,6 +275,11 @@ export class GradesService {
         notes: createDto.notes,
       },
     });
+    await this.cache.del(
+      `grades:comps:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+      `grades:classreport:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+    );
+    return result;
   }
 
   async bulkCreateCompositions(tenantId: string, bulkDto: BulkCreateCompositionDto) {
@@ -276,6 +321,10 @@ export class GradesService {
       ),
     );
 
+    await this.cache.del(
+      `grades:comps:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+      `grades:classreport:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+    );
     return { count: results.length, message: `${results.length} compositions enregistrées` };
   }
 
@@ -296,10 +345,15 @@ export class GradesService {
 
     await this.checkNotLocked(tenantId, comp.classId, comp.term, comp.academicYear);
 
-    return this.prisma.composition.update({
+    const updated = await this.prisma.composition.update({
       where: { id: compositionId },
       data: updateDto,
     });
+    await this.cache.del(
+      `grades:comps:${tenantId}:${comp.classId}:${comp.term}:${comp.academicYear}`,
+      `grades:classreport:${tenantId}:${comp.classId}:${comp.term}:${comp.academicYear}`,
+    );
+    return updated;
   }
 
   async getCompositions(
@@ -312,6 +366,16 @@ export class GradesService {
       academicYear?: string;
     },
   ) {
+    const cacheKey =
+      filters?.classId && filters?.term && filters?.academicYear && !filters?.studentId
+        ? `grades:comps:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}`
+        : null;
+
+    if (cacheKey) {
+      const cached = await this.cache.get<any[]>(cacheKey);
+      if (cached) return cached;
+    }
+
     const where: any = { tenantId };
     if (filters?.classId) where.classId = filters.classId;
     if (filters?.subject) where.subject = filters.subject;
@@ -319,11 +383,14 @@ export class GradesService {
     if (filters?.studentId) where.studentId = filters.studentId;
     if (filters?.academicYear) where.academicYear = filters.academicYear;
 
-    return this.prisma.composition.findMany({
+    const result = await this.prisma.composition.findMany({
       where,
       include: { student: true, class: true },
       orderBy: [{ term: 'asc' }, { subject: 'asc' }],
     });
+
+    if (cacheKey) await this.cache.set(cacheKey, result, 180);
+    return result;
   }
 
   // ── CALCULS DE MOYENNES ──────────────────────────────────────────────────
@@ -571,7 +638,9 @@ export class GradesService {
   }
 
   /**
-   * Rapport de classe pour un trimestre
+   * Rapport de classe pour un trimestre.
+   * Optimisé : 6 requêtes SQL en parallèle au lieu de N×M×2 (N élèves × M matières × 2 requêtes coeff).
+   * Résultat mis en cache Redis 2 minutes.
    */
   async getClassReport(
     tenantId: string,
@@ -582,67 +651,114 @@ export class GradesService {
     const currentYear = new Date().getFullYear();
     const year = academicYear || `${currentYear}-${currentYear + 1}`;
 
-    // Récupérer les élèves de la classe
-    const students = await this.prisma.student.findMany({
-      where: { tenantId, classId, status: 'ACTIVE' },
-    });
+    const cacheKey = `grades:classreport:${tenantId}:${classId}:${term}:${year}`;
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    // 6 requêtes en parallèle — remplace les centaines de requêtes en boucle
+    const [students, allEvals, allComps, allCoeffs, classSubjects, classInfo] = await Promise.all([
+      this.prisma.student.findMany({ where: { tenantId, classId, status: 'ACTIVE' } }),
+      this.prisma.evaluation.findMany({ where: { tenantId, classId, term, academicYear: year } }),
+      this.prisma.composition.findMany({ where: { tenantId, classId, term, academicYear: year } }),
+      this.prisma.subjectCoefficient.findMany({ where: { tenantId, classId, academicYear: year } }),
+      this.prisma.classSubject.findMany({ where: { classId } }),
+      this.prisma.class.findUnique({ where: { id: classId } }),
+    ]);
 
     if (students.length === 0) {
       throw new NotFoundException('Aucun élève dans cette classe');
     }
 
-    // Calculer les moyennes pour chaque élève
-    const studentResults = await Promise.all(
-      students.map(async (student) => {
-        try {
-          const report = await this.getStudentReport(tenantId, student.id, term, year);
-          return {
-            student: report.student,
-            generalAverage: report.generalAverage,
-            totalSubjects: report.totalSubjects,
-          };
-        } catch {
-          // Élève sans notes
-          return {
-            student: {
-              id: student.id,
-              firstName: student.firstName,
-              lastName: student.lastName,
-              matricule: student.matricule,
-            },
-            generalAverage: 0,
-            totalSubjects: 0,
-          };
-        }
-      }),
-    );
+    const isPrimary = this.detectPrimary(classInfo);
 
-    // Trier par moyenne décroissante et ajouter le rang
+    // Map de coefficients : ClassSubject en base, SubjectCoefficient (année) prend priorité
+    const coeffMap = new Map<string, number>();
+    for (const cs of classSubjects) {
+      if (cs.coefficient != null) coeffMap.set(cs.name, cs.coefficient);
+    }
+    for (const sc of allCoeffs) {
+      if (sc.coefficient != null) coeffMap.set(sc.subject, sc.coefficient);
+    }
+
+    // Regrouper évals et comps par élève (Maps pour O(1))
+    const evalsByStudent = new Map<string, typeof allEvals>();
+    for (const e of allEvals) {
+      const arr = evalsByStudent.get(e.studentId) ?? [];
+      arr.push(e);
+      evalsByStudent.set(e.studentId, arr);
+    }
+    const compsByStudent = new Map<string, typeof allComps>();
+    for (const c of allComps) {
+      const arr = compsByStudent.get(c.studentId) ?? [];
+      arr.push(c);
+      compsByStudent.set(c.studentId, arr);
+    }
+
+    // Calcul en mémoire — zéro requête supplémentaire
+    const studentResults = students.map((student) => {
+      const evals = evalsByStudent.get(student.id) ?? [];
+      const comps = compsByStudent.get(student.id) ?? [];
+
+      if (comps.length === 0) {
+        return {
+          student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule },
+          generalAverage: 0,
+          totalSubjects: 0,
+        };
+      }
+
+      const subjectDetails = comps.map((comp) => {
+        const coeff = coeffMap.get(comp.subject) ?? 1;
+        if (isPrimary) {
+          return { rawAvg: comp.compositionScore, coeff, counts: coeff > 0 };
+        } else {
+          const scores = evals.filter((e) => e.subject === comp.subject).map((e) => e.score);
+          const avgCourse = this.calculateAverageCourse(scores);
+          const rawAvg = this.calculateAverageSubject(avgCourse, comp.compositionScore);
+          return { rawAvg, coeff, counts: coeff > 0 };
+        }
+      });
+
+      const active = subjectDetails.filter((s) => s.counts).length > 0
+        ? subjectDetails.filter((s) => s.counts)
+        : subjectDetails;
+
+      const totalPoints = active.reduce((sum, s) => sum + s.rawAvg * s.coeff, 0);
+      const totalCoeffs = active.reduce((sum, s) => sum + s.coeff, 0);
+      const generalAverage =
+        totalCoeffs > 0
+          ? Math.round((totalPoints / totalCoeffs) * 100) / 100
+          : active.length > 0
+            ? Math.round((active.reduce((sum, s) => sum + s.rawAvg, 0) / active.length) * 100) / 100
+            : 0;
+
+      return {
+        student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule },
+        generalAverage,
+        totalSubjects: comps.length,
+      };
+    });
+
     const ranked = studentResults
       .sort((a, b) => b.generalAverage - a.generalAverage)
-      .map((s, idx) => ({
-        ...s,
-        rank: idx + 1,
-      }));
+      .map((s, idx) => ({ ...s, rank: idx + 1 }));
 
     const classAverage =
       ranked.length > 0
-        ? Math.round((ranked.reduce((sum, r) => sum + r.generalAverage, 0) / ranked.length) * 100) /
-          100
+        ? Math.round((ranked.reduce((sum, r) => sum + r.generalAverage, 0) / ranked.length) * 100) / 100
         : 0;
 
-    const classInfo = await this.prisma.class.findUnique({
-      where: { id: classId },
-    });
-
-    return {
-      class: classInfo ? { id: classInfo.id, name: classInfo.name, section: classInfo.section } : null,
+    const result = {
+      class: classInfo ? { id: classInfo.id, name: (classInfo as any).name, section: (classInfo as any).section } : null,
       term,
       academicYear: year,
       students: ranked,
       classAverage,
       totalStudents: ranked.length,
     };
+
+    await this.cache.set(cacheKey, result, 120);
+    return result;
   }
 
   // ── COEFFICIENTS ─────────────────────────────────────────────────────────

@@ -138,7 +138,7 @@ export default function StudentsPage() {
 
     try {
       if (isOnline && token) {
-        const studentsData = await getStudents(token);
+        const studentsData = await getStudents(token, { limit: 500 });
 
         // Transformer les données du backend vers le format frontend
         const mappedStudents: Student[] = studentsData.map((s: any) => ({
