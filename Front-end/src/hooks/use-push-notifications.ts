@@ -46,7 +46,7 @@ export function usePushNotifications(enabled: boolean) {
         // S'abonner au push
         const subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
         });
 
         // Envoyer la subscription au backend
