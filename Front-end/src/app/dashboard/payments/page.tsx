@@ -1180,6 +1180,7 @@ export default function PaymentsPage() {
       academicYear:       paymentForm.academicYear,
       term:               computedDialogTerm,
       schoolName:         user?.schoolName || "Structura",
+      schoolLogo:         user?.schoolLogo ?? undefined,
       schoolPhone:        "",
       schoolAddress:      "",
       months:             receiptMonths,

@@ -1256,6 +1256,7 @@ function GradesPageInner() {
         trimester: selectedTerm,
         academicYear: academicYear,
         schoolName: user?.schoolName || undefined,
+        schoolLogo: user?.schoolLogo ?? undefined,
         grades: report.subjects.map((s) => ({
           subject: s.subject,
           score: s.averageSubject,
@@ -1296,6 +1297,7 @@ function GradesPageInner() {
             trimester: selectedTerm,
             academicYear,
             schoolName: user?.schoolName || undefined,
+            schoolLogo: user?.schoolLogo ?? undefined,
             grades: report.subjects.map((s) => ({
               subject: s.subject,
               score: s.averageSubject,
