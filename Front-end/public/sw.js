@@ -1,4 +1,49 @@
-// Structura Service Worker — offline support
+// Structura Service Worker — offline support + Web Push notifications
+
+// ── Push Notifications ───────────────────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  let data;
+  try {
+    data = event.data.json();
+  } catch {
+    data = { title: 'Structura', body: event.data.text() };
+  }
+
+  const { title, body, url, icon, badge } = data;
+
+  event.waitUntil(
+    self.registration.showNotification(title || 'Structura', {
+      body: body || '',
+      icon: icon || '/logo.png',
+      badge: badge || '/logo.png',
+      data: { url: url || '/' },
+      vibrate: [200, 100, 200],
+      requireInteraction: false,
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const url = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    }),
+  );
+});
+
+// ── Offline Cache ─────────────────────────────────────────────────────────────
 const CACHE_VERSION = 'structura-v3';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;

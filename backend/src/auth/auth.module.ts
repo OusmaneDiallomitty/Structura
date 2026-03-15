@@ -9,12 +9,14 @@ import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UploadModule } from '../upload/upload.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     UsersModule,
     EmailModule,
     UploadModule,
+    NotificationsModule,
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

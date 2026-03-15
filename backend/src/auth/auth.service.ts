@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService }  from '../prisma/prisma.service';
 import { EmailService }   from '../email/email.service';
 import { CacheService }   from '../cache/cache.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -41,11 +42,12 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    private prisma:        PrismaService,
-    private jwtService:    JwtService,
-    private configService: ConfigService,
-    private emailService:  EmailService,
-    private cacheService:  CacheService,
+    private prisma:                 PrismaService,
+    private jwtService:             JwtService,
+    private configService:          ConfigService,
+    private emailService:           EmailService,
+    private cacheService:           CacheService,
+    private notificationsService:   NotificationsService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -225,6 +227,15 @@ export class AuthService {
         approveUrl,
         denyUrl,
         loginTime,
+      ).catch(() => {});
+
+      // Notifier les directeurs du tenant
+      this.notificationsService.notifyDirectors(
+        matchedUser.tenantId,
+        'LOGIN_APPROVAL',
+        'Connexion en attente',
+        `${matchedUser.firstName} ${matchedUser.lastName} demande l'approbation pour se connecter.`,
+        '/dashboard/team',
       ).catch(() => {});
 
       return { status: 'PENDING_APPROVAL', pendingToken };

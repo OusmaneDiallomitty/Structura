@@ -8,6 +8,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
 import { UpdateTeamMemberDto } from './dto/update-team-member.dto';
 import { UpdatePermissionsDto } from './dto/update-permissions.dto';
@@ -36,6 +37,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private notificationsService: NotificationsService,
   ) {}
 
   // ── Profil personnel ──────────────────────────────────────────────────────
@@ -195,6 +197,14 @@ export class UsersService {
           err instanceof Error ? err.message : err,
         ),
       );
+
+    this.notificationsService.notifyDirectors(
+      tenantId,
+      'MEMBER_PENDING',
+      'Nouveau membre invité',
+      `${dto.firstName} ${dto.lastName} a été invité(e) — en attente d'activation.`,
+      '/dashboard/team',
+    ).catch(() => {});
 
     return { ...user, emailSent: true };
   }

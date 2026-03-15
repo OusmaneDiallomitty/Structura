@@ -1,132 +1,210 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import * as webpush from 'web-push';
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  private readonly appId = process.env.ONESIGNAL_APP_ID ?? '';
-  private readonly apiKey = process.env.ONESIGNAL_REST_API_KEY ?? '';
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    const publicKey  = this.config.get<string>('VAPID_PUBLIC_KEY');
+    const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
+    const subject    = this.config.get<string>('VAPID_SUBJECT') ?? 'mailto:admin@structura.app';
 
-  constructor(private readonly prisma: PrismaService) {}
+    if (publicKey && privateKey) {
+      webpush.setVapidDetails(subject, publicKey, privateKey);
+      this.logger.log('Web Push VAPID configuré ✓');
+    } else {
+      this.logger.warn('VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY manquants — push désactivé');
+    }
+  }
 
-  // ─── Sauvegarde du pushSubscriptionId en BDD ───────────────────────────────
+  // ─── Clé publique VAPID (frontend en a besoin pour s'abonner) ─────────────
 
-  async saveSubscription(userId: string, tenantId: string, subscriptionId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { pushSubscriptionId: subscriptionId },
+  getVapidPublicKey(): string {
+    return this.config.get<string>('VAPID_PUBLIC_KEY') ?? '';
+  }
+
+  // ─── Sauvegarde subscription push ─────────────────────────────────────────
+
+  async saveSubscription(
+    userId: string,
+    tenantId: string,
+    endpoint: string,
+    p256dh: string,
+    auth: string,
+    userAgent?: string,
+  ) {
+    await this.prisma.pushSubscription.upsert({
+      where: { userId_endpoint: { userId, endpoint } },
+      create: { userId, tenantId, endpoint, p256dh, auth, userAgent },
+      update: { p256dh, auth, userAgent, updatedAt: new Date() },
     });
     this.logger.log(`Push subscription sauvegardée — user: ${userId}`);
   }
 
-  // ─── Envoi via OneSignal REST API ──────────────────────────────────────────
+  // ─── Suppression subscription (déconnexion ou révocation) ─────────────────
 
-  async sendToSubscription(subscriptionId: string, title: string, body: string, url?: string) {
-    if (!this.appId || !this.apiKey) {
-      this.logger.warn('OneSignal non configuré (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY manquants)');
-      return;
-    }
-
-    try {
-      const payload: Record<string, unknown> = {
-        app_id: this.appId,
-        include_subscription_ids: [subscriptionId],
-        headings: { fr: title, en: title },
-        contents: { fr: body, en: body },
-      };
-
-      if (url) payload.url = url;
-
-      const res = await fetch('https://onesignal.com/api/v1/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Key ${this.apiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        this.logger.error(`OneSignal erreur: ${err}`);
-      }
-    } catch (error) {
-      this.logger.error('Erreur envoi push notification', error);
-    }
+  async removeSubscription(userId: string, endpoint: string) {
+    await this.prisma.pushSubscription.deleteMany({
+      where: { userId, endpoint },
+    });
   }
 
-  async sendToTenant(tenantId: string, title: string, body: string, url?: string) {
-    const users = await this.prisma.user.findMany({
-      where: { tenantId, pushSubscriptionId: { not: null }, isActive: true },
-      select: { pushSubscriptionId: true },
+  // ─── Créer notification in-app + envoyer push ──────────────────────────────
+
+  async notify(
+    userId: string,
+    tenantId: string,
+    type: string,
+    title: string,
+    body: string,
+    url?: string,
+  ) {
+    // 1. Sauvegarder en BDD (in-app)
+    await this.prisma.notification.create({
+      data: { userId, tenantId, type, title, body, url },
     });
 
-    const ids = users.map((u) => u.pushSubscriptionId).filter(Boolean) as string[];
-    if (!ids.length) return;
-
-    await this.sendBulk(ids, title, body, url);
+    // 2. Envoyer push sur tous les appareils de l'utilisateur
+    await this.sendPushToUser(userId, title, body, url);
   }
 
-  async sendToUser(userId: string, title: string, body: string, url?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { pushSubscriptionId: true },
+  // ─── Notifier tous les directeurs d'un tenant ─────────────────────────────
+
+  async notifyDirectors(
+    tenantId: string,
+    type: string,
+    title: string,
+    body: string,
+    url?: string,
+  ) {
+    const directors = await this.prisma.user.findMany({
+      where: { tenantId, role: 'DIRECTOR', isActive: true },
+      select: { id: true },
     });
 
-    if (!user?.pushSubscriptionId) return;
-    await this.sendToSubscription(user.pushSubscriptionId, title, body, url);
+    await Promise.all(
+      directors.map((d) => this.notify(d.id, tenantId, type, title, body, url)),
+    );
   }
 
-  private async sendBulk(subscriptionIds: string[], title: string, body: string, url?: string) {
-    if (!this.appId || !this.apiKey || !subscriptionIds.length) return;
+  // ─── Notifier tous les profs d'une classe ─────────────────────────────────
+
+  async notifyTeachersOfClass(
+    tenantId: string,
+    classId: string,
+    type: string,
+    title: string,
+    body: string,
+    url?: string,
+  ) {
+    const teachers = await this.prisma.user.findMany({
+      where: { tenantId, role: 'TEACHER', isActive: true },
+      select: { id: true, classAssignments: true },
+    });
+
+    const relevant = teachers.filter((t) => {
+      const assignments = t.classAssignments as Array<{ classId: string }> | null;
+      return assignments?.some((a) => a.classId === classId);
+    });
+
+    await Promise.all(
+      relevant.map((t) => this.notify(t.id, tenantId, type, title, body, url)),
+    );
+  }
+
+  // ─── Récupérer notifications d'un utilisateur ─────────────────────────────
+
+  async getNotifications(userId: string, limit = 30) {
+    return this.prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  async markAsRead(userId: string, notificationId: string) {
+    return this.prisma.notification.updateMany({
+      where: { id: notificationId, userId },
+      data: { read: true },
+    });
+  }
+
+  async markAllAsRead(userId: string) {
+    return this.prisma.notification.updateMany({
+      where: { userId, read: false },
+      data: { read: true },
+    });
+  }
+
+  async deleteNotification(userId: string, notificationId: string) {
+    return this.prisma.notification.deleteMany({
+      where: { id: notificationId, userId },
+    });
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    return this.prisma.notification.count({
+      where: { userId, read: false },
+    });
+  }
+
+  // ─── Envoi Web Push bas niveau ────────────────────────────────────────────
+
+  private async sendPushToUser(userId: string, title: string, body: string, url?: string) {
+    const subscriptions = await this.prisma.pushSubscription.findMany({
+      where: { userId },
+    });
+
+    await Promise.all(
+      subscriptions.map((sub) => this.sendPush(sub, title, body, url)),
+    );
+  }
+
+  private async sendPush(
+    sub: { endpoint: string; p256dh: string; auth: string; id: string; userId: string },
+    title: string,
+    body: string,
+    url?: string,
+  ) {
+    const payload = JSON.stringify({ title, body, url, icon: '/icon-192.png', badge: '/icon-96.png' });
 
     try {
-      const payload: Record<string, unknown> = {
-        app_id: this.appId,
-        include_subscription_ids: subscriptionIds,
-        headings: { fr: title, en: title },
-        contents: { fr: body, en: body },
-      };
-
-      if (url) payload.url = url;
-
-      const res = await fetch('https://onesignal.com/api/v1/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Key ${this.apiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        this.logger.error(`OneSignal bulk erreur: ${err}`);
+      await webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        payload,
+      );
+    } catch (err: any) {
+      // 410 Gone = subscription expirée → supprimer
+      if (err?.statusCode === 410 || err?.statusCode === 404) {
+        await this.prisma.pushSubscription.deleteMany({
+          where: { id: sub.id },
+        });
+        this.logger.log(`Subscription expirée supprimée — user: ${sub.userId}`);
+      } else {
+        this.logger.error(`Erreur push: ${err?.message}`);
       }
-    } catch (error) {
-      this.logger.error('Erreur envoi bulk notifications', error);
     }
   }
 
-  // ─── Cron : Rappel présences non saisies (tous les jours à 9h) ────────────
+  // ─── Cron : Rappel présences non saisies (Lun–Sam à 9h) ──────────────────
 
-  @Cron('0 9 * * 1-6') // Lun-Sam à 9h00
+  @Cron('0 9 * * 1-6')
   async remindAttendance() {
     this.logger.log('Cron: vérification présences non saisies...');
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Récupère les profs actifs avec une subscription push
     const teachers = await this.prisma.user.findMany({
-      where: {
-        role: 'TEACHER',
-        isActive: true,
-        pushSubscriptionId: { not: null },
-      },
-      select: { id: true, pushSubscriptionId: true, tenantId: true, classAssignments: true },
+      where: { role: 'TEACHER', isActive: true },
+      select: { id: true, tenantId: true, classAssignments: true },
     });
 
     for (const teacher of teachers) {
@@ -135,18 +213,15 @@ export class NotificationsService {
 
       const classIds = assignments.map((a) => a.classId);
 
-      // Vérifie si des présences ont déjà été saisies aujourd'hui pour ses classes
-      const existingAttendance = await this.prisma.attendance.findFirst({
-        where: {
-          classId: { in: classIds },
-          tenantId: teacher.tenantId,
-          date: { gte: today },
-        },
+      const existing = await this.prisma.attendance.findFirst({
+        where: { classId: { in: classIds }, tenantId: teacher.tenantId, date: { gte: today } },
       });
 
-      if (!existingAttendance && teacher.pushSubscriptionId) {
-        await this.sendToSubscription(
-          teacher.pushSubscriptionId,
+      if (!existing) {
+        await this.notify(
+          teacher.id,
+          teacher.tenantId,
+          'ATTENDANCE',
           'Rappel : présences',
           "Vous n'avez pas encore saisi les présences d'aujourd'hui.",
           '/dashboard/attendance',
@@ -155,13 +230,12 @@ export class NotificationsService {
     }
   }
 
-  // ─── Cron : Alerte paiements en retard (1er de chaque mois à 8h) ──────────
+  // ─── Cron : Alerte paiements en retard (1er du mois à 8h) ────────────────
 
-  @Cron('0 8 1 * *') // 1er du mois à 8h00
+  @Cron('0 8 1 * *')
   async remindOverduePayments() {
     this.logger.log('Cron: vérification paiements en retard...');
 
-    // Récupère tous les tenants actifs
     const tenants = await this.prisma.tenant.findMany({
       where: { isActive: true },
       select: { id: true },
@@ -169,41 +243,24 @@ export class NotificationsService {
 
     for (const tenant of tenants) {
       const overdueCount = await this.prisma.student.count({
-        where: {
-          tenantId: tenant.id,
-          status: 'ACTIVE',
-          paymentStatus: { in: ['OVERDUE', 'PENDING'] },
-        },
+        where: { tenantId: tenant.id, status: 'ACTIVE', paymentStatus: { in: ['OVERDUE', 'PENDING'] } },
       });
 
       if (overdueCount === 0) continue;
 
-      // Notifie le(s) directeur(s) du tenant
-      const directors = await this.prisma.user.findMany({
-        where: {
-          tenantId: tenant.id,
-          role: 'DIRECTOR',
-          isActive: true,
-          pushSubscriptionId: { not: null },
-        },
-        select: { pushSubscriptionId: true },
-      });
-
-      for (const director of directors) {
-        if (!director.pushSubscriptionId) continue;
-        await this.sendToSubscription(
-          director.pushSubscriptionId,
-          'Paiements en retard',
-          `${overdueCount} élève${overdueCount > 1 ? 's ont' : ' a'} des paiements en retard ce mois-ci.`,
-          '/dashboard/payments',
-        );
-      }
+      await this.notifyDirectors(
+        tenant.id,
+        'PAYMENT_OVERDUE',
+        'Paiements en retard',
+        `${overdueCount} élève${overdueCount > 1 ? 's ont' : ' a'} des paiements en retard ce mois-ci.`,
+        '/dashboard/payments',
+      );
     }
   }
 
-  // ─── Cron : Alerte abonnement Structura expire bientôt (J-7 à 10h) ────────
+  // ─── Cron : Abonnement Structura expire bientôt (tous les jours à 10h) ────
 
-  @Cron('0 10 * * *') // Tous les jours à 10h00
+  @Cron('0 10 * * *')
   async remindSubscriptionExpiry() {
     const in7Days = new Date();
     in7Days.setDate(in7Days.getDate() + 7);
@@ -221,25 +278,13 @@ export class NotificationsService {
     });
 
     for (const tenant of expiringTenants) {
-      const directors = await this.prisma.user.findMany({
-        where: {
-          tenantId: tenant.id,
-          role: 'DIRECTOR',
-          isActive: true,
-          pushSubscriptionId: { not: null },
-        },
-        select: { pushSubscriptionId: true },
-      });
-
-      for (const director of directors) {
-        if (!director.pushSubscriptionId) continue;
-        await this.sendToSubscription(
-          director.pushSubscriptionId,
-          'Abonnement bientôt expiré',
-          'Votre abonnement Structura expire dans moins de 7 jours. Renouvelez pour continuer.',
-          '/dashboard/billing',
-        );
-      }
+      await this.notifyDirectors(
+        tenant.id,
+        'SUBSCRIPTION_EXPIRY',
+        'Abonnement bientôt expiré',
+        'Votre abonnement Structura expire dans moins de 7 jours. Renouvelez pour continuer.',
+        '/dashboard/billing',
+      );
     }
   }
 }
