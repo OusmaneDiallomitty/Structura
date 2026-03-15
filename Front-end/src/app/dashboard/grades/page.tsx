@@ -283,6 +283,7 @@ function GradesPageInner() {
   const [gridAutoSavingSubjects, setGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   // Timers debounce par matière — clé = nom matière, valeur = timeout id
   const autoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const gridScoresRef = useRef<Record<string, Record<string, string>>>({});
 
   // ── Grille évaluations secondaire ────────────────────────────────────────
   // Un seul chargement pour tout le trimestre — switching mois = instantané
@@ -293,6 +294,8 @@ function GradesPageInner() {
   const [evalGridSavedSubjects, setEvalGridSavedSubjects] = useState<Set<string>>(new Set());
   const [evalGridAutoSavingSubjects, setEvalGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   const evalGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Ref toujours à jour avec les derniers scores — évite le stale closure lors du debounce
+  const evalGridScoresRef = useRef<Record<string, Record<string, string>>>({});
 
   // ── Grille compositions secondaire ───────────────────────────────────────
   const [compGridStudents, setCompGridStudents] = useState<BackendStudent[]>([]);
@@ -302,6 +305,7 @@ function GradesPageInner() {
   const [compGridSavedSubjects, setCompGridSavedSubjects] = useState<Set<string>>(new Set());
   const [compGridAutoSavingSubjects, setCompGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   const compGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const compGridScoresRef = useRef<Record<string, Record<string, string>>>({});
 
   // ── Dérivés classe sélectionnée — déclarés tôt pour être accessibles dans les callbacks ──
   // PRIMARY si gradeMode explicite OU si le niveau est Primaire/Maternelle (rétrocompat)
@@ -878,13 +882,14 @@ function GradesPageInner() {
     }
   }, [selectedClassId, selectedTerm, academicYear, user]);
 
-  const triggerEvalAutoSave = useCallback((subject: string, month: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+  const triggerEvalAutoSave = useCallback((subject: string, month: string) => {
     if (evalGridAutoSaveTimers.current[subject]) clearTimeout(evalGridAutoSaveTimers.current[subject]);
     setEvalGridSavedSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     evalGridAutoSaveTimers.current[subject] = setTimeout(() => {
-      autoSaveEvalSubject(subject, month, students, scores);
+      // Lit le ref pour avoir les scores les plus récents (pas la closure périmée)
+      autoSaveEvalSubject(subject, month, evalGridStudents, evalGridScoresRef.current);
     }, 1000);
-  }, [autoSaveEvalSubject]);
+  }, [autoSaveEvalSubject, evalGridStudents]);
 
   // ── Chargement grille compositions secondaire ─────────────────────────────
 
@@ -1002,11 +1007,11 @@ function GradesPageInner() {
     }
   }, [selectedClassId, selectedTerm, academicYear, user]);
 
-  const triggerCompAutoSave = useCallback((subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+  const triggerCompAutoSave = useCallback((subject: string) => {
     if (compGridAutoSaveTimers.current[subject]) clearTimeout(compGridAutoSaveTimers.current[subject]);
     setCompGridSavedSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     compGridAutoSaveTimers.current[subject] = setTimeout(() => {
-      autoSaveCompSubject(subject, students, scores);
+      autoSaveCompSubject(subject, compGridStudents, compGridScoresRef.current);
     }, 1000);
   }, [autoSaveCompSubject]);
 
@@ -1051,22 +1056,13 @@ function GradesPageInner() {
   }, [selectedClassId, selectedTerm, academicYear, user]);
 
   // Déclenche le debounce auto-save quand un score de la grille change
-  const triggerAutoSave = useCallback((subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
-    // Annuler le timer précédent pour cette matière
-    if (autoSaveTimers.current[subject]) {
-      clearTimeout(autoSaveTimers.current[subject]);
-    }
-    // Marquer comme non-sauvegardé
-    setGridSavedSubjects((prev) => {
-      const next = new Set(prev);
-      next.delete(subject);
-      return next;
-    });
-    // Déclencher après 1s d'inactivité
+  const triggerAutoSave = useCallback((subject: string) => {
+    if (autoSaveTimers.current[subject]) clearTimeout(autoSaveTimers.current[subject]);
+    setGridSavedSubjects((prev) => { const next = new Set(prev); next.delete(subject); return next; });
     autoSaveTimers.current[subject] = setTimeout(() => {
-      autoSaveSubject(subject, students, scores);
+      autoSaveSubject(subject, gridStudents, gridScoresRef.current);
     }, 1000);
-  }, [autoSaveSubject]);
+  }, [autoSaveSubject, gridStudents]);
 
   // Comp stats
   const compValidComps = compStudents
@@ -1404,14 +1400,17 @@ function GradesPageInner() {
     }
   }, [isPrimaryClass, activeTab]);
 
-  // Rebuild evalGridScores quand le mois change OU quand le cache change — switching mois = instantané
+  // Rebuild evalGridScores uniquement quand le MOIS change (switching onglet mois = instantané)
+  // evalGridAllEvals intentionnellement absent des deps : les mises à jour du cache
+  // lors des auto-saves ne doivent PAS écraser les saisies en cours de l'utilisateur.
   useEffect(() => {
     if (isPrimaryClass || evalGridStudents.length === 0 || !evalMonth || subjectOptions.length === 0) return;
     const scores = buildEvalGridScores(evalMonth, evalGridAllEvals, evalGridStudents, subjectOptions);
     setEvalGridScores(scores);
+    evalGridScoresRef.current = scores;
     setEvalGridSavedSubjects(new Set());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalMonth, evalGridAllEvals, evalGridStudents.length, subjectOptions.join(','), isPrimaryClass]);
+  }, [evalMonth, evalGridStudents.length, subjectOptions.join(','), isPrimaryClass]);
 
   // Auto-charger grille évaluations secondaire + présélectionner mois actuel
   useEffect(() => {
@@ -1796,12 +1795,15 @@ function GradesPageInner() {
                                             step={0.25}
                                             value={raw}
                                             onChange={(e) => {
-                                              const newScores = {
-                                                ...evalGridScores,
-                                                [student.id]: { ...evalGridScores[student.id], [sub]: e.target.value },
-                                              };
-                                              setEvalGridScores(newScores);
-                                              triggerEvalAutoSave(sub, evalMonth, evalGridStudents, newScores);
+                                              const value = e.target.value;
+                                              const sid = student.id;
+                                              // Update fonctionnelle : évite le stale closure quand on tape vite
+                                              setEvalGridScores((prev) => {
+                                                const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
+                                                evalGridScoresRef.current = updated;
+                                                return updated;
+                                              });
+                                              triggerEvalAutoSave(sub, evalMonth);
                                             }}
                                             placeholder="—"
                                             className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
@@ -2013,15 +2015,14 @@ function GradesPageInner() {
                                               step={0.25}
                                               value={raw}
                                               onChange={(e) => {
-                                                const newScores = {
-                                                  ...gridScores,
-                                                  [student.id]: {
-                                                    ...gridScores[student.id],
-                                                    [sub]: e.target.value,
-                                                  },
-                                                };
-                                                setGridScores(newScores);
-                                                triggerAutoSave(sub, gridStudents, newScores);
+                                                const value = e.target.value;
+                                                const sid = student.id;
+                                                setGridScores((prev) => {
+                                                  const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
+                                                  gridScoresRef.current = updated;
+                                                  return updated;
+                                                });
+                                                triggerAutoSave(sub);
                                               }}
                                               placeholder="—"
                                               className={`w-20 h-8 text-center font-medium mx-auto ${
@@ -2182,12 +2183,14 @@ function GradesPageInner() {
                                               step={0.25}
                                               value={raw}
                                               onChange={(e) => {
-                                                const newScores = {
-                                                  ...compGridScores,
-                                                  [student.id]: { ...compGridScores[student.id], [sub]: e.target.value },
-                                                };
-                                                setCompGridScores(newScores);
-                                                triggerCompAutoSave(sub, compGridStudents, newScores);
+                                                const value = e.target.value;
+                                                const sid = student.id;
+                                                setCompGridScores((prev) => {
+                                                  const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
+                                                  compGridScoresRef.current = updated;
+                                                  return updated;
+                                                });
+                                                triggerCompAutoSave(sub);
                                               }}
                                               placeholder="—"
                                               className={`w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400' : ''}`}
