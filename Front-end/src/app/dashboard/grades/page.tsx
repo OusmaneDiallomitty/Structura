@@ -877,7 +877,9 @@ function GradesPageInner() {
         } as Evaluation));
         return [...filtered, ...newEvals];
       });
-    } catch { /* silencieux */ } finally {
+    } catch (err: any) {
+      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+    } finally {
       setEvalGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     }
   }, [selectedClassId, selectedTerm, academicYear, user]);
@@ -1002,7 +1004,9 @@ function GradesPageInner() {
         compositions,
       });
       setCompGridSavedSubjects((prev) => new Set([...prev, subject]));
-    } catch { /* silencieux */ } finally {
+    } catch (err: any) {
+      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+    } finally {
       setCompGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     }
   }, [selectedClassId, selectedTerm, academicYear, user]);
@@ -1044,8 +1048,8 @@ function GradesPageInner() {
         compositions,
       });
       setGridSavedSubjects((prev) => new Set([...prev, subject]));
-    } catch {
-      // Silencieux — l'utilisateur peut sauvegarder manuellement
+    } catch (err: any) {
+      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
     } finally {
       setGridAutoSavingSubjects((prev) => {
         const next = new Set(prev);
