@@ -34,9 +34,10 @@ export const DEFAULT_CLASSES: DefaultClassTemplate[] = [
   { name: '9ème année', level: 'Collège', order: 9, description: 'Collège' },
   { name: '10ème année', level: 'Collège', order: 10, description: 'Collège' },
 
-  // LYCÉE (11ème à 12ème année)
-  { name: '11ème année', level: 'Lycée', order: 11, description: 'Lycée' },
-  { name: '12ème année', level: 'Lycée', order: 12, description: 'Lycée' },
+  // LYCÉE (11ème à Terminale)
+  { name: '11ème Année', level: 'Lycée', order: 11, description: 'Lycée' },
+  { name: '12ème Année', level: 'Lycée', order: 12, description: 'Lycée' },
+  { name: 'Terminale',   level: 'Lycée', order: 13, description: 'Lycée' },
 ];
 
 export interface CreateDefaultClassesDto {

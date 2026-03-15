@@ -50,11 +50,11 @@ const DEFAULT_CLASSES = [
   { name: '10ème année', level: 'Collège', description: 'Collège' },
 ];
 
-/** Classes lycée avec leurs séries guinéennes */
+/** Classes lycée — noms identiques au backend DEFAULT_CLASSES */
 const LYCEE_CLASSES = [
   { name: '11ème Année', displayName: '11ème Année' },
   { name: '12ème Année', displayName: '12ème Année' },
-  { name: 'Terminale', displayName: 'Terminale' },
+  { name: 'Terminale',   displayName: 'Terminale'   },
 ];
 
 const LYCEE_SERIES_LIST = ['Sciences Sociales', 'Mathématiques', 'Expérimental'];
