@@ -1069,6 +1069,17 @@ export default function PaymentsPage() {
   };
 
   const openPaymentDialog = (student: BackendStudent) => {
+    // Bloquer si les frais ne sont pas configurés
+    const cls = classes.find((c) => c.id === student.classId);
+    const vLevel = cls?.virtualLevel ?? cls?.level ?? "";
+    const fee = getStudentFee(student.classId, vLevel, feeConfig);
+    if (fee <= 0) {
+      toast.error("Frais de scolarité non configurés", {
+        description: "Le directeur doit configurer les frais avant d'enregistrer un paiement.",
+      });
+      return;
+    }
+
     setSelectedStudentForPayment(student);
 
     const academicYr = selectedYear;
@@ -1383,7 +1394,22 @@ export default function PaymentsPage() {
         {/* Frais */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Frais :</span>
-          <span className="text-sm font-semibold">{currentFeeLabel}</span>
+          {(() => {
+            const isConfigured = feeConfig.globalFee > 0
+              || Object.values(feeConfig.byLevel).some((v) => v > 0)
+              || Object.values(feeConfig.byClass).some((v) => v > 0);
+            return isConfigured ? (
+              <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {currentFeeLabel}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-sm font-semibold text-red-600">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Non configurés
+              </span>
+            );
+          })()}
           {canConfigureFees && (
             <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={openFeeDialog}>
               <Settings2 className="h-3.5 w-3.5" />
@@ -2432,7 +2458,7 @@ export default function PaymentsPage() {
                         )}
                         {/* Indicateur hors calendrier */}
                         {isHC && monthsWithYear.length > 0 && (
-                          <span className="text-[9px] text-muted-foreground/50 shrink-0 ml-auto italic">hors cours</span>
+                          <span className="text-[9px] text-muted-foreground/50 shrink-0 ml-auto italic">hors calendrier</span>
                         )}
                       </div>
                     );
@@ -2504,9 +2530,6 @@ export default function PaymentsPage() {
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="CASH">Espèces</SelectItem>
-                    <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
-                    <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
-                    <SelectItem value="CHECK">Chèque</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
