@@ -170,6 +170,55 @@ export async function deleteStudent(token: string, id: string): Promise<{ messag
   return response.json() as Promise<{ message: string }>;
 }
 
+export interface PaginatedStudents {
+  data: BackendStudent[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PaginatedFilters {
+  search?: string;
+  classId?: string;
+  limit?: number;
+  skip?: number;
+}
+
+/**
+ * Récupérer les étudiants avec pagination server-side.
+ * Retourne { data, total, page, limit } — utiliser dans la page liste élèves.
+ * Ne pas confondre avec getStudents() qui retourne un tableau simple.
+ */
+export async function getStudentsPaginated(
+  token: string,
+  filters?: PaginatedFilters,
+): Promise<PaginatedStudents> {
+  const params = new URLSearchParams();
+  if (filters?.search)        params.append('search',  filters.search);
+  if (filters?.classId)       params.append('classId', filters.classId);
+  if (filters?.limit != null) params.append('limit',   String(filters.limit));
+  if (filters?.skip  != null) params.append('skip',    String(filters.skip));
+
+  const url = `${API_BASE_URL}/students${params.toString() ? `?${params}` : ''}`;
+  const response = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Erreur chargement élèves' }));
+    throw new Error(error.message || 'Erreur chargement élèves');
+  }
+
+  const result = await response.json();
+  // Le backend retourne toujours { data, total, page, limit }
+  return {
+    data:  Array.isArray(result) ? result : (result.data  ?? []),
+    total: result.total ?? 0,
+    page:  result.page  ?? 1,
+    limit: result.limit ?? 50,
+  };
+}
+
 /**
  * Récupérer les statistiques des étudiants
  */

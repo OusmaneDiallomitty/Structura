@@ -211,10 +211,13 @@ export class StudentsService {
   }
 
   async getStats(tenantId: string) {
-    const [total, active, inactive, byClass] = await Promise.all([
+    const [total, active, inactive, paid, pending, late, byClass] = await Promise.all([
       this.prisma.student.count({ where: { tenantId } }),
       this.prisma.student.count({ where: { tenantId, status: 'ACTIVE' } }),
       this.prisma.student.count({ where: { tenantId, status: 'INACTIVE' } }),
+      this.prisma.student.count({ where: { tenantId, paymentStatus: 'PAID' } }),
+      this.prisma.student.count({ where: { tenantId, paymentStatus: 'PENDING' } }),
+      this.prisma.student.count({ where: { tenantId, paymentStatus: 'OVERDUE' } }),
       this.prisma.student.groupBy({
         by: ['classId'],
         where: { tenantId },
@@ -222,11 +225,6 @@ export class StudentsService {
       }),
     ]);
 
-    return {
-      total,
-      active,
-      inactive,
-      byClass,
-    };
+    return { total, active, inactive, paid, pending, late, byClass };
   }
 }

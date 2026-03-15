@@ -74,7 +74,7 @@ import { syncQueue } from "@/lib/sync-queue";
 import { useOnline } from "@/hooks/use-online";
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
-import { getStudents, deleteStudent, createStudent } from "@/lib/api/students.service";
+import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
 import { formatClassName } from "@/lib/class-helpers";
 import type { Student } from "@/types";
@@ -86,6 +86,7 @@ export default function StudentsPage() {
   const [classes, setClasses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -94,16 +95,34 @@ export default function StudentsPage() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [templateClassId, setTemplateClassId] = useState<string>("all");
 
-  // Pagination
+  // Pagination server-side
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [serverTotal, setServerTotal] = useState(0);
 
-  // Tri
+  // Tri (client-side sur la page courante)
   const [sortField, setSortField] = useState<"name" | "matricule" | "class" | "paymentStatus">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
+  // Stats globales (depuis l'endpoint /students/stats)
+  const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, late: 0 });
+
   // Sélection multiple
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+
+  /** Transforme un élève backend → format frontend */
+  const mapStudent = (s: any): Student => ({
+    id: s.id,
+    name: `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+    matricule: s.matricule,
+    class: s.class ? formatClassName(s.class.name, s.class.section) : (s.classId || ''),
+    classId: s.classId || s.class?.id || '',
+    status: s.status?.toLowerCase() || 'active',
+    parentName: s.parentName || '',
+    parentPhone: s.parentPhone || '',
+    paymentStatus: s.paymentStatus?.toLowerCase() || 'pending',
+    needsSync: false,
+  });
 
   /**
    * Charger les classes depuis l'API backend.
@@ -130,7 +149,8 @@ export default function StudentsPage() {
   }, [user?.role, user?.classAssignments]);
 
   /**
-   * Charger les élèves depuis l'API backend (online-first avec fallback offline)
+   * Charger une page d'élèves depuis le backend (pagination server-side).
+   * search + classId filtrés côté serveur — paymentFilter filtré côté client sur la page.
    */
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
@@ -138,85 +158,92 @@ export default function StudentsPage() {
 
     try {
       if (isOnline && token) {
-        const studentsData = await getStudents(token, { limit: 500 });
+        const result = await getStudentsPaginated(token, {
+          search:  debouncedSearch || undefined,
+          classId: classFilter !== 'all' ? classFilter : undefined,
+          limit:   itemsPerPage,
+          skip:    (currentPage - 1) * itemsPerPage,
+        });
 
-        // Transformer les données du backend vers le format frontend
-        const mappedStudents: Student[] = studentsData.map((s: any) => ({
-          id: s.id,
-          name: `${s.firstName || ''} ${s.lastName || ''}`.trim(),
-          matricule: s.matricule,
-          class: s.class ? formatClassName(s.class.name, s.class.section) : (s.classId || ''),
-          classId: s.classId || s.class?.id || '', // 🔧 AJOUT classId pour le filtre
-          status: s.status?.toLowerCase() || 'active',
-          parentName: s.parentName || '',
-          parentPhone: s.parentPhone || '',
-          paymentStatus: s.paymentStatus?.toLowerCase() || 'pending',
-          needsSync: false, // Données fraîches du serveur
-        }));
+        const mapped = result.data.map(mapStudent);
+        setStudents(mapped);
+        setServerTotal(result.total);
 
-        try {
-          await offlineDB.clear(STORES.STUDENTS);
-          if (mappedStudents.length > 0) {
-            await offlineDB.bulkAdd(STORES.STUDENTS, mappedStudents);
-          }
-        } catch {
-          // Erreur cache non bloquante
-        }
-
-        setStudents(mappedStudents);
+        // Alimenter le cache offline en arrière-plan (non bloquant)
+        offlineDB.bulkAdd(STORES.STUDENTS, mapped).catch(() => {});
       } else {
-        const cachedStudents = await offlineDB.getAll<Student>(STORES.STUDENTS);
-
-        if (cachedStudents.length > 0) {
-          setStudents(cachedStudents);
-          toast.info('Données chargées depuis le cache local (mode hors ligne)');
-        } else {
-          setStudents([]);
-          toast.info('Aucune donnée en cache. Connectez-vous pour synchroniser.');
-        }
+        // Mode offline : paginer le cache local côté client
+        const cached = await offlineDB.getAll<Student>(STORES.STUDENTS);
+        const start = (currentPage - 1) * itemsPerPage;
+        setStudents(cached.slice(start, start + itemsPerPage));
+        setServerTotal(cached.length);
+        if (cached.length > 0) toast.info('Mode hors ligne — données en cache');
+        else toast.info('Aucune donnée en cache. Connectez-vous pour synchroniser.');
       }
     } catch (error: any) {
-      try {
-        const cachedStudents = await offlineDB.getAll<Student>(STORES.STUDENTS);
-        if (cachedStudents.length > 0) {
-          setStudents(cachedStudents);
-          toast.warning('Erreur réseau — données chargées depuis le cache');
-        } else {
-          setStudents([]);
-          toast.error(error.message || 'Impossible de charger les élèves');
-        }
-      } catch {
-        toast.error('Impossible de charger les élèves');
+      const cached = await offlineDB.getAll<Student>(STORES.STUDENTS).catch(() => []);
+      if (cached.length > 0) {
+        setStudents(cached.slice(0, itemsPerPage));
+        setServerTotal(cached.length);
+        toast.warning('Erreur réseau — données chargées depuis le cache');
+      } else {
+        setStudents([]);
+        toast.error(error.message || 'Impossible de charger les élèves');
       }
     } finally {
       setIsLoading(false);
     }
+  }, [isOnline, debouncedSearch, classFilter, currentPage, itemsPerPage]);
+
+  /** Charger les statistiques globales (cartes du haut) */
+  const loadStats = useCallback(async () => {
+    const token = storage.getAuthItem('structura_token');
+    if (!isOnline || !token) return;
+    try {
+      const data = await getStudentsStats(token);
+      setStats({
+        total:   (data as any).total   ?? 0,
+        paid:    (data as any).paid    ?? 0,
+        pending: (data as any).pending ?? 0,
+        late:    (data as any).late    ?? 0,
+      });
+    } catch { /* silencieux */ }
   }, [isOnline]);
 
-  // Refresh du profil au montage : met à jour classAssignments sans reconnexion
+  // Refresh du profil au montage
   useEffect(() => {
     refreshUserProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Recharger les données quand l'état réseau ou les classes assignées changent
+  // Debounce search : 400ms après la dernière frappe
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Reset page 1 quand la recherche ou le filtre classe changent
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, classFilter]);
+
+  // Charger élèves à chaque changement de page ou de filtres
   useEffect(() => {
     loadStudents();
+  }, [loadStudents]);
+
+  // Charger classes + stats une fois au montage (et si réseau revient)
+  useEffect(() => {
     loadClasses();
-  }, [loadStudents, loadClasses]);
+    loadStats();
+  }, [loadClasses, loadStats]);
 
-  // Filtrage
-  const filteredStudents = students.filter((student) => {
-    const matchesSearch =
-      student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.matricule.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesClass = classFilter === "all" || student.classId === classFilter; // 🔧 CORRECTION: Comparer uniquement les IDs
-    const matchesPayment =
-      paymentFilter === "all" || student.paymentStatus === paymentFilter;
-    return matchesSearch && matchesClass && matchesPayment;
-  });
+  // Filtrage paymentStatus côté client (sur la page courante uniquement)
+  const filteredStudents = students.filter((student) =>
+    paymentFilter === "all" || student.paymentStatus === paymentFilter,
+  );
 
-  // Tri
+  // Tri client-side sur la page courante
   const sortedStudents = [...filteredStudents].sort((a, b) => {
     let aValue: string = "";
     let bValue: string = "";
@@ -247,28 +274,18 @@ export default function StudentsPage() {
     }
   });
 
-  // Pagination
-  const totalPages = Math.ceil(sortedStudents.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedStudents = sortedStudents.slice(startIndex, endIndex);
-
-  // Réinitialiser la page si on dépasse après un filtre
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(1);
-    }
-  }, [currentPage, totalPages]);
+  // Pagination : total vient du serveur, tri/paymentFilter appliqués sur la page courante
+  const totalPages = Math.ceil(serverTotal / itemsPerPage);
+  const paginatedStudents = sortedStudents;
 
   // Droits paiement : directeur, comptable, secrétaire uniquement
   const canViewPayments = user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary';
 
-  // Stats
-  const totalStudents = students.length;
-  const paidStudents = students.filter((s) => s.paymentStatus === "paid").length;
-  const pendingStudents = students.filter((s) => s.paymentStatus === "pending")
-    .length;
-  const lateStudents = students.filter((s) => s.paymentStatus === "late").length;
+  // Stats globales depuis le serveur (toute l'école, pas juste la page)
+  const totalStudents  = stats.total;
+  const paidStudents   = stats.paid;
+  const pendingStudents = stats.pending;
+  const lateStudents   = stats.late;
 
   // Fonction de tri
   const handleSort = (field: "name" | "matricule" | "class" | "paymentStatus") => {
@@ -324,15 +341,14 @@ export default function StudentsPage() {
         }
       }
 
-      // Mettre à jour l'UI
-      setStudents(students.filter(s => !selectedStudents.includes(s.id)));
       setSelectedStudents([]);
-
       if (errorCount === 0) {
         toast.success(`${successCount} élève(s) supprimé(s) avec succès`);
       } else {
         toast.warning(`${successCount} supprimé(s), ${errorCount} erreur(s)`);
       }
+      // Recharger la page courante + stats
+      await Promise.all([loadStudents(), loadStats()]);
     } catch (error: any) {
       toast.error(`Erreur lors de la suppression: ${error.message}`);
     }
@@ -359,9 +375,9 @@ export default function StudentsPage() {
           // Erreur cache non bloquante
         }
 
-        setStudents(students.filter((s) => s.id !== selectedStudent.id));
         setIsDeleteDialogOpen(false);
         toast.success("Élève supprimé avec succès");
+        await Promise.all([loadStudents(), loadStats()]);
       } else {
         await offlineDB.delete(STORES.STUDENTS, selectedStudent.id);
         setStudents(students.filter((s) => s.id !== selectedStudent.id));
@@ -417,13 +433,31 @@ export default function StudentsPage() {
     }
   };
 
-  const handleExport = () => {
-    if (sortedStudents.length === 0) {
+  const handleExport = async () => {
+    const token = storage.getAuthItem('structura_token');
+    let exportStudents = sortedStudents;
+
+    // Si connecté, charger tous les élèves filtrés (pas juste la page courante)
+    if (isOnline && token) {
+      try {
+        const result = await getStudentsPaginated(token, {
+          search:  debouncedSearch || undefined,
+          classId: classFilter !== 'all' ? classFilter : undefined,
+          limit:   5000,
+          skip:    0,
+        });
+        exportStudents = result.data.map(mapStudent);
+      } catch {
+        // fallback sur la page courante
+      }
+    }
+
+    if (exportStudents.length === 0) {
       toast.error("Aucun élève à exporter. Ajustez vos filtres.");
       return;
     }
 
-    const exportData = sortedStudents.map((student) => {
+    const exportData = exportStudents.map((student) => {
       // Séparer prénom et nom correctement (le nom est le dernier mot, prénom le reste)
       const nameParts = student.name.trim().split(" ");
       const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
@@ -455,7 +489,7 @@ export default function StudentsPage() {
       ? ` de la classe ${formatClassName(activeClass.name, activeClass.section)}`
       : "";
 
-    toast.success(`${sortedStudents.length} élève(s)${classeInfo} exporté(s) avec succès!`);
+    toast.success(`${exportStudents.length} élève(s)${classeInfo} exporté(s) avec succès!`);
   };
 
   const handleDownloadEmptyTemplate = () => {
@@ -1211,13 +1245,13 @@ export default function StudentsPage() {
                   <span>par page</span>
                 </div>
                 <div>
-                  {startIndex + 1}-{Math.min(endIndex, sortedStudents.length)} sur {sortedStudents.length}
+                  {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, serverTotal)} sur {serverTotal}
                 </div>
               </div>
 
               {/* Info - Mobile only */}
               <div className="sm:hidden text-sm text-muted-foreground">
-                {startIndex + 1}-{Math.min(endIndex, sortedStudents.length)} / {sortedStudents.length}
+                {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, serverTotal)} / {serverTotal}
               </div>
 
               {/* Navigation */}
