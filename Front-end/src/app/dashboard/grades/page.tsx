@@ -725,7 +725,10 @@ function GradesPageInner() {
         }
       }
 
-      setGridStudents(students);
+      const sortedGrid = [...students].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
+      );
+      setGridStudents(sortedGrid);
       setGridScores(scores);
       setGridSavedSubjects(new Set());
     } catch (e) {
@@ -955,7 +958,10 @@ function GradesPageInner() {
         }
       }
 
-      setCompGridStudents(students);
+      const sortedComp = [...students].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
+      );
+      setCompGridStudents(sortedComp);
       setCompGridCourseAvgs(courseAvgs);
       setCompGridScores(compScores);
       setCompGridSavedSubjects(new Set());

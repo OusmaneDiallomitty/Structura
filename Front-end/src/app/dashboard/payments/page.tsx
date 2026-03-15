@@ -796,13 +796,10 @@ export default function PaymentsPage() {
         if (statusFilter !== "all" && s.status !== statusFilter) return false;
         return true;
       })
-      .sort((a, b) => {
-        // Non payé → Partiel → Payé, puis alphabétique
-        const diff = (STATUS_ORDER[a.status] ?? 0) - (STATUS_ORDER[b.status] ?? 0);
-        if (diff !== 0) return diff;
-        return `${a.student.lastName} ${a.student.firstName}`
-          .localeCompare(`${b.student.lastName} ${b.student.firstName}`);
-      });
+      .sort((a, b) =>
+        `${a.student.lastName} ${a.student.firstName}`
+          .localeCompare(`${b.student.lastName} ${b.student.firstName}`)
+      );
   }, [studentSummaries, activeClass, searchQuery, statusFilter]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
