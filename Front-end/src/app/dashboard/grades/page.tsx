@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
@@ -247,6 +247,9 @@ function GradesPageInner() {
   const [gridLoading, setGridLoading] = useState(false);
   const [gridSaving, setGridSaving] = useState(false);
   const [gridSavedSubjects, setGridSavedSubjects] = useState<Set<string>>(new Set());
+  const [gridAutoSavingSubjects, setGridAutoSavingSubjects] = useState<Set<string>>(new Set());
+  // Timers debounce par matière — clé = nom matière, valeur = timeout id
+  const autoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // ── Dérivés classe sélectionnée — déclarés tôt pour être accessibles dans les callbacks ──
   // PRIMARY si gradeMode explicite OU si le niveau est Primaire/Maternelle (rétrocompat)
@@ -695,6 +698,64 @@ function GradesPageInner() {
       setGridSaving(false);
     }
   }, [selectedClassId, selectedTerm, academicYear, gridStudents, gridScores, user]);
+
+  // Auto-save silencieux par matière — appelé après 1s d'inactivité sur une colonne
+  const autoSaveSubject = useCallback(async (subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    if (!selectedClassId) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    const compositions = students
+      .map((s) => {
+        const raw = scores[s.id]?.[subject];
+        if (raw === undefined || raw === "") return null;
+        const score = parseFloat(raw);
+        if (isNaN(score) || score < 0 || score > 10) return null;
+        return { studentId: s.id, compositionScore: score };
+      })
+      .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
+
+    if (compositions.length === 0) return;
+
+    setGridAutoSavingSubjects((prev) => new Set([...prev, subject]));
+    try {
+      await bulkSaveCompositions(token, {
+        classId: selectedClassId,
+        subject,
+        term: selectedTerm,
+        academicYear: academicYear || undefined,
+        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+        compositions,
+      });
+      setGridSavedSubjects((prev) => new Set([...prev, subject]));
+    } catch {
+      // Silencieux — l'utilisateur peut sauvegarder manuellement
+    } finally {
+      setGridAutoSavingSubjects((prev) => {
+        const next = new Set(prev);
+        next.delete(subject);
+        return next;
+      });
+    }
+  }, [selectedClassId, selectedTerm, academicYear, user]);
+
+  // Déclenche le debounce auto-save quand un score de la grille change
+  const triggerAutoSave = useCallback((subject: string, students: BackendStudent[], scores: Record<string, Record<string, string>>) => {
+    // Annuler le timer précédent pour cette matière
+    if (autoSaveTimers.current[subject]) {
+      clearTimeout(autoSaveTimers.current[subject]);
+    }
+    // Marquer comme non-sauvegardé
+    setGridSavedSubjects((prev) => {
+      const next = new Set(prev);
+      next.delete(subject);
+      return next;
+    });
+    // Déclencher après 1s d'inactivité
+    autoSaveTimers.current[subject] = setTimeout(() => {
+      autoSaveSubject(subject, students, scores);
+    }, 1000);
+  }, [autoSaveSubject]);
 
   // Comp stats
   const compValidComps = compStudents
@@ -1509,18 +1570,25 @@ function GradesPageInner() {
                             const total = gridStudents.length;
                             const pct = Math.round((filled / total) * 100);
                             const isSaved = gridSavedSubjects.has(sub);
+                            const isAutoSaving = gridAutoSavingSubjects.has(sub);
                             return (
                               <div
                                 key={sub}
                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
                                   isSaved
                                     ? "bg-green-50 border-green-200 text-green-700"
+                                    : isAutoSaving
+                                    ? "bg-blue-50 border-blue-200 text-blue-600"
                                     : filled === total
                                     ? "bg-indigo-50 border-indigo-200 text-indigo-700"
                                     : "bg-gray-50 border-gray-200 text-gray-600"
                                 }`}
                               >
-                                {isSaved && <CheckCircle className="w-3.5 h-3.5" />}
+                                {isAutoSaving ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : isSaved ? (
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                ) : null}
                                 <span>{sub}</span>
                                 <span className="text-gray-400">·</span>
                                 <span>{filled}/{total}</span>
@@ -1601,15 +1669,17 @@ function GradesPageInner() {
                                               max={10}
                                               step={0.25}
                                               value={raw}
-                                              onChange={(e) =>
-                                                setGridScores((prev) => ({
-                                                  ...prev,
+                                              onChange={(e) => {
+                                                const newScores = {
+                                                  ...gridScores,
                                                   [student.id]: {
-                                                    ...prev[student.id],
+                                                    ...gridScores[student.id],
                                                     [sub]: e.target.value,
                                                   },
-                                                }))
-                                              }
+                                                };
+                                                setGridScores(newScores);
+                                                triggerAutoSave(sub, gridStudents, newScores);
+                                              }}
                                               placeholder="—"
                                               className={`w-20 h-8 text-center font-medium mx-auto ${
                                                 isInvalid ? "border-red-400 focus:ring-red-400" : ""
