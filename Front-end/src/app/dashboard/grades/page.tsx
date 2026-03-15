@@ -438,19 +438,22 @@ function GradesPageInner() {
     : availableSubjects();
 
   // Charger les coefficients dès que la classe change (directeur ET professeur)
+  // Source : ClassSubject (configuré par le directeur dans l'onglet Configuration)
   useEffect(() => {
     if (!selectedClassId) { setSubjectCoeffMap({}); return; }
     const token = storage.getAuthItem('structura_token');
     if (!token) return;
-    getSubjectCoefficients(token, selectedClassId, academicYear || undefined)
+    getClassSubjects(token, selectedClassId)
       .then((items) => {
         const map: Record<string, number> = {};
-        for (const item of items) map[item.subject] = item.coefficient;
+        for (const item of items) {
+          if (item.coefficient != null) map[item.name] = item.coefficient;
+        }
         setSubjectCoeffMap(map);
       })
       .catch(() => setSubjectCoeffMap({}));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId, academicYear]);
+  }, [selectedClassId]);
 
   const termMonths = getTermMonths(startMonth, durationMonths, selectedTerm);
 
