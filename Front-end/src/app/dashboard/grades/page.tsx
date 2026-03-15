@@ -264,6 +264,9 @@ function GradesPageInner() {
   // Teacher map : subject → teacherName (directeur uniquement)
   const [subjectTeacherMap, setSubjectTeacherMap] = useState<Record<string, string>>({});
 
+  // Coefficient map : subject → coefficient (chargé pour tout rôle)
+  const [subjectCoeffMap, setSubjectCoeffMap] = useState<Record<string, number>>({});
+
   // PDF generation
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
@@ -433,6 +436,21 @@ function GradesPageInner() {
   const subjectOptions: string[] = isDirector
     ? directorSubjects
     : availableSubjects();
+
+  // Charger les coefficients dès que la classe change (directeur ET professeur)
+  useEffect(() => {
+    if (!selectedClassId) { setSubjectCoeffMap({}); return; }
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    getSubjectCoefficients(token, selectedClassId, academicYear || undefined)
+      .then((items) => {
+        const map: Record<string, number> = {};
+        for (const item of items) map[item.subject] = item.coefficient;
+        setSubjectCoeffMap(map);
+      })
+      .catch(() => setSubjectCoeffMap({}));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClassId, academicYear]);
 
   const termMonths = getTermMonths(startMonth, durationMonths, selectedTerm);
 
@@ -1755,14 +1773,22 @@ function GradesPageInner() {
                               <tr>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
-                                {subjectOptions.map((sub) => (
-                                  <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
-                                      <span className="text-[10px] text-gray-400 font-normal">/20</span>
-                                    </div>
-                                  </th>
-                                ))}
+                                {subjectOptions.map((sub) => {
+                                  const coeff = subjectCoeffMap[sub];
+                                  return (
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
+                                        <span className="text-[10px] text-gray-400 font-normal">/20</span>
+                                        {coeff !== undefined && (
+                                          <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                            ×{coeff}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </th>
+                                  );
+                                })}
                                 <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[70px]">Moy.</th>
                               </tr>
                             </thead>
@@ -1966,14 +1992,22 @@ function GradesPageInner() {
                                   <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">
                                     Élève
                                   </th>
-                                  {subjectOptions.map((sub) => (
-                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
-                                        <span className="text-[10px] text-gray-400 font-normal">/10</span>
-                                      </div>
-                                    </th>
-                                  ))}
+                                  {subjectOptions.map((sub) => {
+                                    const coeff = subjectCoeffMap[sub];
+                                    return (
+                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                          <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
+                                          <span className="text-[10px] text-gray-400 font-normal">/10</span>
+                                          {coeff !== undefined && (
+                                            <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                              ×{coeff}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </th>
+                                    );
+                                  })}
                                   <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">
                                     Moy.
                                   </th>
@@ -2134,14 +2168,22 @@ function GradesPageInner() {
                               <tr>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
-                                {subjectOptions.map((sub) => (
-                                  <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[110px]">
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
-                                      <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
-                                    </div>
-                                  </th>
-                                ))}
+                                {subjectOptions.map((sub) => {
+                                  const coeff = subjectCoeffMap[sub];
+                                  return (
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[110px]">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
+                                        <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
+                                        {coeff !== undefined && (
+                                          <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                            ×{coeff}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </th>
+                                  );
+                                })}
                                 <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">Moy. gén.</th>
                               </tr>
                             </thead>
