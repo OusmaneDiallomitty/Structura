@@ -379,8 +379,8 @@ export function exportToCSV(options: ExportOptions): void {
     // Utiliser point-virgule pour Excel français
     const separator = ";";
 
-    // Create CSV content
-    let csv = headers.join(separator) + "\n";
+    // sep=; force Excel à utiliser le bon séparateur quelle que soit la langue du système
+    let csv = "sep=;\n" + headers.join(separator) + "\n";
 
     data.forEach((row) => {
       const values = headers.map((header) => {

@@ -58,8 +58,8 @@ export class StudentsService {
     },
     currentUser?: { role: string; assignedClassIds?: string[] },
   ) {
-    // Pagination : 100 par défaut, max 500 (export inclus)
-    const take = Math.min(Number(filters?.limit) || 100, 500);
+    // Pagination : 100 par défaut, max 5000 (pour les exports complets)
+    const take = Math.min(Number(filters?.limit) || 100, 5000);
     const skip = Number(filters?.skip) || 0;
 
     const where: any = { tenantId };
