@@ -221,6 +221,7 @@ export default function TenantsPage() {
             <p className="text-sm text-gray-500">Aucune école trouvée</p>
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
@@ -309,6 +310,7 @@ export default function TenantsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
