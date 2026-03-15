@@ -39,38 +39,41 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
+      onTouchMove={(e) => e.stopPropagation()}
+    >
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-4 sm:p-8 relative border max-h-[90vh] overflow-y-auto"
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-2xl w-full p-4 sm:p-6 relative border max-h-[92vh] overflow-y-auto"
       >
         <button
           onClick={handleSkip}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 transition-colors"
+          className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="text-center mb-8">
+        <div className="text-center mb-4 sm:mb-6">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring' }}
-            className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4"
+            className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-blue-100 rounded-full mb-3"
           >
-            <Sparkles className="w-8 h-8 text-blue-600" />
+            <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
           </motion.div>
 
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
+          <h2 className="text-xl sm:text-3xl font-bold text-gray-900 mb-1">
             Bienvenue sur Structura ! 🎉
           </h2>
-          <p className="text-gray-600 text-lg">
+          <p className="text-gray-600 text-sm sm:text-base">
             Votre plateforme de gestion scolaire est prête
           </p>
         </div>
 
-        <div className="space-y-4 mb-8">
+        <div className="space-y-3 mb-4 sm:mb-6">
           {/* Étape 1 : Créer année académique */}
           <div className="flex items-start gap-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
             <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold">
@@ -130,24 +133,23 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
         </div>
 
         {/* Note importante */}
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 mb-6">
-          <p className="text-sm text-amber-900">
-            💡 <span className="font-semibold">Important :</span> Suivez ces étapes dans l'ordre
-            pour éviter les erreurs. Chaque étape dépend de la précédente.
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4 sm:mb-5">
+          <p className="text-xs sm:text-sm text-amber-900">
+            💡 <span className="font-semibold">Important :</span> Suivez ces étapes dans l'ordre pour éviter les erreurs.
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pb-2">
           <button
             onClick={handleStart}
-            className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2"
+            className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 text-sm sm:text-base"
           >
-            <Calendar className="w-5 h-5" />
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
             Créer mon année académique
           </button>
           <button
             onClick={handleSkip}
-            className="px-6 py-3 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors font-semibold text-gray-900"
+            className="px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors font-semibold text-gray-900 text-sm sm:text-base"
           >
             Plus tard
           </button>

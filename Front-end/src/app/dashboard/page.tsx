@@ -108,8 +108,8 @@ export default function DashboardPage() {
   // Handlers pour l'onboarding
   const handleOnboardingComplete = () => {
     setShowOnboardingModal(false);
-    toast.success('Configuration terminée !');
-    router.push('/dashboard/classes');
+    toast.success('C\'est parti ! Commencez par créer votre année scolaire.');
+    // Reste sur le dashboard — le widget "Créer l'année scolaire" est ici
   };
 
   const handleOnboardingSkip = () => {
