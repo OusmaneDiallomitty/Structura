@@ -310,27 +310,6 @@ export default function DashboardPage() {
     return styles[type] || styles.alert;
   };
 
-  // Événements à venir (TODO: À récupérer depuis l'API quand le module calendrier sera créé)
-  const upcomingEvents = [
-    {
-      title: "Réunion des professeurs",
-      date: "Demain, 10h00",
-      type: "meeting",
-      color: "bg-blue-500/10 text-blue-700",
-    },
-    {
-      title: "Examen de fin de trimestre",
-      date: "Vendredi, 8h00",
-      type: "exam",
-      color: "bg-violet-500/10 text-violet-700",
-    },
-    {
-      title: "Journée portes ouvertes",
-      date: "Samedi, 9h00",
-      type: "event",
-      color: "bg-emerald-500/10 text-emerald-700",
-    },
-  ];
 
   if (isLoading) {
     return (
@@ -442,7 +421,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6">
         {/* Recent Activities */}
         <Card className="animate-in fade-in slide-in-from-left-4 duration-700 border-l-4 border-l-blue-500/20 overflow-hidden">
           <CardHeader>
@@ -499,51 +478,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Upcoming Events */}
-        <Card className="animate-in fade-in slide-in-from-right-4 duration-700 border-l-4 border-l-violet-500/20 overflow-hidden">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <div className="h-2 w-2 rounded-full bg-violet-500 animate-pulse flex-shrink-0" />
-              <span className="truncate">Événements à Venir</span>
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm truncate">
-              Votre calendrier de la semaine
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {upcomingEvents.map((event, index) => (
-                <div
-                  key={index}
-                  className="flex items-start justify-between gap-3 p-3 rounded-xl border transition-all duration-200 hover:border-violet-500/30 hover:shadow-sm cursor-pointer group hover:bg-violet-500/5"
-                >
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <p className="text-sm font-medium">{event.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {event.date}
-                    </p>
-                  </div>
-                  <Badge
-                    className={`transition-transform duration-300 group-hover:scale-110 ${event.color} border-0 shrink-0 text-xs whitespace-nowrap mt-0.5`}
-                  >
-                    {event.type === "meeting"
-                      ? "Réunion"
-                      : event.type === "exam"
-                      ? "Examen"
-                      : "Événement"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-            <Button
-              variant="ghost"
-              className="w-full mt-4 transition-all duration-200 hover:bg-violet-500/5"
-              disabled
-            >
-              Voir le calendrier complet
-            </Button>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Charts Section */}
