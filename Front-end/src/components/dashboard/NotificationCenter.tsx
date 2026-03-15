@@ -34,6 +34,8 @@ function getIcon(type: string) {
     case 'ATTENDANCE':          return <Clock className="h-4 w-4 text-orange-600" />;
     case 'SUBSCRIPTION_EXPIRY': return <AlertCircle className="h-4 w-4 text-red-600" />;
     case 'TRIMESTER_LOCKED':    return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
+    case 'PAYMENT_RECEIVED':    return <CheckCircle2 className="h-4 w-4 text-green-600" />;
+    case 'NEW_STUDENT':         return <Info className="h-4 w-4 text-violet-600" />;
     default:                    return <Info className="h-4 w-4 text-blue-600" />;
   }
 }

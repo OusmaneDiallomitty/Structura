@@ -19,17 +19,32 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Controller('students')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class StudentsController {
-  constructor(private readonly studentsService: StudentsService) {}
+  constructor(
+    private readonly studentsService: StudentsService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   @Post()
   @Roles('DIRECTOR', 'SECRETARY', 'TEACHER')
   @RequirePermission('students', 'create')
-  create(@Request() req, @Body() createStudentDto: CreateStudentDto) {
-    return this.studentsService.create(req.user.tenantId, createStudentDto);
+  async create(@Request() req, @Body() createStudentDto: CreateStudentDto) {
+    const student = await this.studentsService.create(req.user.tenantId, createStudentDto);
+    if (req.user.role !== 'DIRECTOR') {
+      const actor = `${req.user.firstName} ${req.user.lastName}`;
+      this.notificationsService.notifyDirectors(
+        req.user.tenantId,
+        'NEW_STUDENT',
+        'Nouvel élève inscrit',
+        `${actor} a inscrit ${createStudentDto.firstName} ${createStudentDto.lastName}.`,
+        '/dashboard/students',
+      ).catch(() => {});
+    }
+    return student;
   }
 
   @SkipThrottle()

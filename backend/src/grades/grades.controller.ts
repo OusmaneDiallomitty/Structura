@@ -19,11 +19,15 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Controller('grades')
 @UseGuards(JwtAuthGuard)
 export class GradesController {
-  constructor(private gradesService: GradesService) {}
+  constructor(
+    private gradesService: GradesService,
+    private notificationsService: NotificationsService,
+  ) {}
 
   // ── ÉVALUATIONS (Notes mensuelles) — PROFESSEUR uniquement en écriture ──
 
@@ -201,13 +205,22 @@ export class GradesController {
     @Body() body: { classId: string; trimester: string; academicYear: string },
   ) {
     if (!user?.tenantId) throw new BadRequestException('TenantId missing');
-    return this.gradesService.lockTrimester(
+    const result = await this.gradesService.lockTrimester(
       user.tenantId,
       body.classId,
       body.trimester,
       body.academicYear,
       user.firstName ? `${user.firstName} ${user.lastName}` : 'Unknown',
     );
+    this.notificationsService.notifyTeachersOfClass(
+      user.tenantId,
+      body.classId,
+      'TRIMESTER_LOCKED',
+      `${body.trimester} verrouillé`,
+      `Le directeur a verrouillé ${body.trimester}. La saisie des notes est désormais fermée.`,
+      '/dashboard/grades',
+    ).catch(() => {});
+    return result;
   }
 
   @Delete('trimester-lock')
@@ -223,6 +236,15 @@ export class GradesController {
     if (!classId || !trimester || !academicYear) {
       throw new BadRequestException('classId, trimester, academicYear required');
     }
-    return this.gradesService.unlockTrimester(user.tenantId, classId, trimester, academicYear);
+    const result = await this.gradesService.unlockTrimester(user.tenantId, classId, trimester, academicYear);
+    this.notificationsService.notifyTeachersOfClass(
+      user.tenantId,
+      classId,
+      'TRIMESTER_LOCKED',
+      `${trimester} déverrouillé`,
+      `Le directeur a déverrouillé ${trimester}. Vous pouvez à nouveau saisir les notes.`,
+      '/dashboard/grades',
+    ).catch(() => {});
+    return result;
   }
 }

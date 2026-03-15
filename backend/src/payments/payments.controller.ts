@@ -21,6 +21,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { PlanFeatureGuard } from '../common/guards/plan-feature.guard';
 import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Payments Controller
@@ -37,15 +38,31 @@ import { RequireFeature } from '../common/decorators/require-feature.decorator';
 @Controller('payments')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, PlanFeatureGuard)
 export class PaymentsController {
-    constructor(private readonly paymentsService: PaymentsService) {}
+    constructor(
+        private readonly paymentsService: PaymentsService,
+        private readonly notificationsService: NotificationsService,
+    ) {}
 
     // ── CRUD paiements — disponible sur FREE ────────────────────────────────────
 
     @Post()
     @Roles('ACCOUNTANT', 'DIRECTOR', 'SECRETARY')
     @RequirePermission('payments', 'create')
-    create(@Request() req, @Body() createPaymentDto: CreatePaymentDto) {
-        return this.paymentsService.create(req.user.tenantId, createPaymentDto);
+    async create(@Request() req, @Body() createPaymentDto: CreatePaymentDto) {
+        const payment = await this.paymentsService.create(req.user.tenantId, createPaymentDto);
+        // Notifier les directeurs uniquement si c'est un comptable ou secrétaire qui enregistre
+        if (req.user.role !== 'DIRECTOR') {
+            const actor = `${req.user.firstName} ${req.user.lastName}`;
+            const amount = new Intl.NumberFormat('fr-GN').format(createPaymentDto.amount);
+            this.notificationsService.notifyDirectors(
+                req.user.tenantId,
+                'PAYMENT_RECEIVED',
+                'Paiement enregistré',
+                `${actor} a enregistré un paiement de ${amount} GNF.`,
+                '/dashboard/payments',
+            ).catch(() => {});
+        }
+        return payment;
     }
 
     @SkipThrottle()
