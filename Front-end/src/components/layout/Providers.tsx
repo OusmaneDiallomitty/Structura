@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { SmoothScrollProvider } from "./SmoothScrollProvider";
 import { ScrollProgress } from "./ScrollProgress";
 import { useNotifications } from "@/hooks/use-notifications";
+import { BackendWakeUp } from "./BackendWakeUp";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -26,6 +27,7 @@ export function Providers({ children }: ProvidersProps) {
       <ParallaxProvider>
         <ScrollProgress />
         <AuthProvider>
+          <BackendWakeUp />
           <NotificationsInit />
           {children}
         </AuthProvider>

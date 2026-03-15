@@ -568,98 +568,69 @@ export default function StudentsPage() {
     try {
       if (isOnline && token) {
 
-        const createdStudents: Student[] = [];
-        let successCount = 0;
-        let errorCount = 0;
-
         // Normalisation robuste : supprime accents, espaces non-standard, met en minuscule
         const norm = (s: string) =>
           s.normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")   // supprimer diacritiques (è→e, é→e…)
-            .replace(/\u00A0/g, " ")            // espace insécable → espace normal
-            .replace(/\s+/g, " ")               // espaces multiples → un seul
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\u00A0/g, " ")
+            .replace(/\s+/g, " ")
             .toLowerCase()
             .trim();
 
-        for (const row of data) {
-          try {
-            // Mapper le nom de classe vers l'ID
-            let classId = '';
-
-            if (row.classe) {
-              // Valeur du fichier normalisée — ex: "7eme annee a (college a)"
-              const classeRaw   = norm(row.classe);
-              // Format court : retire la partie entre parenthèses — ex: "7eme annee a"
-              const classeShort = classeRaw.replace(/\s*\(.*\)\s*$/, "").trim();
-
-              const foundClass = classes.find((c: any) => {
-                // Clé courte  : "7ème année A"    → normalisé → "7eme annee a"
-                const keyShort       = norm(c.section ? `${c.name} ${c.section}` : c.name);
-                // Clé longue  : "7ème année A (Collège A)" → "7eme annee a (college a)"
-                const keyDisplay     = norm(formatClassName(c.name, c.section));
-                // Clé longue sans parenthèses → "7eme annee a"
-                const keyShortDisplay = keyDisplay.replace(/\s*\(.*\)\s*$/, "").trim();
-
-                return (
-                  keyShort        === classeShort   ||
-                  keyShort        === classeRaw     ||
-                  keyDisplay      === classeRaw     ||
-                  keyDisplay      === classeShort   ||
-                  keyShortDisplay === classeShort   ||
-                  keyShortDisplay === classeRaw
-                );
-              });
-
-              if (foundClass) {
-                classId = foundClass.id;
-              } else {
-                const validNames = classes
-                  .map((c) => formatClassName(c.name, c.section))
-                  .join(' | ');
-                toast.warning(`Classe introuvable : "${row.classe}"`, {
-                  description: `Noms valides → ${validNames}`,
-                });
-                errorCount++;
-                continue;
-              }
+        // Phase 1 : résoudre les classIds localement (rapide, pas d'API)
+        type ResolvedRow = { row: any; classId: string } | { error: string };
+        const resolved: ResolvedRow[] = data.map((row) => {
+          let classId = '';
+          if (row.classe) {
+            const classeRaw   = norm(row.classe);
+            const classeShort = classeRaw.replace(/\s*\(.*\)\s*$/, "").trim();
+            const foundClass = classes.find((c: any) => {
+              const keyShort        = norm(c.section ? `${c.name} ${c.section}` : c.name);
+              const keyDisplay      = norm(formatClassName(c.name, c.section));
+              const keyShortDisplay = keyDisplay.replace(/\s*\(.*\)\s*$/, "").trim();
+              return (
+                keyShort        === classeShort   ||
+                keyShort        === classeRaw     ||
+                keyDisplay      === classeRaw     ||
+                keyDisplay      === classeShort   ||
+                keyShortDisplay === classeShort   ||
+                keyShortDisplay === classeRaw
+              );
+            });
+            if (!foundClass) {
+              const validNames = classes.map((c) => formatClassName(c.name, c.section)).join(' | ');
+              toast.warning(`Classe introuvable : "${row.classe}"`, { description: `Noms valides → ${validNames}` });
+              return { error: `Classe introuvable: ${row.classe}` };
             }
+            classId = foundClass.id;
+          }
+          return { row, classId };
+        });
 
-            // Créer l'étudiant via l'API (matricule auto-généré par le backend)
-            const studentData = await createStudent(token, {
+        const validRows = resolved.filter((r): r is { row: any; classId: string } => !('error' in r));
+        const resolveErrors = resolved.length - validRows.length;
+
+        // Phase 2 : créer tous les élèves en parallèle (bien plus rapide qu'une boucle séquentielle)
+        const results = await Promise.allSettled(
+          validRows.map(({ row, classId }) =>
+            createStudent(token, {
               firstName: row.prenom || '',
               lastName: row.nom || '',
-              classId: classId,
+              classId,
               dateOfBirth: row.dateNaissance,
               gender: row.genre,
               parentName: row.nomParent || '',
               parentPhone: row.telephoneParent || '',
               parentEmail: row.email || '',
               parentProfession: row.professionParent || '',
-            });
-            const newStudent: Student = {
-              id: studentData.id,
-              name: `${studentData.firstName} ${studentData.lastName}`,
-              matricule: studentData.matricule,
-              class: studentData.class
-                ? formatClassName(studentData.class.name, studentData.class.section)
-                : (studentData.classId || ''),
-              classId: studentData.classId || studentData.class?.id || '',
-              status: (studentData.status?.toLowerCase() || 'active') as "active" | "inactive" | "graduated",
-              parentName: studentData.parentName || '',
-              parentPhone: studentData.parentPhone || '',
-              paymentStatus: (studentData.paymentStatus?.toLowerCase() || 'pending') as "paid" | "pending" | "late",
-              needsSync: false,
-            };
+            })
+          )
+        );
 
-            createdStudents.push(newStudent);
-            successCount++;
-          } catch (error: any) {
-            console.error(`❌ Erreur import étudiant:`, error);
-            errorCount++;
-          }
-        }
+        const successCount = results.filter((r) => r.status === 'fulfilled').length;
+        const errorCount   = results.filter((r) => r.status === 'rejected').length + resolveErrors;
 
-        if (createdStudents.length > 0) {
+        if (successCount > 0) {
           setClassFilter("all");
           setPaymentFilter("all");
           setSearchQuery("");
