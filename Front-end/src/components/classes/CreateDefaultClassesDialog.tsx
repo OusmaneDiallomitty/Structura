@@ -48,11 +48,16 @@ const DEFAULT_CLASSES = [
   { name: '8ème année', level: 'Collège', description: 'Collège' },
   { name: '9ème année', level: 'Collège', description: 'Collège' },
   { name: '10ème année', level: 'Collège', description: 'Collège' },
-
-  // LYCÉE (11ème à 12ème année)
-  { name: '11ème année', level: 'Lycée', description: 'Lycée' },
-  { name: '12ème année', level: 'Lycée', description: 'Lycée' },
 ];
+
+/** Classes lycée avec leurs séries guinéennes */
+const LYCEE_CLASSES = [
+  { name: '11ème Année', displayName: '11ème Année' },
+  { name: '12ème Année', displayName: '12ème Année' },
+  { name: 'Terminale', displayName: 'Terminale' },
+];
+
+const LYCEE_SERIES_LIST = ['Sciences Sociales', 'Mathématiques', 'Expérimental'];
 
 interface CreateDefaultClassesDialogProps {
   academicYearId: string | null;
@@ -66,6 +71,8 @@ export function CreateDefaultClassesDialog({
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [classCounts, setClassCounts] = useState<{ [key: string]: number }>({});
+  // Séries lycée sélectionnées : { "11ème Année": ["Sciences Sociales", "Mathématiques"] }
+  const [lyceeSeriesSelected, setLyceeSeriesSelected] = useState<{ [className: string]: string[] }>({});
 
   // États pour la conversion automatique
   const [showConversionDialog, setShowConversionDialog] = useState(false);
@@ -114,6 +121,14 @@ export function CreateDefaultClassesDialog({
     });
   };
 
+  const toggleLyceeSerie = (className: string, serie: string) => {
+    const current = lyceeSeriesSelected[className] || [];
+    const updated = current.includes(serie)
+      ? current.filter((s) => s !== serie)
+      : [...current, serie];
+    setLyceeSeriesSelected({ ...lyceeSeriesSelected, [className]: updated });
+  };
+
   const handleSubmit = async () => {
     if (!academicYearId) {
       toast.error("Veuillez d'abord créer une année académique");
@@ -124,17 +139,24 @@ export function CreateDefaultClassesDialog({
     const selectedClasses: string[] = [];
     const sections: { [key: string]: string[] } = {};
 
+    // Classes normales (Maternelle, Primaire, Collège) — sections A, B, C…
     Object.entries(classCounts).forEach(([className, count]) => {
       if (count > 0) {
         selectedClasses.push(className);
-
-        // Si count > 1, créer des sections A, B, C...
         if (count > 1) {
           sections[className] = Array.from({ length: count }, (_, i) =>
-            String.fromCharCode(65 + i) // A, B, C, D...
+            String.fromCharCode(65 + i)
           );
         }
-        // Si count === 1, pas de section (undefined = pas de section dans le backend)
+      }
+    });
+
+    // Classes lycée — séries comme sections
+    Object.entries(lyceeSeriesSelected).forEach(([className, series]) => {
+      if (series.length > 0) {
+        selectedClasses.push(className);
+        // Toujours passer les séries comme sections (même si 1 seule sélectionnée)
+        sections[className] = series;
       }
     });
 
@@ -233,6 +255,7 @@ export function CreateDefaultClassesDialog({
       toast.success(`${result.created} classe(s) créée(s) avec succès !`);
       setOpen(false);
       setClassCounts({});
+      setLyceeSeriesSelected({});
 
       if (onSuccess) {
         onSuccess();
@@ -275,6 +298,7 @@ export function CreateDefaultClassesDialog({
 
       setOpen(false);
       setClassCounts({});
+      setLyceeSeriesSelected({});
       setConversionData(null);
 
       if (onSuccess) {
@@ -289,13 +313,14 @@ export function CreateDefaultClassesDialog({
   };
 
   // Calculer le nombre total de classes à créer
-  const totalClasses = Object.values(classCounts).reduce((sum, count) => sum + count, 0);
+  const totalClasses =
+    Object.values(classCounts).reduce((sum, count) => sum + count, 0) +
+    Object.values(lyceeSeriesSelected).reduce((sum, series) => sum + series.length, 0);
 
   // Grouper par niveau
   const maternelleClasses = DEFAULT_CLASSES.filter((c) => c.level === "Maternelle");
   const primaryClasses = DEFAULT_CLASSES.filter((c) => c.level === "Primaire");
   const collegeClasses = DEFAULT_CLASSES.filter((c) => c.level === "Collège");
-  const lyceeClasses = DEFAULT_CLASSES.filter((c) => c.level === "Lycée");
 
   return (
     <>
@@ -466,47 +491,46 @@ export function CreateDefaultClassesDialog({
             </div>
           </div>
 
-          {/* LYCÉE */}
+          {/* LYCÉE — séries fixes */}
           <div>
-            <h3 className="font-semibold text-base md:text-lg mb-3 text-purple-700">Lycée</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {lyceeClasses.map((classItem) => {
-                const count = classCounts[classItem.name] || 0;
-                const existingCount = existingClassesByName[classItem.name] || 0;
-
+            <h3 className="font-semibold text-base md:text-lg mb-1 text-purple-700">Lycée</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Cochez les séries à créer pour chaque niveau
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {LYCEE_CLASSES.map((classItem) => {
+                const selectedSeries = lyceeSeriesSelected[classItem.name] || [];
                 return (
-                  <div key={classItem.name} className="flex flex-col gap-2 border rounded-lg p-2.5 md:p-3 hover:border-blue-300 transition-colors">
-                    <div className="flex items-start sm:items-center gap-2 sm:gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                          <Label className="text-xs sm:text-sm font-medium truncate">
-                            {classItem.name} <span className="text-muted-foreground">({classItem.description})</span>
-                          </Label>
-                          {existingCount > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] sm:text-xs font-medium rounded whitespace-nowrap w-fit">
-                              {existingCount} existante{existingCount > 1 ? "s" : ""}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={count === 0 ? "" : String(count)}
-                        onChange={(e) => handleCountChange(classItem.name, e.target.value)}
-                        className="w-14 sm:w-16 text-center text-sm flex-shrink-0"
-                        placeholder="0"
-                      />
+                  <div key={classItem.name} className="border rounded-lg p-3 hover:border-purple-300 transition-colors">
+                    <Label className="text-sm font-semibold text-purple-800 mb-2 block">
+                      {classItem.displayName}
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {LYCEE_SERIES_LIST.map((serie) => {
+                        const isSelected = selectedSeries.includes(serie);
+                        // Vérifier si cette série existe déjà en BDD
+                        const alreadyExists = Object.entries(existingClassesByName).some(
+                          ([name]) => name === classItem.name
+                        );
+                        return (
+                          <button
+                            key={serie}
+                            type="button"
+                            onClick={() => toggleLyceeSerie(classItem.name, serie)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                              isSelected
+                                ? "bg-purple-600 text-white border-purple-600"
+                                : "bg-white text-gray-700 border-gray-300 hover:border-purple-400"
+                            }`}
+                          >
+                            {isSelected ? "✓ " : ""}{serie}
+                          </button>
+                        );
+                      })}
                     </div>
-                    {existingCount > 0 && count > existingCount && (
-                      <p className="text-[10px] sm:text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                        💡 Ajouter {count - existingCount} section{count - existingCount > 1 ? "s" : ""} (total: {count})
-                      </p>
-                    )}
-                    {existingCount > 0 && count === existingCount && (
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">
-                        ✓ Garder {count} classe{count > 1 ? "s" : ""}
+                    {selectedSeries.length > 0 && (
+                      <p className="text-[10px] text-purple-600 mt-1.5">
+                        {selectedSeries.length} série{selectedSeries.length > 1 ? "s" : ""} sélectionnée{selectedSeries.length > 1 ? "s" : ""}
                       </p>
                     )}
                   </div>
@@ -535,6 +559,13 @@ export function CreateDefaultClassesDialog({
                     </div>
                   ));
                 })}
+                {Object.entries(lyceeSeriesSelected).map(([className, series]) =>
+                  series.map((serie) => (
+                    <div key={`${className}-${serie}`} className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                      {className} — {serie}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
