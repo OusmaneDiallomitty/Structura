@@ -417,46 +417,39 @@ export class GradesService {
     }
 
     // ── Construire les détails par matière ──────────────────────────────────
+    // rawAvgSubject : valeur EXACTE utilisée pour le calcul de la moyenne générale
+    // averageSubject dans la réponse : arrondie à 2 décimales pour l'affichage uniquement
     const subjectDetails = await Promise.all(
       compositions.map(async (comp) => {
         const coeff = await this.resolveCoefficient(
           tenantId, student.classId!, comp.subject, year,
-          isPrimary ? 1 : 1, // défaut 1 dans les deux modes
+          1, // défaut 1 dans les deux modes
         );
 
         if (isPrimary) {
-          // Primaire : la note de composition IS la moyenne de matière (sur 10).
-          //
-          // Règle coefficient (identique secondaire) :
-          //   coeff = 0  → matière sans coefficient (EPS, Dessin…) — EXCLUE de la moyenne générale
-          //   coeff = 1  → poids égal ; c'est aussi le fallback si aucun ClassSubject n'est configuré
-          //   coeff > 1  → pondération explicite (ex. CM1-CM2 : Maths ×2)
-          //
-          // Donc resolveCoefficient retourne déjà la bonne valeur :
-          //   - ClassSubject configuré  → utilise le coefficient enregistré par le directeur
-          //   - Aucun ClassSubject       → fallback = 1 → compte normalement
           return {
             subject:          comp.subject,
             averageCourse:    null,
             compositionScore: comp.compositionScore,
-            averageSubject:   comp.compositionScore,
+            averageSubject:   comp.compositionScore,   // sur 10, pas d'arrondi nécessaire
+            rawAvgSubject:    comp.compositionScore,   // identique pour primaire
             coefficient:      coeff,
-            countsInAverage:  coeff > 0,  // 0 = exclu, ≥ 1 = compte
+            countsInAverage:  coeff > 0,
             teacherName:      comp.teacherName || undefined,
           };
         } else {
           // Secondaire : (moyenne cours + composition) / 2 — sur 20
-          // Si pas de notes mensuelles → composition seule (pas de division par 2)
           const monthlyScores = evaluations
             .filter((e) => e.subject === comp.subject)
             .map((e) => e.score);
-          const avgCourse = this.calculateAverageCourse(monthlyScores);
-          const averageSubject = this.calculateAverageSubject(avgCourse, comp.compositionScore);
+          const avgCourse       = this.calculateAverageCourse(monthlyScores);
+          const rawAvgSubject   = this.calculateAverageSubject(avgCourse, comp.compositionScore);
           return {
             subject:          comp.subject,
             averageCourse:    avgCourse !== null ? Math.round(avgCourse * 100) / 100 : null,
             compositionScore: comp.compositionScore,
-            averageSubject:   Math.round(averageSubject * 100) / 100,
+            averageSubject:   Math.round(rawAvgSubject * 100) / 100,  // arrondi pour affichage
+            rawAvgSubject,                                             // brut pour le calcul
             coefficient:      coeff,
             countsInAverage:  coeff > 0,
             teacherName:      comp.teacherName || undefined,
@@ -465,36 +458,37 @@ export class GradesService {
       }),
     );
 
-    // ── Calculer la moyenne générale ────────────────────────────────────────
+    // ── Calculer la moyenne générale ─────────────────────────────────────────
+    // IMPORTANT : on utilise rawAvgSubject (valeur exacte) et NON averageSubject
+    // (arrondi) pour éviter les erreurs d'arrondi intermédiaires qui lèseraient l'élève.
     const countedSubjects = subjectDetails.filter((s) => s.countsInAverage);
     let generalAverage = 0;
 
     if (isPrimary) {
-      // Si aucune matière ne compte (tous coeff=0 ou pas de config coefficient),
-      // fallback : moyenne simple sur toutes les matières (ignore les exclusions)
       const activeSubs = countedSubjects.length > 0 ? countedSubjects : subjectDetails;
-
       const hasWeightedCoeffs = activeSubs.some((s) => s.coefficient > 1);
       if (hasWeightedCoeffs) {
-        const totalPoints = activeSubs.reduce((sum, s) => sum + s.averageSubject * s.coefficient, 0);
+        const totalPoints = activeSubs.reduce((sum, s) => sum + s.rawAvgSubject * s.coefficient, 0);
         const totalCoeffs  = activeSubs.reduce((sum, s) => sum + s.coefficient, 0);
         generalAverage = totalCoeffs > 0 ? Math.round((totalPoints / totalCoeffs) * 100) / 100 : 0;
       } else {
-        const total = activeSubs.reduce((sum, s) => sum + s.averageSubject, 0);
+        const total = activeSubs.reduce((sum, s) => sum + s.rawAvgSubject, 0);
         generalAverage = activeSubs.length > 0
           ? Math.round((total / activeSubs.length) * 100) / 100
           : 0;
       }
     } else {
       // Secondaire : toujours pondérée par coefficient
-      // Fallback si tous coeff=0 : moyenne simple sur toutes les matières
       const activeSubs = countedSubjects.length > 0 ? countedSubjects : subjectDetails;
-      const totalPoints = activeSubs.reduce((sum, s) => sum + s.averageSubject * s.coefficient, 0);
+      const totalPoints = activeSubs.reduce((sum, s) => sum + s.rawAvgSubject * s.coefficient, 0);
       const totalCoeffs  = activeSubs.reduce((sum, s) => sum + s.coefficient, 0);
       generalAverage = totalCoeffs > 0
         ? Math.round((totalPoints / totalCoeffs) * 100) / 100
-        : Math.round((activeSubs.reduce((sum, s) => sum + s.averageSubject, 0) / activeSubs.length) * 100) / 100;
+        : Math.round((activeSubs.reduce((sum, s) => sum + s.rawAvgSubject, 0) / activeSubs.length) * 100) / 100;
     }
+
+    // Retirer rawAvgSubject de la réponse (interne au calcul uniquement)
+    const subjectDetailsClean = subjectDetails.map(({ rawAvgSubject: _, ...rest }) => rest);
 
     return {
       student: {
@@ -510,7 +504,7 @@ export class GradesService {
       academicYear: year,
       gradeMode,
       scoreMax:     isPrimary ? 10 : 20,
-      subjects:     subjectDetails,
+      subjects:     subjectDetailsClean,
       generalAverage,
       totalSubjects: subjectDetails.length,
     };
