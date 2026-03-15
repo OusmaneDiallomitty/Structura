@@ -176,54 +176,96 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
 
   // Fond principal header
   fill(doc, COLORS.primary);
-  doc.rect(0, 0, PAGE_W, 40, 'F');
+  doc.rect(0, 0, PAGE_W, 46, 'F');
 
   // Bande décorative bas du header
   fill(doc, COLORS.accent);
-  doc.rect(0, 38, PAGE_W, 2.5, 'F');
+  doc.rect(0, 44, PAGE_W, 2.5, 'F');
 
-  // Motif décoratif : petits rectangles à droite
-  fill(doc, [255, 255, 255]);
-  doc.setGState(doc.GState({ opacity: 0.06 }));
-  for (let i = 0; i < 6; i++) {
-    doc.rect(PAGE_W - 28 + i * 5, -2, 3, 44, 'F');
-  }
-  doc.setGState(doc.GState({ opacity: 1 }));
-
-  // Logo si disponible
+  // ── Logo école (gauche) ──────────────────
   if (data.schoolLogo) {
     try {
       const fmt = data.schoolLogo.startsWith('data:image/png')  ? 'PNG'
         : data.schoolLogo.startsWith('data:image/webp') ? 'WEBP'
         : 'JPEG';
-      doc.addImage(data.schoolLogo, fmt, MARGIN, 4, 24, 24);
+      doc.addImage(data.schoolLogo, fmt, MARGIN, 5, 28, 28);
     } catch {
       // Logo invalide — continue sans lui
     }
   }
 
-  // Nom de l'école
-  textColor(doc, COLORS.white);
-  doc.setFontSize(18);
+  // ── République de Guinée (droite) ────────
+  const rightX = PAGE_W - MARGIN;
+
+  // "REPUBLIQUE DE GUINEE"
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.schoolName || 'Mon École', PAGE_W / 2, 13, { align: 'center' });
+  textColor(doc, COLORS.white);
+  doc.text('REPUBLIQUE DE GUINEE', rightX, 11, { align: 'right' });
+
+  // Ligne séparatrice fine sous le titre
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(255, 255, 255);
+  doc.setGState(doc.GState({ opacity: 0.3 }));
+  const repW = doc.getTextWidth('REPUBLIQUE DE GUINEE');
+  doc.line(rightX - repW, 13, rightX, 13);
+  doc.setGState(doc.GState({ opacity: 1 }));
+
+  // Devise : Travail · Justice · Solidarité (couleurs du drapeau guinéen)
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+
+  const sep = ' - ';
+  const sepW = doc.getTextWidth(sep);
+  const travailW    = doc.getTextWidth('Travail');
+  const justiceW    = doc.getTextWidth('Justice');
+  const solidariteW = doc.getTextWidth('Solidarit\u00E9');
+  const totalMottoW = travailW + sepW + justiceW + sepW + solidariteW;
+  const mottoStartX = rightX - totalMottoW;
+  const mottoY = 20;
+
+  // "Travail" — rouge drapeau (#CE1126)
+  doc.setTextColor(206, 17, 38);
+  doc.text('Travail', mottoStartX, mottoY);
+
+  // " - " blanc
+  textColor(doc, COLORS.white);
+  doc.text(sep, mottoStartX + travailW, mottoY);
+
+  // "Justice" — jaune drapeau (#FCD116)
+  doc.setTextColor(252, 209, 22);
+  doc.text('Justice', mottoStartX + travailW + sepW, mottoY);
+
+  // " - " blanc
+  textColor(doc, COLORS.white);
+  doc.text(sep, mottoStartX + travailW + sepW + justiceW, mottoY);
+
+  // "Solidarité" — vert drapeau (#009460)
+  doc.setTextColor(0, 148, 96);
+  doc.text('Solidarit\u00E9', mottoStartX + travailW + sepW + justiceW + sepW, mottoY);
+
+  // ── Nom de l'école (centre) ───────────────
+  textColor(doc, COLORS.white);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text(data.schoolName || 'Mon École', PAGE_W / 2, 14, { align: 'center' });
 
   // Sous-titre
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   textColor(doc, [199, 210, 254]); // indigo-200
-  doc.text('BULLETIN DE NOTES', PAGE_W / 2, 22, { align: 'center' });
+  doc.text('BULLETIN DE NOTES', PAGE_W / 2, 23, { align: 'center' });
 
   // Année | Trimestre
   doc.setFontSize(8);
   textColor(doc, COLORS.white);
-  doc.text(`${data.academicYear}   ·   ${data.trimester}`, PAGE_W / 2, 31, { align: 'center' });
+  doc.text(`${data.academicYear}   ·   ${data.trimester}`, PAGE_W / 2, 33, { align: 'center' });
 
   // ════════════════════════════════════════
   // INFORMATIONS ÉLÈVE
   // ════════════════════════════════════════
 
-  let y = 48;
+  let y = 54;
 
   // Carte élève avec bordure colorée à gauche
   fill(doc, COLORS.gray50);
