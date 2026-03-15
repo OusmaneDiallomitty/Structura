@@ -22,6 +22,7 @@ export interface ClassDefinition {
   alternativeNames: string[]; // Variantes (ex: ["CP"] pour 1ère Année)
   level: ClassLevel;
   order: number; // Pour le tri
+  isLycee?: boolean; // Vrai pour les classes de lycée (séries au lieu de sections A/B/C)
 }
 
 /**
@@ -131,6 +132,7 @@ export const CLASS_CATALOG: Record<ClassLevel, ClassDefinition[]> = {
       alternativeNames: ["2nde", "Seconde"],
       level: CLASS_LEVELS.SECONDAIRE,
       order: 5,
+      isLycee: true,
     },
     {
       id: "sec-12",
@@ -138,6 +140,7 @@ export const CLASS_CATALOG: Record<ClassLevel, ClassDefinition[]> = {
       alternativeNames: ["1ère", "Première"],
       level: CLASS_LEVELS.SECONDAIRE,
       order: 6,
+      isLycee: true,
     },
     {
       id: "sec-term",
@@ -145,12 +148,17 @@ export const CLASS_CATALOG: Record<ClassLevel, ClassDefinition[]> = {
       alternativeNames: ["Term", "Tle"],
       level: CLASS_LEVELS.SECONDAIRE,
       order: 7,
+      isLycee: true,
     },
   ],
 };
 
 export const SECTIONS = ["A", "B", "C", "D", "E", "F"] as const;
 export type Section = typeof SECTIONS[number];
+
+/** Séries du lycée guinéen (11ème, 12ème, Terminale) */
+export const LYCEE_SERIES = ["Sciences Sociales", "Mathématiques", "Expérimental"] as const;
+export type LyceeSerie = typeof LYCEE_SERIES[number];
 
 /**
  * Options de nomenclature pour l'école

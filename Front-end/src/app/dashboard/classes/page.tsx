@@ -54,6 +54,7 @@ import {
   CLASS_LEVELS,
   CLASS_CATALOG,
   SECTIONS,
+  LYCEE_SERIES,
   getSelectLabel,
   getDisplayName,
   suggestClassName,
@@ -104,7 +105,8 @@ export default function ClassesPage() {
     teacherName: "",
   });
   const [classNeedsSection, setClassNeedsSection] = useState(false);
-  const [availableSections, setAvailableSections] = useState<readonly Section[]>([]);
+  const [availableSections, setAvailableSections] = useState<string[]>([]);
+  const [isLyceeSelection, setIsLyceeSelection] = useState(false);
 
   // États pour la proposition de suppression de section unique
   const [showRemoveSectionDialog, setShowRemoveSectionDialog] = useState(false);
@@ -244,6 +246,7 @@ export default function ClassesPage() {
     });
     setClassNeedsSection(false);
     setAvailableSections([]);
+    setIsLyceeSelection(false);
   }
 
   // Quand une classe est sélectionnée
@@ -255,35 +258,41 @@ export default function ClassesPage() {
     if (!classDef) return;
 
     const baseName = classDef.displayName;
+    const isLycee = !!classDef.isLycee;
 
-    // Vérifier quelles sections existent déjà pour cette classe
-    const existingClassesWithSameBase = classes.filter((c) => {
-      // Extraire le nom de base (sans section)
-      const nameWithoutSection = c.name.replace(/ [A-F]$/, '').trim();
-      return nameWithoutSection === baseName;
-    });
+    // Vérifier quelles sections / séries existent déjà pour cette classe
+    const existingClassesWithSameBase = classes.filter((c) => c.name === baseName);
 
-    const existingSections = existingClassesWithSameBase
-      .map((c) => {
-        const match = c.name.match(/ ([A-F])$/);
-        return match ? match[1] : null;
-      })
-      .filter(Boolean);
+    if (isLycee) {
+      // Lycée : séries Sciences Sociales / Mathématiques / Expérimental
+      const existingSeries = existingClassesWithSameBase
+        .map((c) => c.section)
+        .filter(Boolean) as string[];
+      const availableSeries = LYCEE_SERIES.filter((s) => !existingSeries.includes(s));
+      const firstSerie = availableSeries[0] || "";
+      const displayName = firstSerie ? `${baseName} ${firstSerie}` : baseName;
 
-    const availableSecs = SECTIONS.filter((s) => !existingSections.includes(s));
+      setFormData({ ...formData, selectedClassId: classId, selectedSection: firstSerie, name: displayName });
+      setClassNeedsSection(true);
+      setAvailableSections([...availableSeries]);
+      setIsLyceeSelection(true);
+    } else {
+      // Collège / autres : sections A, B, C…
+      const existingSections = existingClassesWithSameBase
+        .map((c) => {
+          const match = c.name.match(/ ([A-F])$/);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean);
+      const availableSecs = SECTIONS.filter((s) => !existingSections.includes(s));
+      const firstAvailableSection = availableSecs[0] || "";
+      const displayName = firstAvailableSection ? `${baseName} ${firstAvailableSection}` : baseName;
 
-    const firstAvailableSection = availableSecs[0] || "";
-    const displayName = firstAvailableSection ? `${baseName} ${firstAvailableSection}` : baseName;
-
-    setFormData({
-      ...formData,
-      selectedClassId: classId,
-      selectedSection: firstAvailableSection,
-      name: displayName,
-    });
-
-    setClassNeedsSection(true);
-    setAvailableSections(availableSecs);
+      setFormData({ ...formData, selectedClassId: classId, selectedSection: firstAvailableSection, name: displayName });
+      setClassNeedsSection(true);
+      setAvailableSections([...availableSecs]);
+      setIsLyceeSelection(false);
+    }
   }
 
   // Quand la section change
@@ -1185,23 +1194,25 @@ export default function ClassesPage() {
               </div>
             )}
 
-            {/* Étape 3: Section (toujours affichée) */}
+            {/* Étape 3: Section / Série */}
             {formData.selectedClassId && availableSections.length > 0 && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <Label htmlFor="add-section" className="text-base font-semibold">
-                  3. Choisissez une section *
+                  3. Choisissez une {isLyceeSelection ? "série" : "section"} *
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Les sections permettent d'avoir plusieurs classes du même niveau
+                  {isLyceeSelection
+                    ? "La série définit la filière (Sciences Sociales, Mathématiques, Expérimental)"
+                    : "Les sections permettent d'avoir plusieurs classes du même niveau"}
                 </p>
                 <Select value={formData.selectedSection} onValueChange={handleSectionChange}>
                   <SelectTrigger id="add-section" className="h-11">
-                    <SelectValue placeholder="Choisir une section..." />
+                    <SelectValue placeholder={isLyceeSelection ? "Choisir une série..." : "Choisir une section..."} />
                   </SelectTrigger>
                   <SelectContent>
                     {availableSections.map((section) => (
                       <SelectItem key={section} value={section}>
-                        Section {section}
+                        {isLyceeSelection ? section : `Section ${section}`}
                       </SelectItem>
                     ))}
                   </SelectContent>

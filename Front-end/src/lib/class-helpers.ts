@@ -30,6 +30,7 @@ const CLASS_DESCRIPTIONS: Record<string, string> = {
   // LYCÉE
   '11ème année': 'Lycée',
   '12ème année': 'Lycée',
+  'terminale': 'Lycée',
 };
 
 /**
@@ -85,7 +86,10 @@ export function formatClassName(name: string, section?: string | null): string {
   // Ajouter la section si elle existe
   if (section) {
     fullName = `${baseName} ${section}`;
-    fullDescription = `${description} ${section}`; // Ajouter section dans description
+    // Pour les séries lycée (multi-mots) on n'ajoute pas la série à la description
+    if (section.length === 1) {
+      fullDescription = `${description} ${section}`;
+    }
   } else if (trimmedName !== baseName) {
     // Cas ancien format : "CP1 A" sans section séparée
     fullName = trimmedName;
