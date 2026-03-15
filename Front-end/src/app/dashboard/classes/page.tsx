@@ -14,6 +14,7 @@ import {
   X,
   CheckCircle2,
   Eye,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -666,15 +667,22 @@ export default function ClassesPage() {
       {isTeacher && classes.length === 0 && !isLoading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
           <span className="text-amber-500 text-lg mt-0.5">ℹ️</span>
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-medium text-amber-800">
               Aucune classe assignée à votre compte
             </p>
             <p className="text-xs text-amber-700 mt-1">
               Le directeur doit vous assigner vos classes depuis la page <strong>Équipe</strong>.
-              Si votre compte a été recréé récemment, les assignations précédentes ont été réinitialisées.
+              Une fois assigné, cliquez sur <strong>Rafraîchir</strong> pour afficher vos classes.
             </p>
           </div>
+          <button
+            onClick={() => loadClasses()}
+            className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-amber-800 hover:text-amber-900 border border-amber-300 hover:border-amber-400 bg-white hover:bg-amber-50 rounded-md px-2.5 py-1.5 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Rafraîchir
+          </button>
         </div>
       )}
 

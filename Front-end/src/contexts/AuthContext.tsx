@@ -68,6 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Déconnexion automatique si une autre session prend la place (détectée par fetchWithTimeout)
   useEffect(() => {
     const handleSessionInvalidated = () => {
+      // Tenter de nettoyer currentSessionId en BDD (fire-and-forget, ignoré si token invalide)
+      const staleToken = storage.getAuthItem(TOKEN_KEY);
+      if (staleToken) logoutUser(staleToken).catch(() => {});
       clearAuth();
       toast.error('Vous avez été déconnecté — une nouvelle connexion a été détectée sur un autre appareil.', {
         duration: 8000,
