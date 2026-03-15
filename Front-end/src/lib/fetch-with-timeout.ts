@@ -16,10 +16,21 @@ export async function fetchWithTimeout(
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
 
-    // Détecter SESSION_INVALIDATED globalement — AuthContext écoute cet événement
+    // Détecter toute invalidation de session — AuthContext écoute cet événement
+    // Cas couverts :
+    //   SESSION_INVALIDATED  → autre appareil connecté / session révoquée
+    //   Compte invalide      → compte supprimé entre deux requêtes
+    //   Organisation désact. → tenant supprimé ou suspendu
+    //   Token invalide       → tenantId corrompu dans le JWT
     if (response.status === 401 && typeof window !== 'undefined') {
+      const FATAL_MESSAGES = [
+        'SESSION_INVALIDATED',
+        'Compte invalide ou désactivé',
+        'Organisation désactivée',
+        'Token invalide',
+      ];
       response.clone().json().then((body) => {
-        if (body?.message === 'SESSION_INVALIDATED') {
+        if (FATAL_MESSAGES.includes(body?.message)) {
           window.dispatchEvent(new CustomEvent('auth:session-invalidated'));
         }
       }).catch(() => {});
