@@ -102,25 +102,42 @@ export class GradesService {
       throw new BadRequestException(`Mois '${bulkDto.month}' n'appartient pas à ${bulkDto.term}`);
     }
 
-    const evaluations = bulkDto.evaluations.map((item) => ({
-      studentId: item.studentId,
-      classId: bulkDto.classId,
-      subject: bulkDto.subject,
-      term: bulkDto.term,
-      month: bulkDto.month,
-      academicYear,
-      score: item.score,
-      teacherName: bulkDto.teacherName,
-      notes: item.notes,
-      tenantId,
-    }));
+    const results = await this.prisma.$transaction(
+      bulkDto.evaluations.map((item) =>
+        this.prisma.evaluation.upsert({
+          where: {
+            tenantId_studentId_classId_subject_term_academicYear_month: {
+              tenantId,
+              studentId: item.studentId,
+              classId: bulkDto.classId,
+              subject: bulkDto.subject,
+              term: bulkDto.term,
+              academicYear,
+              month: bulkDto.month,
+            },
+          },
+          create: {
+            studentId: item.studentId,
+            classId: bulkDto.classId,
+            subject: bulkDto.subject,
+            term: bulkDto.term,
+            month: bulkDto.month,
+            academicYear,
+            score: item.score,
+            teacherName: bulkDto.teacherName,
+            notes: item.notes,
+            tenantId,
+          },
+          update: {
+            score: item.score,
+            teacherName: bulkDto.teacherName,
+            notes: item.notes,
+          },
+        }),
+      ),
+    );
 
-    const result = await this.prisma.evaluation.createMany({
-      data: evaluations,
-      skipDuplicates: true,
-    });
-
-    return { count: result.count, message: `${result.count} évaluations enregistrées` };
+    return { count: results.length, message: `${results.length} évaluations enregistrées` };
   }
 
   async getEvaluations(
@@ -185,24 +202,40 @@ export class GradesService {
 
     await this.checkNotLocked(tenantId, bulkDto.classId, bulkDto.term, academicYear);
 
-    const compositions = bulkDto.compositions.map((item) => ({
-      studentId: item.studentId,
-      classId: bulkDto.classId,
-      subject: bulkDto.subject,
-      term: bulkDto.term,
-      academicYear,
-      compositionScore: item.compositionScore,
-      teacherName: bulkDto.teacherName,
-      notes: item.notes,
-      tenantId,
-    }));
+    const results = await this.prisma.$transaction(
+      bulkDto.compositions.map((item) =>
+        this.prisma.composition.upsert({
+          where: {
+            tenantId_studentId_classId_subject_term_academicYear: {
+              tenantId,
+              studentId: item.studentId,
+              classId: bulkDto.classId,
+              subject: bulkDto.subject,
+              term: bulkDto.term,
+              academicYear,
+            },
+          },
+          create: {
+            studentId: item.studentId,
+            classId: bulkDto.classId,
+            subject: bulkDto.subject,
+            term: bulkDto.term,
+            academicYear,
+            compositionScore: item.compositionScore,
+            teacherName: bulkDto.teacherName,
+            notes: item.notes,
+            tenantId,
+          },
+          update: {
+            compositionScore: item.compositionScore,
+            teacherName: bulkDto.teacherName,
+            notes: item.notes,
+          },
+        }),
+      ),
+    );
 
-    const result = await this.prisma.composition.createMany({
-      data: compositions,
-      skipDuplicates: true,
-    });
-
-    return { count: result.count, message: `${result.count} compositions enregistrées` };
+    return { count: results.length, message: `${results.length} compositions enregistrées` };
   }
 
   async updateComposition(
