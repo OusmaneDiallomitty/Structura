@@ -241,6 +241,13 @@ function GradesPageInner() {
   const [annualReport, setAnnualReport] = useState<AnnualReport | null>(null);
   const [annualLoading, setAnnualLoading] = useState(false);
 
+  // Grille unifiée primaire (compositions toutes matières en une vue)
+  const [gridStudents, setGridStudents] = useState<BackendStudent[]>([]);
+  const [gridScores, setGridScores] = useState<Record<string, Record<string, string>>>({});
+  const [gridLoading, setGridLoading] = useState(false);
+  const [gridSaving, setGridSaving] = useState(false);
+  const [gridSavedSubjects, setGridSavedSubjects] = useState<Set<string>>(new Set());
+
   // ── Dérivés classe sélectionnée — déclarés tôt pour être accessibles dans les callbacks ──
   // PRIMARY si gradeMode explicite OU si le niveau est Primaire/Maternelle (rétrocompat)
   const selectedClass   = classes.find((c) => c.id === selectedClassId);
@@ -382,6 +389,9 @@ function GradesPageInner() {
     setCompScores({});
     setCompCourseAvg({});
     setCompTeacherNames([]);
+    setGridStudents([]);
+    setGridScores({});
+    setGridSavedSubjects(new Set());
   }, [selectedClassId, selectedTerm]);
 
   // ── Evaluations ───────────────────────────────────────────────────────────
@@ -593,6 +603,98 @@ function GradesPageInner() {
     }
   // scoreMax est dérivé de selectedClassId (dans les deps) — pas besoin de l'ajouter séparément
   }, [selectedClassId, compSubject, selectedTerm, academicYear, compStudents, compScores, user]);
+
+  // ── Grille unifiée PRIMAIRE ────────────────────────────────────────────────
+
+  const loadPrimaryGrid = useCallback(async (subjects: string[]) => {
+    if (!selectedClassId || subjects.length === 0) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setGridLoading(true);
+    try {
+      const [students, ...compsPerSubject] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        ...subjects.map((sub) =>
+          getCompositions(token, {
+            classId: selectedClassId,
+            subject: sub,
+            term: selectedTerm,
+            academicYear: academicYear || undefined,
+          }),
+        ),
+      ]);
+
+      const scores: Record<string, Record<string, string>> = {};
+      for (const s of students) scores[s.id] = {};
+
+      for (let i = 0; i < subjects.length; i++) {
+        for (const c of compsPerSubject[i]) {
+          if (scores[c.studentId]) {
+            scores[c.studentId][subjects[i]] = String(c.compositionScore);
+          }
+        }
+      }
+
+      setGridStudents(students);
+      setGridScores(scores);
+      setGridSavedSubjects(new Set());
+    } catch (e) {
+      toast.error("Erreur lors du chargement de la grille");
+      console.error(e);
+    } finally {
+      setGridLoading(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear]);
+
+  const savePrimaryGrid = useCallback(async (subjects: string[]) => {
+    if (!selectedClassId || subjects.length === 0 || gridStudents.length === 0) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+
+    setGridSaving(true);
+    try {
+      const teacherName = user ? `${user.firstName} ${user.lastName}` : undefined;
+      let totalSaved = 0;
+
+      await Promise.all(
+        subjects.map(async (sub) => {
+          const compositions = gridStudents
+            .map((s) => {
+              const raw = gridScores[s.id]?.[sub];
+              if (raw === undefined || raw === "") return null;
+              const score = parseFloat(raw);
+              if (isNaN(score) || score < 0 || score > 10) return null;
+              return { studentId: s.id, compositionScore: score };
+            })
+            .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
+
+          if (compositions.length === 0) return;
+          totalSaved += compositions.length;
+          await bulkSaveCompositions(token, {
+            classId: selectedClassId,
+            subject: sub,
+            term: selectedTerm,
+            academicYear: academicYear || undefined,
+            teacherName,
+            compositions,
+          });
+          setGridSavedSubjects((prev) => new Set([...prev, sub]));
+        }),
+      );
+
+      if (totalSaved > 0) {
+        toast.success(`${totalSaved} note(s) enregistrée(s)`);
+      } else {
+        toast.warning("Aucune note valide à enregistrer");
+      }
+    } catch (e) {
+      toast.error("Erreur lors de l'enregistrement");
+      console.error(e);
+    } finally {
+      setGridSaving(false);
+    }
+  }, [selectedClassId, selectedTerm, academicYear, gridStudents, gridScores, user]);
 
   // Comp stats
   const compValidComps = compStudents
@@ -929,6 +1031,14 @@ function GradesPageInner() {
       setActiveTab("compositions");
     }
   }, [isPrimaryClass, activeTab]);
+
+  // Auto-charger la grille primaire dès que classe + matières sont prêtes
+  useEffect(() => {
+    if (!isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
+    if (gridStudents.length > 0) return; // déjà chargé
+    loadPrimaryGrid(subjectOptions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(",")]);
 
   // Reset rapport annuel quand la classe change
   useEffect(() => { setAnnualReport(null); }, [selectedClassId, academicYear]);
@@ -1334,218 +1444,396 @@ function GradesPageInner() {
           <TabsContent value="compositions" className="mt-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-indigo-500" />
-                  Compositions de fin de trimestre
-                </CardTitle>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-500" />
+                    Compositions de fin de trimestre
+                    {isPrimaryClass && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">/10</span>
+                    )}
+                  </CardTitle>
+                  {isPrimaryClass && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => loadPrimaryGrid(subjectOptions)}
+                        disabled={gridLoading || !selectedClassId}
+                      >
+                        {gridLoading ? (
+                          <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4 mr-1.5" />
+                        )}
+                        Recharger
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => savePrimaryGrid(subjectOptions)}
+                        disabled={gridSaving || gridStudents.length === 0}
+                        className="bg-indigo-600 hover:bg-indigo-700"
+                      >
+                        {gridSaving ? (
+                          <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4 mr-1.5" />
+                        )}
+                        Enregistrer tout
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
-                      Matière
-                    </label>
-                    <Select
-                      value={compSubject}
-                      onValueChange={setCompSubject}
-                      disabled={!selectedClassId}
-                    >
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Choisir une matière" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subjectOptions.length === 0 && (
-                          <SelectItem value="__none" disabled>
-                            {selectedClassId
-                              ? "Aucune matière disponible"
-                              : "Sélectionnez d'abord une classe"}
-                          </SelectItem>
-                        )}
-                        {subjectOptions.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
 
-                  <div className="flex items-end gap-2 sm:col-span-2">
-                    <Button
-                      variant="outline"
-                      onClick={loadCompositions}
-                      disabled={compLoading || !selectedClassId || !compSubject}
-                      className="flex-1"
-                    >
-                      {compLoading ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                      )}
-                      Charger
-                    </Button>
-                    <Button
-                      onClick={saveCompositions}
-                      disabled={compSaving || compStudents.length === 0}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                    >
-                      {compSaving ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Save className="w-4 h-4 mr-2" />
-                      )}
-                      Enregistrer
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Bannière prof (directeur uniquement) */}
-                {isDirector && compTeacherNames.length > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
-                    <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                    <span className="text-indigo-700">
-                      <span className="font-medium">Compositions saisies par : </span>
-                      {compTeacherNames.join(", ")}
-                    </span>
-                  </div>
-                )}
-
-                {/* Table */}
-                {compLoading ? (
-                  <SkeletonTable rows={6} cols={5} />
-                ) : compStudents.length === 0 ? (
-                  <EmptyState message="Chargez les élèves pour saisir les compositions" />
-                ) : (
-                  <div className="rounded-lg border overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
-                            {!isPrimaryClass && (
-                              <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell w-28">
-                                Moy. Cours
-                              </th>
-                            )}
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
-                              Composition /{scoreMax}
-                            </th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell w-28">
-                              Moy. Matière
-                            </th>
-                            <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">
-                              Mention
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {compStudents.map((student, idx) => {
-                            const rawComp = compScores[student.id] ?? "";
-                            const comp =
-                              rawComp !== "" ? parseFloat(rawComp) : null;
-                            const isValidComp =
-                              comp === null ||
-                              (!isNaN(comp) && comp >= 0 && comp <= scoreMax);
-                            const course = compCourseAvg[student.id] ?? null;
-                            // Primaire : moyenne matière = composition seule
-                            // Secondaire : (cours + compo) / 2
-                            const subjAvg = isPrimaryClass
-                              ? (comp !== null && !isNaN(comp) && comp >= 0 && comp <= scoreMax ? comp : null)
-                              : (course !== null &&
-                                  comp !== null &&
-                                  !isNaN(comp) &&
-                                  comp >= 0 &&
-                                  comp <= scoreMax
-                                    ? (course + comp) / 2
-                                    : null);
-
+                {/* ── GRILLE UNIFIÉE PRIMAIRE ─────────────────────────────── */}
+                {isPrimaryClass ? (
+                  <>
+                    {!selectedClassId ? (
+                      <EmptyState message="Sélectionnez une classe pour commencer" />
+                    ) : subjectOptions.length === 0 ? (
+                      <EmptyState message="Aucune matière configurée pour cette classe" />
+                    ) : gridLoading ? (
+                      <SkeletonTable rows={8} cols={Math.min(subjectOptions.length + 2, 7)} />
+                    ) : gridStudents.length === 0 ? (
+                      <EmptyState message="Chargement de la grille…" />
+                    ) : (
+                      <>
+                        {/* Indicateurs de progression par matière */}
+                        <div className="flex flex-wrap gap-2">
+                          {subjectOptions.map((sub) => {
+                            const filled = gridStudents.filter((s) => {
+                              const raw = gridScores[s.id]?.[sub];
+                              return raw !== undefined && raw !== "" && !isNaN(parseFloat(raw));
+                            }).length;
+                            const total = gridStudents.length;
+                            const pct = Math.round((filled / total) * 100);
+                            const isSaved = gridSavedSubjects.has(sub);
                             return (
-                              <tr
-                                key={student.id}
-                                className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
-                                  idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                              <div
+                                key={sub}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                                  isSaved
+                                    ? "bg-green-50 border-green-200 text-green-700"
+                                    : filled === total
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                                    : "bg-gray-50 border-gray-200 text-gray-600"
                                 }`}
                               >
-                                <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                                <td className="px-4 py-3 font-medium text-gray-800">
-                                  {student.firstName} {student.lastName}
-                                </td>
-                                {!isPrimaryClass && (
-                                  <td className="px-4 py-3 hidden sm:table-cell">
-                                    <span className="text-gray-500 bg-gray-100 px-2 py-1 rounded text-xs font-mono">
-                                      {fmt(course)}
-                                    </span>
-                                  </td>
+                                {isSaved && <CheckCircle className="w-3.5 h-3.5" />}
+                                <span>{sub}</span>
+                                <span className="text-gray-400">·</span>
+                                <span>{filled}/{total}</span>
+                                {filled > 0 && (
+                                  <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${
+                                        pct === 100 ? "bg-indigo-500" : "bg-amber-400"
+                                      }`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
                                 )}
-                                <td className="px-4 py-3">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    max={scoreMax}
-                                    step={0.25}
-                                    value={rawComp}
-                                    onChange={(e) =>
-                                      setCompScores((prev) => ({
-                                        ...prev,
-                                        [student.id]: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="—"
-                                    className={`w-24 h-8 text-center font-medium text-base ${
-                                      !isValidComp ? "border-red-400 focus:ring-red-400" : ""
-                                    }`}
-                                  />
-                                </td>
-                                <td className="px-4 py-3 hidden md:table-cell">
-                                  <span className={`font-semibold ${avgColor(subjAvg, scoreMax)}`}>
-                                    {fmt(subjAvg)}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 hidden lg:table-cell">
-                                  <MentionBadge score={subjAvg} scoreMax={scoreMax} />
-                                </td>
-                              </tr>
+                              </div>
                             );
                           })}
-                        </tbody>
-                      </table>
+                        </div>
+
+                        {/* Grille élèves × matières */}
+                        <div className="rounded-lg border overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 border-b">
+                                <tr>
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">
+                                    Élève
+                                  </th>
+                                  {subjectOptions.map((sub) => (
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
+                                        <span className="text-[10px] text-gray-400 font-normal">/10</span>
+                                      </div>
+                                    </th>
+                                  ))}
+                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">
+                                    Moy.
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {gridStudents.map((student, idx) => {
+                                  // Calculer la moyenne de l'élève sur toutes les matières saisies
+                                  const subScores = subjectOptions
+                                    .map((sub) => {
+                                      const raw = gridScores[student.id]?.[sub];
+                                      if (!raw || raw === "") return null;
+                                      const v = parseFloat(raw);
+                                      return !isNaN(v) && v >= 0 && v <= 10 ? v : null;
+                                    })
+                                    .filter((n): n is number => n !== null);
+                                  const rowAvg =
+                                    subScores.length > 0
+                                      ? subScores.reduce((a, b) => a + b, 0) / subScores.length
+                                      : null;
+
+                                  return (
+                                    <tr
+                                      key={student.id}
+                                      className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${
+                                        idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                      }`}
+                                    >
+                                      <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
+                                      <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
+                                        {student.firstName} {student.lastName}
+                                      </td>
+                                      {subjectOptions.map((sub) => {
+                                        const raw = gridScores[student.id]?.[sub] ?? "";
+                                        const val = raw !== "" ? parseFloat(raw) : null;
+                                        const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 10);
+                                        return (
+                                          <td key={sub} className="px-2 py-2 text-center">
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              max={10}
+                                              step={0.25}
+                                              value={raw}
+                                              onChange={(e) =>
+                                                setGridScores((prev) => ({
+                                                  ...prev,
+                                                  [student.id]: {
+                                                    ...prev[student.id],
+                                                    [sub]: e.target.value,
+                                                  },
+                                                }))
+                                              }
+                                              placeholder="—"
+                                              className={`w-20 h-8 text-center font-medium mx-auto ${
+                                                isInvalid ? "border-red-400 focus:ring-red-400" : ""
+                                              }`}
+                                            />
+                                          </td>
+                                        );
+                                      })}
+                                      <td className="px-3 py-2 text-center">
+                                        <span className={`font-semibold text-sm ${avgColor(rowAvg, 10)}`}>
+                                          {rowAvg !== null ? rowAvg.toFixed(2) : "—"}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Footer stats */}
+                          <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">Élèves :</span>
+                              <span className="font-semibold text-indigo-700">{gridStudents.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">Matières :</span>
+                              <span className="font-semibold text-indigo-700">{subjectOptions.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">Matières complètes :</span>
+                              <span className="font-semibold text-indigo-700">
+                                {subjectOptions.filter((sub) =>
+                                  gridStudents.every((s) => {
+                                    const raw = gridScores[s.id]?.[sub];
+                                    return raw !== undefined && raw !== "" && !isNaN(parseFloat(raw));
+                                  })
+                                ).length} / {subjectOptions.length}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400 italic self-center">
+                              La moyenne générale est visible dans l&apos;onglet Bulletin
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  /* ── VUE SECONDAIRE : ancienne UI matière par matière ─── */
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Matière
+                        </label>
+                        <Select
+                          value={compSubject}
+                          onValueChange={setCompSubject}
+                          disabled={!selectedClassId}
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Choisir une matière" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {subjectOptions.length === 0 && (
+                              <SelectItem value="__none" disabled>
+                                {selectedClassId
+                                  ? "Aucune matière disponible"
+                                  : "Sélectionnez d'abord une classe"}
+                              </SelectItem>
+                            )}
+                            {subjectOptions.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-end gap-2 sm:col-span-2">
+                        <Button
+                          variant="outline"
+                          onClick={loadCompositions}
+                          disabled={compLoading || !selectedClassId || !compSubject}
+                          className="flex-1"
+                        >
+                          {compLoading ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                          )}
+                          Charger
+                        </Button>
+                        <Button
+                          onClick={saveCompositions}
+                          disabled={compSaving || compStudents.length === 0}
+                          className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                        >
+                          {compSaving ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4 mr-2" />
+                          )}
+                          Enregistrer
+                        </Button>
+                      </div>
                     </div>
 
-                    {/* Stats footer */}
-                    <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">Notes saisies :</span>
-                        <span className="font-semibold text-indigo-700">
-                          {compValidComps.length} / {compStudents.length}
+                    {isDirector && compTeacherNames.length > 0 && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm">
+                        <GraduationCap className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                        <span className="text-indigo-700">
+                          <span className="font-medium">Compositions saisies par : </span>
+                          {compTeacherNames.join(", ")}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">
-                          {isPrimaryClass ? "Moy. matière (classe) :" : "Moy. composition (classe) :"}
-                        </span>
-                        <span className={`font-semibold ${avgColor(compAvg, scoreMax)}`}>
-                          {compAvg !== null ? `${compAvg.toFixed(2)} /${scoreMax}` : "—"}
-                        </span>
-                      </div>
-                      {!isPrimaryClass && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">Moy. matière (classe) :</span>
-                          <span className={`font-semibold ${avgColor(compSubjectAvgMean, scoreMax)}`}>
-                            {compSubjectAvgMean !== null
-                              ? `${compSubjectAvgMean.toFixed(2)} /${scoreMax}`
-                              : "—"}
-                          </span>
+                    )}
+
+                    {compLoading ? (
+                      <SkeletonTable rows={6} cols={5} />
+                    ) : compStudents.length === 0 ? (
+                      <EmptyState message="Chargez les élèves pour saisir les compositions" />
+                    ) : (
+                      <div className="rounded-lg border overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 w-10">#</th>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600">Élève</th>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell w-28">
+                                  Moy. Cours
+                                </th>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">
+                                  Composition /{scoreMax}
+                                </th>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell w-28">
+                                  Moy. Matière
+                                </th>
+                                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden lg:table-cell">
+                                  Mention
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {compStudents.map((student, idx) => {
+                                const rawComp = compScores[student.id] ?? "";
+                                const comp = rawComp !== "" ? parseFloat(rawComp) : null;
+                                const isValidComp = comp === null || (!isNaN(comp) && comp >= 0 && comp <= scoreMax);
+                                const course = compCourseAvg[student.id] ?? null;
+                                const subjAvg =
+                                  course !== null && comp !== null && !isNaN(comp) && comp >= 0 && comp <= scoreMax
+                                    ? (course + comp) / 2
+                                    : null;
+                                return (
+                                  <tr
+                                    key={student.id}
+                                    className={`border-b last:border-0 hover:bg-gray-50/70 transition-colors ${
+                                      idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                    }`}
+                                  >
+                                    <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
+                                    <td className="px-4 py-3 font-medium text-gray-800">
+                                      {student.firstName} {student.lastName}
+                                    </td>
+                                    <td className="px-4 py-3 hidden sm:table-cell">
+                                      <span className="text-gray-500 bg-gray-100 px-2 py-1 rounded text-xs font-mono">
+                                        {fmt(course)}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={scoreMax}
+                                        step={0.25}
+                                        value={rawComp}
+                                        onChange={(e) =>
+                                          setCompScores((prev) => ({ ...prev, [student.id]: e.target.value }))
+                                        }
+                                        placeholder="—"
+                                        className={`w-24 h-8 text-center font-medium text-base ${
+                                          !isValidComp ? "border-red-400 focus:ring-red-400" : ""
+                                        }`}
+                                      />
+                                    </td>
+                                    <td className="px-4 py-3 hidden md:table-cell">
+                                      <span className={`font-semibold ${avgColor(subjAvg, scoreMax)}`}>
+                                        {fmt(subjAvg)}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 hidden lg:table-cell">
+                                      <MentionBadge score={subjAvg} scoreMax={scoreMax} />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      )}
-                      {isPrimaryClass && (
-                        <span className="text-xs text-gray-400 italic self-center">
-                          La moyenne générale (toutes matières) est visible dans l&apos;onglet Bulletin
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                        <div className="bg-indigo-50 px-4 py-3 flex flex-wrap gap-4 text-sm border-t">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Notes saisies :</span>
+                            <span className="font-semibold text-indigo-700">
+                              {compValidComps.length} / {compStudents.length}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Moy. composition (classe) :</span>
+                            <span className={`font-semibold ${avgColor(compAvg, scoreMax)}`}>
+                              {compAvg !== null ? `${compAvg.toFixed(2)} /${scoreMax}` : "—"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Moy. matière (classe) :</span>
+                            <span className={`font-semibold ${avgColor(compSubjectAvgMean, scoreMax)}`}>
+                              {compSubjectAvgMean !== null ? `${compSubjectAvgMean.toFixed(2)} /${scoreMax}` : "—"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
