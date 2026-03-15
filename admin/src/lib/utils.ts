@@ -54,3 +54,15 @@ export function statusColor(status: string): string {
   };
   return map[status?.toUpperCase()] ?? 'bg-gray-100 text-gray-700';
 }
+
+/** Label lisible selon le statut d'abonnement */
+export function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    ACTIVE:   'Actif',
+    TRIALING: 'Essai',
+    PAST_DUE: 'En retard',
+    CANCELED: 'Annulé',
+    EXPIRED:  'Expiré',
+  };
+  return map[status?.toUpperCase()] ?? status;
+}

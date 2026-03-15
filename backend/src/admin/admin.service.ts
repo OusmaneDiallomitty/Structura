@@ -58,7 +58,7 @@ const TENANT_LIST_SELECT = {
  */
 function computeHealthScore(tenant: {
   users: { lastLoginAt: Date | null }[];
-  currentStudentCount: number;
+  studentCount: number;
   subscriptionStatus: string;
 }): number {
   let score = 0;
@@ -76,8 +76,8 @@ function computeHealthScore(tenant: {
     else if (days <= 14) score += 10;
   }
 
-  // Élèves enregistrés
-  const s = tenant.currentStudentCount;
+  // Élèves enregistrés (vrais comptages BDD)
+  const s = tenant.studentCount;
   if      (s >= 10) score += 30;
   else if (s >= 5)  score += 20;
   else if (s >= 1)  score += 10;
@@ -280,7 +280,7 @@ export class AdminService {
       const director = (users as any[]).find((u) => u.role === 'DIRECTOR') ?? null;
       const healthScore = computeHealthScore({
         users: users ?? [],
-        currentStudentCount: tenant.currentStudentCount,
+        studentCount: tenant._count?.students ?? tenant.currentStudentCount,
         subscriptionStatus:  tenant.subscriptionStatus,
       });
       return {
@@ -500,7 +500,7 @@ export class AdminService {
 
     const tenants = rawTenants.map(({ users, ...t }) => ({
       ...t,
-      healthScore: computeHealthScore({ users, currentStudentCount: t.currentStudentCount, subscriptionStatus: t.subscriptionStatus }),
+      healthScore: computeHealthScore({ users, studentCount: t._count?.students ?? t.currentStudentCount, subscriptionStatus: t.subscriptionStatus }),
     }));
 
     return { data: tenants, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
@@ -534,7 +534,7 @@ export class AdminService {
     return {
       ...rest,
       users,
-      healthScore: computeHealthScore({ users, currentStudentCount: rest.currentStudentCount, subscriptionStatus: rest.subscriptionStatus }),
+      healthScore: computeHealthScore({ users, studentCount: rest._count?.students ?? rest.currentStudentCount, subscriptionStatus: rest.subscriptionStatus }),
     };
   }
 

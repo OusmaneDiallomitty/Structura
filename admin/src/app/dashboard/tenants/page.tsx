@@ -20,7 +20,7 @@ import {
   activateTenant,
   type Tenant,
 } from '@/lib/api';
-import { cn, formatDate, planColor, planLabel, statusColor } from '@/lib/utils';
+import { cn, formatDate, planColor, planLabel, statusColor, statusLabel } from '@/lib/utils';
 
 const PLANS = ['', 'FREE', 'PRO', 'PRO_PLUS'];
 const PLAN_LABELS: Record<string, string> = { '': 'Tous les plans', FREE: 'Free', PRO: 'Pro', PRO_PLUS: 'Pro+' };
@@ -263,14 +263,14 @@ export default function TenantsPage() {
                   </td>
                   <td className="px-4 py-4">
                     <span className={cn('px-2 py-1 rounded-lg text-xs font-semibold', statusColor(t.subscriptionStatus))}>
-                      {t.subscriptionStatus}
+                      {statusLabel(t.subscriptionStatus)}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center font-medium text-gray-700">
-                    {t.currentStudentCount}
+                    {t._count?.students ?? t.currentStudentCount}
                   </td>
                   <td className="px-4 py-4 text-center font-medium text-gray-700">
-                    {t.currentUserCount}
+                    {t._count?.users ?? t.currentUserCount}
                   </td>
                   <td className="px-4 py-4 text-gray-600 text-sm whitespace-nowrap">
                     {formatDate(t.createdAt)}
