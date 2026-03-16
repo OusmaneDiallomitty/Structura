@@ -128,17 +128,17 @@ class SyncQueue {
 
       // Afficher un toast de résultat
       if (successCount > 0) {
-        toast.success(`✅ ${successCount} action(s) synchronisée(s)`);
+        toast.success(`Données mises à jour (${successCount} modification${successCount > 1 ? 's' : ''})`);
       }
 
       if (failCount > 0) {
-        toast.error(`❌ ${failCount} action(s) ont échoué`);
+        toast.warning(`${failCount} modification${failCount > 1 ? 's' : ''} non envoyée${failCount > 1 ? 's' : ''} — nouvel essai à la prochaine connexion.`);
       }
 
       console.log(`✅ Synchronisation terminée: ${successCount} succès, ${failCount} échecs`);
     } catch (error) {
       console.error("❌ Erreur lors de la synchronisation:", error);
-      toast.error("Erreur de synchronisation");
+      toast.error("Problème lors de la mise à jour des données.");
     } finally {
       this.isProcessing = false;
     }
@@ -323,7 +323,7 @@ export const syncQueue = new SyncQueue();
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     console.log("🌐 Connexion rétablie, synchronisation automatique...");
-    toast.info("Connexion rétablie. Synchronisation en cours...");
+    toast.info("Connexion rétablie — mise à jour des données en cours...");
     syncQueue.process();
   });
 }

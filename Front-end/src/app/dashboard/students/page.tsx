@@ -180,8 +180,8 @@ export default function StudentsPage() {
         const start = (currentPage - 1) * itemsPerPage;
         setStudents(cached.slice(start, start + itemsPerPage));
         setServerTotal(cached.length);
-        if (cached.length > 0) toast.info('Mode hors ligne — données en cache');
-        else toast.info('Aucune donnée en cache. Connectez-vous pour synchroniser.');
+        if (cached.length > 0) toast.info('Vous êtes hors ligne — affichage des dernières données');
+        else toast.info('Aucune donnée disponible. Reconnectez-vous pour charger les élèves.');
       }
     } catch (error: any) {
       const raw = await offlineDB.getAll<any>(STORES.STUDENTS).catch(() => []);
@@ -190,11 +190,11 @@ export default function StudentsPage() {
         const start = (currentPage - 1) * itemsPerPage;
         setStudents(cached.slice(start, start + itemsPerPage));
         setServerTotal(cached.length);
-        if (!navigator.onLine) toast.info('Mode hors ligne — données en cache');
-        else toast.warning('Erreur réseau — données chargées depuis le cache');
+        if (!navigator.onLine) toast.info('Vous êtes hors ligne — affichage des dernières données');
+        else toast.warning('Connexion indisponible — affichage des dernières données');
       } else {
         setStudents([]);
-        toast.error(error.message || 'Impossible de charger les élèves');
+        toast.error('Impossible de charger les élèves. Vérifiez votre connexion.');
       }
     } finally {
       setIsLoading(false);
@@ -396,7 +396,7 @@ export default function StudentsPage() {
         });
 
         setIsDeleteDialogOpen(false);
-        toast.info("Élève supprimé localement. Sera synchronisé lors de la prochaine connexion.");
+        toast.info("Élève supprimé — sera envoyé au serveur dès la reconnexion.");
       }
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la suppression');
@@ -408,7 +408,7 @@ export default function StudentsPage() {
       // Charger les données complètes de l'élève pour avoir la date de naissance
       const token = storage.getAuthItem('structura_token');
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return;
       }
 

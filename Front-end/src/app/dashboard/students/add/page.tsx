@@ -103,7 +103,7 @@ function AddStudentPageContent() {
       const token = storage.getAuthItem('structura_token');
 
       if (!token && isOnline) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         router.push('/login');
         return;
       }
@@ -137,7 +137,7 @@ function AddStudentPageContent() {
         await syncQueue.add({ type: "student", action: "create", data: { _tempId: tempId, ...studentDto } });
 
         toast.info("Élève sauvegardé hors ligne", {
-          description: "Synchronisation automatique dès la reconnexion.",
+          description: "Il sera envoyé au serveur dès la reconnexion.",
           duration: 5000,
         });
         router.push("/dashboard/students");
@@ -180,7 +180,7 @@ function AddStudentPageContent() {
         await offlineDB.add(STORES.STUDENTS, localStudent);
         await syncQueue.add({ type: "student", action: "create", data: { _tempId: tempId, ...studentDto } });
         toast.info("Élève sauvegardé hors ligne", {
-          description: "Synchronisation automatique dès la reconnexion.",
+          description: "Il sera envoyé au serveur dès la reconnexion.",
           duration: 5000,
         });
         router.push("/dashboard/students");

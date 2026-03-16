@@ -645,7 +645,7 @@ export default function PaymentsPage() {
             })
           );
         }
-      } catch { toast.error("Impossible de charger les données hors ligne"); }
+      } catch { toast.error("Données indisponibles sans connexion."); }
       finally { setIsLoading(false); }
       return;
     }
@@ -693,9 +693,9 @@ export default function PaymentsPage() {
     } catch (error: any) {
       try {
         const cached = await offlineDB.getAll<Payment>(STORES.PAYMENTS);
-        if (cached.length > 0) { setPayments(cached); toast.warning("Données chargées depuis le cache"); }
-        else toast.error(error.message || "Impossible de charger les paiements");
-      } catch { toast.error("Impossible de charger les paiements"); }
+        if (cached.length > 0) { setPayments(cached); toast.info("Vous êtes hors ligne — affichage des dernières données"); }
+        else toast.error("Impossible de charger les paiements. Vérifiez votre connexion.");
+      } catch { toast.error("Impossible de charger les paiements. Vérifiez votre connexion."); }
     } finally { setIsLoading(false); }
   }, [isOnline]);
 
@@ -1255,7 +1255,7 @@ export default function PaymentsPage() {
           setPayments((prev) => [newPayment, ...prev]);
           setPendingReceiptData(buildReceiptData(newPayment));
           setDialogMode("success");
-          toast.info("Paiement enregistré hors ligne — sera synchronisé à la reconnexion");
+          toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
         } catch {
           toast.error("Impossible d'enregistrer le paiement");
         }

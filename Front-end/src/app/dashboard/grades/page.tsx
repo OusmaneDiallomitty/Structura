@@ -391,7 +391,7 @@ function GradesPageInner() {
               }
             }
           } catch { /* ignore */ }
-          toast.info("Mode hors ligne — données chargées depuis le cache");
+          toast.info("Vous êtes hors ligne — affichage des données locales.");
         } else {
           toast.error("Impossible de charger les données initiales");
         }
@@ -579,7 +579,7 @@ function GradesPageInner() {
           const classStudents = allStudents.filter((s: any) => s.classId === selectedClassId);
           setEvalStudents(classStudents);
           if (classStudents.length > 0) {
-            toast.info("Mode hors ligne — élèves chargés depuis le cache");
+            toast.info("Vous êtes hors ligne — élèves disponibles localement.");
           }
         } catch { toast.error("Erreur lors du chargement des notes"); }
       } else {
@@ -628,7 +628,7 @@ function GradesPageInner() {
     } catch (e: any) {
       if (!navigator.onLine || e?.message === 'Failed to fetch') {
         await syncQueue.add({ type: "evaluation", action: "create", data: evalPayload });
-        toast.info(`${evaluations.length} note(s) enregistrée(s) hors ligne — sync au retour de connexion`);
+        toast.info(`${evaluations.length} note(s) enregistrée(s) — envoi automatique dès la reconnexion.`);
       } else {
         toast.error("Erreur lors de l'enregistrement");
         console.error(e);
@@ -754,7 +754,7 @@ function GradesPageInner() {
     } catch (e: any) {
       if (!navigator.onLine || e?.message === 'Failed to fetch') {
         await syncQueue.add({ type: "composition", action: "create", data: compPayload });
-        toast.info(`${compositions.length} composition(s) enregistrée(s) hors ligne — sync au retour de connexion`);
+        toast.info(`${compositions.length} composition(s) enregistrée(s) — envoi automatique dès la reconnexion.`);
       } else {
         toast.error("Erreur lors de l'enregistrement");
         console.error(e);

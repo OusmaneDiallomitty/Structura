@@ -117,7 +117,7 @@ export default function SettingsPage() {
 
   const handleExportStudents = async () => {
     const token = storage.getAuthItem(TOKEN_KEY);
-    if (!token) { toast.error("Session expirée"); return; }
+    if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
     setIsExportingStudents(true);
     try {
       const students = await getStudents(token, { limit: 5000 }); // Export complet
@@ -154,7 +154,7 @@ export default function SettingsPage() {
 
   const handleExportPayments = async () => {
     const token = storage.getAuthItem(TOKEN_KEY);
-    if (!token) { toast.error("Session expirée"); return; }
+    if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
     setIsExportingPayments(true);
     try {
       const payments = await getPayments(token, { limit: 5000 }); // Export complet
@@ -256,7 +256,7 @@ export default function SettingsPage() {
   // ── Sauvegarde ─────────────────────────────────────────────────────────
   const handleSave = async () => {
     const token = storage.getAuthItem(TOKEN_KEY);
-    if (!token) { toast.error("Session expirée"); return; }
+    if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
 
     setIsSaving(true);
     try {

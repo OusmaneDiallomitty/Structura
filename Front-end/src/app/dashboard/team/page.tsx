@@ -214,11 +214,11 @@ export default function TeamPage() {
       setMembers(data.map(mapMember));
     } catch (err) {
       if (!navigator.onLine) {
-        toast.info("Mode hors ligne — gestion de l'équipe indisponible sans connexion");
+        toast.info("La gestion de l'équipe nécessite une connexion internet.");
       } else {
-        toast.error("Erreur de chargement", {
+        toast.error("Impossible de charger l'équipe.", {
           description:
-            err instanceof Error ? err.message : "Impossible de charger l'équipe",
+            err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
         });
       }
     } finally {
@@ -510,9 +510,9 @@ export default function TeamPage() {
         });
       }
     } catch (err) {
-      toast.error("Erreur", {
+      toast.error("Impossible d'ajouter le membre.", {
         description:
-          err instanceof Error ? err.message : "Impossible d'ajouter le membre",
+          err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
       });
     } finally {
       setIsSubmitting(false);
@@ -577,9 +577,9 @@ export default function TeamPage() {
         });
       }
     } catch (err) {
-      toast.error("Erreur", {
+      toast.error("Impossible de modifier le membre.", {
         description:
-          err instanceof Error ? err.message : "Impossible de modifier le membre",
+          err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
       });
     } finally {
       setIsSubmitting(false);
@@ -602,9 +602,9 @@ export default function TeamPage() {
         description: `Les permissions de ${selectedMember.firstName} ${selectedMember.lastName} ont été mises à jour.`,
       });
     } catch (err) {
-      toast.error("Erreur", {
+      toast.error("Impossible d'enregistrer les permissions.", {
         description:
-          err instanceof Error ? err.message : "Impossible de sauvegarder les permissions",
+          err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
       });
     } finally {
       setIsSubmitting(false);
@@ -625,11 +625,11 @@ export default function TeamPage() {
         description: `${selectedMember.firstName} ${selectedMember.lastName} a été retiré de l'équipe.`,
       });
     } catch (err) {
-      toast.error("Erreur", {
+      toast.error("Impossible de supprimer le membre.", {
         description:
           err instanceof Error
             ? err.message
-            : "Impossible de supprimer le membre",
+            : "Une erreur inattendue s'est produite.",
       });
     } finally {
       setIsSubmitting(false);
@@ -936,9 +936,9 @@ export default function TeamPage() {
                                           );
                                         })
                                         .catch((err) =>
-                                          toast.error("Erreur", {
+                                          toast.error("Action impossible.", {
                                             description:
-                                              err instanceof Error ? err.message : "Action impossible",
+                                              err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
                                           })
                                         )
                                         .finally(() => setIsSubmitting(false));

@@ -606,7 +606,7 @@ export default function AttendancePage() {
         setAlreadySaved(true);
         const pCount = rows.filter((r) => r.status === "PRESENT").length;
         toast.info(
-          `Sauvegardé localement — ${pCount}/${rows.length} présents. Synchronisation en attente.`,
+          `Présences enregistrées (${pCount}/${rows.length} présents) — envoi automatique dès la reconnexion.`,
           { duration: 5000 }
         );
       }

@@ -130,7 +130,7 @@ export default function DashboardPage() {
     }
 
     if (!isOnline) {
-      toast.info('Mode hors ligne - Certaines données peuvent être obsolètes');
+      toast.info('Vous êtes hors ligne — certaines données peuvent ne pas être à jour.');
       setIsLoading(false);
       return;
     }
@@ -164,7 +164,7 @@ export default function DashboardPage() {
       console.error('Erreur chargement dashboard:', error);
 
       if (error.message.includes('Unauthorized') || error.message.includes('401')) {
-        toast.error('Session expirée, veuillez vous reconnecter');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         await offlineDB.clearAll().catch(() => {}); // Purger le cache local (confidentialité)
         logout();
         return;

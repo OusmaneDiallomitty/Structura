@@ -176,7 +176,7 @@ export default function ClassesPage() {
         const cached = await offlineDB.getAll<Class>(STORES.CLASSES);
         setClasses(cached);
         if (cached.length === 0) {
-          toast.info('Hors ligne — aucune classe en cache');
+          toast.info('Vous êtes hors ligne — aucune donnée disponible localement.');
         }
         return cached;
       } catch {
@@ -189,7 +189,7 @@ export default function ClassesPage() {
 
     try {
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return [];
       }
 
@@ -221,7 +221,7 @@ export default function ClassesPage() {
         const cached = await offlineDB.getAll<Class>(STORES.CLASSES);
         if (cached.length > 0) {
           setClasses(cached);
-          if (!navigator.onLine) toast.info('Mode hors ligne — données chargées depuis le cache');
+          if (!navigator.onLine) toast.info('Vous êtes hors ligne — affichage des dernières données');
           return cached;
         }
       } catch { /* ignore */ }
@@ -417,14 +417,14 @@ export default function ClassesPage() {
 
         setClasses((prev) => [...prev, localClass]);
         toast.info(`Classe "${formData.name}" sauvegardée hors ligne`, {
-          description: "Synchronisation automatique dès la reconnexion.",
+          description: "Elle sera envoyée au serveur dès la reconnexion.",
         });
         setIsAddDialogOpen(false);
         return;
       }
 
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return;
       }
 
@@ -474,14 +474,14 @@ export default function ClassesPage() {
           prev.map((c) => (c.id === selectedClass.id ? updatedClass : c))
         );
         toast.info('Classe modifiée hors ligne', {
-          description: "Synchronisation automatique dès la reconnexion.",
+          description: "Elle sera envoyée au serveur dès la reconnexion.",
         });
         setIsEditDialogOpen(false);
         return;
       }
 
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return;
       }
 
@@ -537,7 +537,7 @@ export default function ClassesPage() {
 
     try {
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return;
       }
 
@@ -622,7 +622,7 @@ export default function ClassesPage() {
 
     try {
       if (!token) {
-        toast.error('Session expirée');
+        toast.error('Votre session a expiré — veuillez vous reconnecter.');
         return;
       }
 
