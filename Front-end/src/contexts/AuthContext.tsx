@@ -291,6 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const updatedUser: User = {
         ...user,
         classAssignments: (profile.classAssignments ?? []) as User["classAssignments"],
+        permissions: profile.permissions ?? user.permissions ?? null,
       };
       storage.setAuthItem(USER_KEY, JSON.stringify(updatedUser), storage.isPersistent());
       setUser(updatedUser);
