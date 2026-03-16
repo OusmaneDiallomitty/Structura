@@ -281,7 +281,9 @@ export class UsersService {
       });
     }
 
-    return this.prisma.user.update({
+    const emailChanged = dto.email && dto.email !== user.email;
+
+    const updated = await this.prisma.user.update({
       where: { id },
       data: {
         ...(dto.firstName                  && { firstName: dto.firstName }),
@@ -289,7 +291,7 @@ export class UsersService {
         ...(dto.phone   !== undefined       && { phone:     dto.phone     }),
         ...(dto.role                       && { role:       dto.role.toUpperCase() }),
         ...(dto.isActive !== undefined      && { isActive:   dto.isActive  }),
-        ...(dto.email && dto.email !== user.email && { email: dto.email }),
+        ...(emailChanged && { email: dto.email }),
       },
       select: {
         ...USER_PUBLIC_SELECT,
@@ -298,6 +300,25 @@ export class UsersService {
         },
       },
     });
+
+    // Si l'email a changé sur un compte non activé, régénérer le token et renvoyer l'invitation.
+    if (emailChanged) {
+      const inviteToken = crypto.randomBytes(32).toString('hex');
+      const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await this.prisma.user.update({
+        where: { id },
+        data: { passwordResetToken: inviteToken, passwordResetExpiry: tokenExpiry },
+      });
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+      this.emailService.sendTeamInvitationEmail(
+        dto.email!,
+        updated.firstName,
+        tenant?.name ?? 'votre établissement',
+        inviteToken,
+      ).catch(() => {});
+    }
+
+    return updated;
   }
 
   /**
