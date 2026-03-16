@@ -56,6 +56,7 @@ export interface UpdateTeamMemberPayload {
   phone?: string;
   role?: string;          // UPPERCASE
   isActive?: boolean;
+  email?: string;
 }
 
 export interface UpdateProfilePayload {

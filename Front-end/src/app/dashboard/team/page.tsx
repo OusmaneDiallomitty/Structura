@@ -196,6 +196,7 @@ export default function TeamPage() {
   const [editForm, setEditForm] = useState({
     firstName: "",
     lastName: "",
+    email: "",
     phone: "",
     role: "" as RoleType | "",
     isActive: true,
@@ -347,6 +348,7 @@ export default function TeamPage() {
     setEditForm({
       firstName: member.firstName,
       lastName: member.lastName,
+      email: member.email,
       phone: member.phone,
       role: member.role,
       isActive: member.isActive,
@@ -519,6 +521,7 @@ export default function TeamPage() {
 
     setIsSubmitting(true);
     try {
+      const emailChanged = editForm.email && editForm.email !== selectedMember.email;
       const updated = await updateTeamMember(token, selectedMember.id, {
         firstName: editForm.firstName,
         lastName: editForm.lastName,
@@ -526,6 +529,8 @@ export default function TeamPage() {
         // Ne pas envoyer role/isActive si on s'édite soi-même (backend le rejette)
         ...(!isSelf && { role: newRole.toUpperCase() }),
         ...(!isSelf && { isActive: editForm.isActive }),
+        // Email uniquement si modifié et compte non activé
+        ...(emailChanged && !selectedMember.lastLoginAt && { email: editForm.email }),
       });
       // Note : le backend déassigne automatiquement les classes si le rôle change de TEACHER → autre.
 
@@ -1205,6 +1210,22 @@ export default function TeamPage() {
                 />
               </div>
             </div>
+            {/* Email — modifiable uniquement si le compte n'est pas encore activé */}
+            {selectedMember?.lastLoginAt === null && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">
+                  Email
+                  <span className="ml-2 text-xs font-normal text-amber-600">(compte non activé)</span>
+                </Label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  className="border-2"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="edit-phone">Téléphone</Label>
               <Input

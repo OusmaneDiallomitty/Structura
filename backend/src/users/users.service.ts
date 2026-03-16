@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -260,6 +261,17 @@ export class UsersService {
       throw new ForbiddenException('Vous ne pouvez pas modifier votre propre rôle');
     }
 
+    // Modification d'email : seulement si le compte n'a pas encore été activé.
+    if (dto.email && dto.email !== user.email) {
+      if (user.lastLoginAt !== null) {
+        throw new ForbiddenException("L'email ne peut être modifié que pour un compte non activé");
+      }
+      const conflict = await this.prisma.user.findFirst({ where: { email: dto.email, tenantId } });
+      if (conflict) {
+        throw new ConflictException('Cet email est déjà utilisé dans cet établissement');
+      }
+    }
+
     // Si le rôle passe de TEACHER vers un autre rôle, déassigner toutes les classes.
     // Cela évite des données orphelines (classe avec teacherId pointant vers un non-TEACHER).
     if (user.role?.toUpperCase() === 'TEACHER' && dto.role && dto.role.toUpperCase() !== 'TEACHER') {
@@ -277,6 +289,7 @@ export class UsersService {
         ...(dto.phone   !== undefined       && { phone:     dto.phone     }),
         ...(dto.role                       && { role:       dto.role.toUpperCase() }),
         ...(dto.isActive !== undefined      && { isActive:   dto.isActive  }),
+        ...(dto.email && dto.email !== user.email && { email: dto.email }),
       },
       select: {
         ...USER_PUBLIC_SELECT,

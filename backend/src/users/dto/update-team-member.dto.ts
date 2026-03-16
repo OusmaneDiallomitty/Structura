@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsIn, IsEmail } from 'class-validator';
 
 export class UpdateTeamMemberDto {
   @IsString()
@@ -23,4 +23,8 @@ export class UpdateTeamMemberDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsEmail({}, { message: 'Email invalide' })
+  @IsOptional()
+  email?: string;
 }
