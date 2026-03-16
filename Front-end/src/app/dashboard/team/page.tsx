@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus,
   Search,
@@ -300,6 +300,41 @@ export default function TeamPage() {
       : new Set()
     );
 
+  // ── Carte des conflits de matières ──────────────────────────────────────────
+  // classId → subject → "Prénom Nom" du prof qui l'enseigne déjà
+  // Utilisée dans les dialogs pour signaler les matières déjà assignées à un autre prof.
+
+  /** Tous les profs existants — pour le dialog "Ajouter" (aucune exclusion). */
+  const addConflictMap = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {};
+    for (const m of members) {
+      if (m.role !== "teacher") continue;
+      for (const a of m.classAssignments ?? []) {
+        if (!map[a.classId]) map[a.classId] = {};
+        for (const s of a.subjects) {
+          map[a.classId][s] = `${m.firstName} ${m.lastName}`;
+        }
+      }
+    }
+    return map;
+  }, [members]);
+
+  /** Tous les profs sauf le membre en cours d'édition — pour le dialog "Modifier". */
+  const editConflictMap = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {};
+    for (const m of members) {
+      if (m.id === selectedMember?.id) continue;
+      if (m.role !== "teacher") continue;
+      for (const a of m.classAssignments ?? []) {
+        if (!map[a.classId]) map[a.classId] = {};
+        for (const s of a.subjects) {
+          map[a.classId][s] = `${m.firstName} ${m.lastName}`;
+        }
+      }
+    }
+    return map;
+  }, [members, selectedMember]);
+
   // ── Handlers UI ─────────────────────────────────────────────────────────────
 
   const handleAdd = () => {
@@ -336,25 +371,29 @@ export default function TeamPage() {
   };
 
   /** Coche/décoche une classe dans le formulaire Ajouter.
-   *  Quand on coche → toutes les matières du niveau sont sélectionnées par défaut.
-   *  Quand on décoche → l'entrée classAssignments correspondante est supprimée. */
+   *  Quand on coche → toutes les matières configurées sont sélectionnées par défaut
+   *    (ou on restaure la config précédente si la classe avait déjà été cochée/décochée).
+   *  Quand on décoche → on retire uniquement de selectedClassIds ; l'assignment reste
+   *    en mémoire pour être restauré si on recoche la classe (évite la perte de config). */
   const toggleAddClass = (cls: ClassOption) => {
     setAddForm((prev) => {
       const checked = prev.selectedClassIds.includes(cls.id);
       if (checked) {
-        // Décocher : retirer de selectedClassIds ET de classAssignments
+        // Décocher : retirer de selectedClassIds UNIQUEMENT — conserver l'assignment en mémoire
         return {
           ...prev,
           selectedClassIds: prev.selectedClassIds.filter((id) => id !== cls.id),
-          classAssignments: prev.classAssignments.filter((a) => a.classId !== cls.id),
         };
       } else {
-        // Cocher : ajouter avec toutes les matières configurées en DB sélectionnées par défaut
+        // Cocher : restaurer l'assignment existant, ou créer avec toutes les matières par défaut
         const allSubjects = classSubjectsMap[cls.id] ?? [];
+        const existing = prev.classAssignments.find((a) => a.classId === cls.id);
         return {
           ...prev,
           selectedClassIds: [...prev.selectedClassIds, cls.id],
-          classAssignments: [...prev.classAssignments, { classId: cls.id, subjects: allSubjects }],
+          classAssignments: existing
+            ? prev.classAssignments
+            : [...prev.classAssignments, { classId: cls.id, subjects: allSubjects }],
         };
       }
     });
@@ -373,26 +412,27 @@ export default function TeamPage() {
     }));
   };
 
-  /** Coche/décoche une classe dans le formulaire Modifier */
+  /** Coche/décoche une classe dans le formulaire Modifier.
+   *  Décocher retire uniquement de selectedClassIds — l'assignment en mémoire est préservé
+   *  pour éviter de perdre la config matières si on recoche ensuite la classe. */
   const toggleEditClass = (cls: ClassOption) => {
     setEditForm((prev) => {
       const checked = prev.selectedClassIds.includes(cls.id);
       if (checked) {
+        // Décocher : retirer de selectedClassIds UNIQUEMENT — conserver l'assignment
         return {
           ...prev,
           selectedClassIds: prev.selectedClassIds.filter((id) => id !== cls.id),
-          classAssignments: prev.classAssignments.filter((a) => a.classId !== cls.id),
         };
       } else {
-        // Cocher : matières configurées en DB (source de vérité = page Notes)
+        // Cocher : restaurer l'assignment existant (BDD ou session courante), sinon créer
         const allSubjects = classSubjectsMap[cls.id] ?? [];
-        // Si une affectation existait déjà pour cette classe, la conserver
         const existing = prev.classAssignments.find((a) => a.classId === cls.id);
         return {
           ...prev,
           selectedClassIds: [...prev.selectedClassIds, cls.id],
           classAssignments: existing
-            ? prev.classAssignments  // garder l'existant
+            ? prev.classAssignments
             : [...prev.classAssignments, { classId: cls.id, subjects: allSubjects }],
         };
       }
@@ -431,11 +471,16 @@ export default function TeamPage() {
 
       // Assigner les classes si c'est un professeur et qu'il y en a de sélectionnées
       if (addForm.role === "teacher" && addForm.selectedClassIds.length > 0) {
+        // Filtrer pour n'envoyer que les assignments des classes effectivement cochées
+        // (les classes décochées restent en mémoire dans classAssignments mais ne doivent pas être envoyées)
+        const checkedAssignments = addForm.classAssignments.filter((a) =>
+          addForm.selectedClassIds.includes(a.classId)
+        );
         const updated = await assignTeacherClasses(
           token,
           created.id,
           addForm.selectedClassIds,
-          addForm.classAssignments,
+          checkedAssignments,
         );
         setMembers((prev) => [...prev, mapMember(updated)]);
       } else {
@@ -486,11 +531,15 @@ export default function TeamPage() {
 
       // Si le membre est (ou reste) un professeur, synchroniser ses classes.
       if (!isSelf && newRole === "teacher") {
+        // Filtrer pour n'envoyer que les assignments des classes effectivement cochées
+        const checkedAssignments = editForm.classAssignments.filter((a) =>
+          editForm.selectedClassIds.includes(a.classId)
+        );
         const withClasses = await assignTeacherClasses(
           token,
           selectedMember.id,
           editForm.selectedClassIds,
-          editForm.classAssignments,
+          checkedAssignments,
         );
         setMembers((prev) =>
           prev.map((m) => (m.id === selectedMember.id ? mapMember(withClasses) : m))
@@ -1048,22 +1097,37 @@ export default function TeamPage() {
                             <div className="ml-6 flex flex-wrap gap-1.5">
                               {dbSubjects.map((subject) => {
                                 const selected = assignment.subjects.includes(subject);
+                                const takenBy = addConflictMap[cls.id]?.[subject];
                                 return (
                                   <button
                                     key={subject}
                                     type="button"
                                     onClick={() => toggleAddSubject(cls.id, subject)}
+                                    title={takenBy ? `Déjà assignée à ${takenBy}` : undefined}
                                     className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                                      selected
+                                      selected && takenBy
+                                        ? "bg-amber-100 border-amber-400 text-amber-700 font-medium"
+                                        : selected
                                         ? "bg-blue-100 border-blue-400 text-blue-700 font-medium"
+                                        : takenBy
+                                        ? "bg-gray-50 border-gray-300 text-gray-400 hover:bg-amber-50 hover:border-amber-300"
                                         : "bg-muted border-border text-muted-foreground hover:bg-blue-50"
                                     }`}
                                   >
                                     {subject}
+                                    {takenBy && (
+                                      <span className="ml-1 opacity-70">· {takenBy.split(" ").pop()}</span>
+                                    )}
                                   </button>
                                 );
                               })}
                             </div>
+                          )}
+                          {isChecked && dbSubjects.length > 0 && dbSubjects.some((s) => addConflictMap[cls.id]?.[s]) && (
+                            <p className="ml-6 text-xs text-amber-600 flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 shrink-0" />
+                              Certaines matières sont déjà assignées à un autre professeur
+                            </p>
                           )}
                         </div>
                       );
@@ -1245,22 +1309,37 @@ export default function TeamPage() {
                             <div className="ml-6 flex flex-wrap gap-1.5">
                               {dbSubjects.map((subject) => {
                                 const selected = assignment.subjects.includes(subject);
+                                const takenBy = editConflictMap[cls.id]?.[subject];
                                 return (
                                   <button
                                     key={subject}
                                     type="button"
                                     onClick={() => toggleEditSubject(cls.id, subject)}
+                                    title={takenBy ? `Déjà assignée à ${takenBy}` : undefined}
                                     className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                                      selected
+                                      selected && takenBy
+                                        ? "bg-amber-100 border-amber-400 text-amber-700 font-medium"
+                                        : selected
                                         ? "bg-blue-100 border-blue-400 text-blue-700 font-medium"
+                                        : takenBy
+                                        ? "bg-gray-50 border-gray-300 text-gray-400 hover:bg-amber-50 hover:border-amber-300"
                                         : "bg-muted border-border text-muted-foreground hover:bg-blue-50"
                                     }`}
                                   >
                                     {subject}
+                                    {takenBy && (
+                                      <span className="ml-1 opacity-70">· {takenBy.split(" ").pop()}</span>
+                                    )}
                                   </button>
                                 );
                               })}
                             </div>
+                          )}
+                          {isChecked && dbSubjects.length > 0 && dbSubjects.some((s) => editConflictMap[cls.id]?.[s]) && (
+                            <p className="ml-6 text-xs text-amber-600 flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 shrink-0" />
+                              Certaines matières sont déjà assignées à un autre professeur
+                            </p>
                           )}
                         </div>
                       );
