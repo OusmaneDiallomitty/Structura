@@ -472,9 +472,11 @@ function GradesPageInner() {
       .catch(() => setSubjectTeacherMap({}));
   }, [isDirector, selectedClassId]);
 
-  const subjectOptions: string[] = isDirector
-    ? directorSubjects
-    : availableSubjects();
+  // Professeur : matières issues de ses affectations de classe
+  // Directeur + tous autres rôles (secrétaire, surveillant…) : matières chargées depuis l'API
+  const subjectOptions: string[] = isTeacher
+    ? availableSubjects()
+    : directorSubjects;
 
   // Charger les coefficients dès que la classe change (directeur ET professeur)
   // Source : ClassSubject (configuré par le directeur dans l'onglet Configuration)
