@@ -336,7 +336,6 @@ export default function DashboardPage() {
       {user?.role === 'director' && showWelcome && (
         <WelcomeBanner
           organizationName={organizationName}
-          classesCreated={stats?.totalClasses || 0}
           onDismiss={handleDismissWelcome}
         />
       )}

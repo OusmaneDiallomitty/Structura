@@ -7,13 +7,11 @@ import Link from "next/link";
 
 interface WelcomeBannerProps {
   organizationName: string;
-  classesCreated: number;
   onDismiss: () => void;
 }
 
 export function WelcomeBanner({
   organizationName,
-  classesCreated,
   onDismiss,
 }: WelcomeBannerProps) {
   const [isClosing, setIsClosing] = useState(false);
@@ -72,11 +70,10 @@ export function WelcomeBanner({
         </div>
         
         <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-          {organizationName} est prêt
+          {organizationName} est prête
         </h2>
-        
+
         <p className="text-gray-600 text-base leading-relaxed">
-          Nous avons créé <span className="font-medium text-gray-900">{classesCreated} classes</span> pour vous. 
           Voici les prochaines étapes pour démarrer rapidement.
         </p>
       </div>
