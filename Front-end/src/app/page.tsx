@@ -22,6 +22,7 @@ import {
   Calendar,
   Settings,
   PlayCircle,
+  X,
   Sparkles,
   Target,
   Award,
