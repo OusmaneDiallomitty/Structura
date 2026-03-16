@@ -143,6 +143,7 @@ export class GradesService {
     });
     await this.cache.del(
       `grades:evals:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+      `grades:evals:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}:${createDto.subject}`,
       `grades:classreport:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
     );
     return result;
@@ -202,6 +203,7 @@ export class GradesService {
 
     await this.cache.del(
       `grades:evals:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+      `grades:evals:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}:${bulkDto.subject}`,
       `grades:classreport:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
     );
     return { count: results.length, message: `${results.length} évaluations enregistrées` };
@@ -218,9 +220,12 @@ export class GradesService {
     },
   ) {
     // Cache uniquement quand la requête est ciblée (grille notes d'une classe/trimestre)
+    // IMPORTANT : inclure le filtre subject dans la clé — des requêtes parallèles par
+    // matière (grille secondaire) écraseraient sinon le cache global avec des données partielles.
+    const subjectSuffix = filters?.subject ? `:${filters.subject}` : '';
     const cacheKey =
       filters?.classId && filters?.term && filters?.academicYear && !filters?.studentId
-        ? `grades:evals:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}`
+        ? `grades:evals:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}${subjectSuffix}`
         : null;
 
     if (cacheKey) {
@@ -277,6 +282,7 @@ export class GradesService {
     });
     await this.cache.del(
       `grades:comps:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
+      `grades:comps:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}:${createDto.subject}`,
       `grades:classreport:${tenantId}:${createDto.classId}:${createDto.term}:${academicYear}`,
     );
     return result;
@@ -323,6 +329,7 @@ export class GradesService {
 
     await this.cache.del(
       `grades:comps:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
+      `grades:comps:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}:${bulkDto.subject}`,
       `grades:classreport:${tenantId}:${bulkDto.classId}:${bulkDto.term}:${academicYear}`,
     );
     return { count: results.length, message: `${results.length} compositions enregistrées` };
@@ -351,6 +358,7 @@ export class GradesService {
     });
     await this.cache.del(
       `grades:comps:${tenantId}:${comp.classId}:${comp.term}:${comp.academicYear}`,
+      `grades:comps:${tenantId}:${comp.classId}:${comp.term}:${comp.academicYear}:${comp.subject}`,
       `grades:classreport:${tenantId}:${comp.classId}:${comp.term}:${comp.academicYear}`,
     );
     return updated;
@@ -366,9 +374,12 @@ export class GradesService {
       academicYear?: string;
     },
   ) {
+    // IMPORTANT : inclure le filtre subject dans la clé — des requêtes parallèles par
+    // matière (grille primaire / secondaire) écraseraient sinon le cache global.
+    const subjectSuffix = filters?.subject ? `:${filters.subject}` : '';
     const cacheKey =
       filters?.classId && filters?.term && filters?.academicYear && !filters?.studentId
-        ? `grades:comps:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}`
+        ? `grades:comps:${tenantId}:${filters.classId}:${filters.term}:${filters.academicYear}${subjectSuffix}`
         : null;
 
     if (cacheKey) {
