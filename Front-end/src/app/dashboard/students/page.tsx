@@ -146,7 +146,8 @@ export default function StudentsPage() {
     } catch (error) {
       console.error('Erreur chargement classes:', error);
     }
-  }, [user?.role, user?.classAssignments]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, JSON.stringify(user?.classAssignments)]);
 
   /**
    * Charger une page d'élèves depuis le backend (pagination server-side).
@@ -173,7 +174,9 @@ export default function StudentsPage() {
         offlineDB.bulkAdd(STORES.STUDENTS, mapped).catch(() => {});
       } else {
         // Mode offline : paginer le cache local côté client
-        const cached = await offlineDB.getAll<Student>(STORES.STUDENTS);
+        const raw = await offlineDB.getAll<any>(STORES.STUDENTS);
+        // Normaliser : le préchargeur stocke du brut (firstName/lastName), la page attend Student (name)
+        const cached = raw.map((s) => s.name !== undefined ? s as Student : mapStudent(s));
         const start = (currentPage - 1) * itemsPerPage;
         setStudents(cached.slice(start, start + itemsPerPage));
         setServerTotal(cached.length);
@@ -181,11 +184,13 @@ export default function StudentsPage() {
         else toast.info('Aucune donnée en cache. Connectez-vous pour synchroniser.');
       }
     } catch (error: any) {
-      const cached = await offlineDB.getAll<Student>(STORES.STUDENTS).catch(() => []);
+      const raw = await offlineDB.getAll<any>(STORES.STUDENTS).catch(() => []);
+      const cached = raw.map((s: any) => s.name !== undefined ? s as Student : mapStudent(s));
       if (cached.length > 0) {
         setStudents(cached.slice(0, itemsPerPage));
         setServerTotal(cached.length);
-        toast.warning('Erreur réseau — données chargées depuis le cache');
+        if (!navigator.onLine) toast.info('Mode hors ligne — données en cache');
+        else toast.warning('Erreur réseau — données chargées depuis le cache');
       } else {
         setStudents([]);
         toast.error(error.message || 'Impossible de charger les élèves');
@@ -250,12 +255,12 @@ export default function StudentsPage() {
 
     switch (sortField) {
       case "name":
-        aValue = a.name.toLowerCase();
-        bValue = b.name.toLowerCase();
+        aValue = (a.name || '').toLowerCase();
+        bValue = (b.name || '').toLowerCase();
         break;
       case "matricule":
-        aValue = a.matricule.toLowerCase();
-        bValue = b.matricule.toLowerCase();
+        aValue = (a.matricule || '').toLowerCase();
+        bValue = (b.matricule || '').toLowerCase();
         break;
       case "class":
         aValue = (a.class || "").toLowerCase();

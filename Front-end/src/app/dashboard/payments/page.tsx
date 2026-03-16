@@ -1236,7 +1236,32 @@ export default function PaymentsPage() {
       }
       // Ne pas fermer : on reste sur la vue succès pour choisir le reçu
     } catch (error: any) {
-      toast.error("Erreur lors de l'enregistrement", { description: error.message });
+      // Si la connexion a coupé pendant l'appel, basculer sur la sauvegarde offline
+      if (!navigator.onLine || error.message === 'Failed to fetch') {
+        try {
+          const tempId = `offline-payment-${crypto.randomUUID()}`;
+          const newPayment: Payment = {
+            id: tempId, studentId: selectedStudentForPayment.id,
+            studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
+            amount, currency: getActiveCurrency(),
+            method: paymentForm.method.toLowerCase() as Payment["method"],
+            status: "paid", paidDate: new Date().toISOString(),
+            description: paymentForm.description,
+            academicYear: paymentForm.academicYear, term: computedDialogTerm,
+            needsSync: true, createdAt: new Date().toISOString(),
+          };
+          await offlineDB.add(STORES.PAYMENTS, newPayment);
+          await syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...newPayment } });
+          setPayments((prev) => [newPayment, ...prev]);
+          setPendingReceiptData(buildReceiptData(newPayment));
+          setDialogMode("success");
+          toast.info("Paiement enregistré hors ligne — sera synchronisé à la reconnexion");
+        } catch {
+          toast.error("Impossible d'enregistrer le paiement");
+        }
+      } else {
+        toast.error("Erreur lors de l'enregistrement", { description: error.message });
+      }
     } finally { setIsSubmitting(false); }
   };
 
