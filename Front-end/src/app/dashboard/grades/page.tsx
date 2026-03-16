@@ -1800,7 +1800,7 @@ function GradesPageInner() {
                                     </th>
                                   );
                                 })}
-                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[70px]">Moy.</th>
+                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[70px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy.</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1862,7 +1862,7 @@ function GradesPageInner() {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-3 py-2 text-center">
+                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                                       <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
                                         {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
                                       </span>
@@ -2029,7 +2029,7 @@ function GradesPageInner() {
                                       </th>
                                     );
                                   })}
-                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">
+                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                                     Moy.
                                   </th>
                                 </tr>
@@ -2101,7 +2101,7 @@ function GradesPageInner() {
                                           </td>
                                         );
                                       })}
-                                      <td className="px-3 py-2 text-center">
+                                      <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                                         <span className={`font-semibold text-sm ${avgColor(rowAvg, 10)}`}>
                                           {rowAvg !== null ? rowAvg.toFixed(2) : "—"}
                                         </span>
@@ -2215,7 +2215,7 @@ function GradesPageInner() {
                                     </th>
                                   );
                                 })}
-                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px]">Moy. gén.</th>
+                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy. gén.</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2286,7 +2286,7 @@ function GradesPageInner() {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-3 py-2 text-center">
+                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                                       <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
                                         {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
                                       </span>
