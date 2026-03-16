@@ -196,10 +196,16 @@ function getMonthCompletion(
 function GradesPageInner() {
   useSearchParams(); // required for Suspense boundary
 
-  const { user, getValidToken } = useAuth();
+  const { user, getValidToken, refreshUserProfile } = useAuth();
   const isDirector = user?.role === "director";
   const teacherAssignments = user?.classAssignments ?? [];
-  console.log("[grades] user.role=", user?.role, "isDirector=", isDirector);
+
+  // Rafraîchir le profil au montage pour que classAssignments soit à jour
+  // sans que le prof ait besoin de se reconnecter après une assignation par le directeur.
+  useEffect(() => {
+    refreshUserProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Academic year
   const [academicYear, setAcademicYear] = useState<string>("");
@@ -366,7 +372,7 @@ function GradesPageInner() {
     }
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [JSON.stringify(teacherAssignments)]);
 
   // ── Subjects available for selected class ─────────────────────────────────
 
