@@ -40,6 +40,7 @@ import {
   type ClassReport, type TrimesterLock, type AnnualReport,
   type Evaluation, type Composition,
 } from "@/lib/api/grades.service";
+import { syncQueue } from "@/lib/sync-queue";
 import { getSubjectsForLevel } from "@/lib/subjects-config";
 import { formatClassName } from "@/lib/class-helpers";
 import { generateBulletinPDF, printBulletinPDF, generateAllBulletinsPDF, printAllBulletinsPDF, type BulletinData } from "@/lib/bulletin-pdf";
@@ -573,21 +574,28 @@ function GradesPageInner() {
       return;
     }
 
+    const evalPayload = {
+      classId: selectedClassId,
+      subject: evalSubject,
+      term: selectedTerm,
+      month: evalMonth,
+      academicYear: academicYear || undefined,
+      teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+      evaluations,
+    };
+
     setEvalSaving(true);
     try {
-      await bulkSaveEvaluations(token, {
-        classId: selectedClassId,
-        subject: evalSubject,
-        term: selectedTerm,
-        month: evalMonth,
-        academicYear: academicYear || undefined,
-        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
-        evaluations,
-      });
+      await bulkSaveEvaluations(token, evalPayload);
       toast.success(`${evaluations.length} note(s) enregistrée(s)`);
-    } catch (e) {
-      toast.error("Erreur lors de l'enregistrement");
-      console.error(e);
+    } catch (e: any) {
+      if (!navigator.onLine || e?.message === 'Failed to fetch') {
+        await syncQueue.add({ type: "evaluation", action: "create", data: evalPayload });
+        toast.info(`${evaluations.length} note(s) enregistrée(s) hors ligne — sync au retour de connexion`);
+      } else {
+        toast.error("Erreur lors de l'enregistrement");
+        console.error(e);
+      }
     } finally {
       setEvalSaving(false);
     }
@@ -693,20 +701,27 @@ function GradesPageInner() {
       return;
     }
 
+    const compPayload = {
+      classId: selectedClassId,
+      subject: compSubject,
+      term: selectedTerm,
+      academicYear: academicYear || undefined,
+      teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+      compositions,
+    };
+
     setCompSaving(true);
     try {
-      await bulkSaveCompositions(token, {
-        classId: selectedClassId,
-        subject: compSubject,
-        term: selectedTerm,
-        academicYear: academicYear || undefined,
-        teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
-        compositions,
-      });
+      await bulkSaveCompositions(token, compPayload);
       toast.success(`${compositions.length} composition(s) enregistrée(s)`);
-    } catch (e) {
-      toast.error("Erreur lors de l'enregistrement");
-      console.error(e);
+    } catch (e: any) {
+      if (!navigator.onLine || e?.message === 'Failed to fetch') {
+        await syncQueue.add({ type: "composition", action: "create", data: compPayload });
+        toast.info(`${compositions.length} composition(s) enregistrée(s) hors ligne — sync au retour de connexion`);
+      } else {
+        toast.error("Erreur lors de l'enregistrement");
+        console.error(e);
+      }
     } finally {
       setCompSaving(false);
     }

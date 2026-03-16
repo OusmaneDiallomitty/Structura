@@ -10,7 +10,7 @@ import { createStudent, updateStudent, deleteStudent } from "@/lib/api/students.
 import { createClass, updateClass, deleteClass } from "@/lib/api/classes.service";
 import { createPayment, updatePayment } from "@/lib/api/payments.service";
 import { createAttendance, updateAttendance } from "@/lib/api/attendance.service";
-// Grades sync supprimé — le nouveau système (Evaluation/Composition) utilise upsert direct
+import { bulkSaveEvaluations, bulkSaveCompositions } from "@/lib/api/grades.service";
 
 /** Erreur d'authentification non-retryable : token absent ou 401 */
 class SyncAuthError extends Error {
@@ -22,7 +22,7 @@ class SyncAuthError extends Error {
 
 export interface SyncAction {
   id?: number;
-  type: "student" | "payment" | "attendance" | "grade" | "class";
+  type: "student" | "payment" | "attendance" | "grade" | "class" | "evaluation" | "composition";
   action: "create" | "update" | "delete" | "bulk_create";
   data: any;
   timestamp: number;
@@ -229,6 +229,20 @@ class SyncQueue {
           } else if (action.action === "update") {
             const { id, _tempId, needsSync, ...dto } = action.data;
             await updateAttendance(token, id, dto);
+          }
+          break;
+        }
+
+        case "evaluation": {
+          if (action.action === "create") {
+            await bulkSaveEvaluations(token, action.data);
+          }
+          break;
+        }
+
+        case "composition": {
+          if (action.action === "create") {
+            await bulkSaveCompositions(token, action.data);
           }
           break;
         }
