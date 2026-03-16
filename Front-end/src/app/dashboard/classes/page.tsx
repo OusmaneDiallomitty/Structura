@@ -203,18 +203,15 @@ export default function ClassesPage() {
         const cached = await offlineDB.getAll<Class>(STORES.CLASSES);
         if (cached.length > 0) {
           setClasses(cached);
-          toast.warning('Données chargées depuis le cache (erreur réseau)');
+          if (!navigator.onLine) toast.info('Mode hors ligne — données chargées depuis le cache');
           return cached;
         }
       } catch { /* ignore */ }
 
-      const isNetworkError = error.message === 'Failed to fetch' || error.message?.includes('network');
-      toast.error(
-        isNetworkError
-          ? 'Impossible de joindre le serveur — aucune donnée en cache'
-          : (error.message || 'Impossible de charger les classes'),
-        { description: isNetworkError ? 'Chargez la page une fois en ligne pour activer le mode hors ligne.' : undefined }
-      );
+      const isNetworkError = !navigator.onLine || error.message === 'Failed to fetch' || error.message?.includes('network');
+      if (!isNetworkError) {
+        toast.error(error.message || 'Impossible de charger les classes');
+      }
       setClasses([]);
       return [];
     } finally {

@@ -213,10 +213,14 @@ export default function TeamPage() {
       const data = await getTeamMembers(token);
       setMembers(data.map(mapMember));
     } catch (err) {
-      toast.error("Erreur de chargement", {
-        description:
-          err instanceof Error ? err.message : "Impossible de charger l'équipe",
-      });
+      if (!navigator.onLine) {
+        toast.info("Mode hors ligne — gestion de l'équipe indisponible sans connexion");
+      } else {
+        toast.error("Erreur de chargement", {
+          description:
+            err instanceof Error ? err.message : "Impossible de charger l'équipe",
+        });
+      }
     } finally {
       setIsLoading(false);
     }

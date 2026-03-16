@@ -364,7 +364,11 @@ function GradesPageInner() {
         }
         setClasses(filteredClasses);
       } catch (e) {
-        toast.error("Impossible de charger les données initiales");
+        if (!navigator.onLine) {
+          toast.info("Mode hors ligne — certaines données peuvent être indisponibles");
+        } else {
+          toast.error("Impossible de charger les données initiales");
+        }
         console.error(e);
       } finally {
         setClassesLoading(false);

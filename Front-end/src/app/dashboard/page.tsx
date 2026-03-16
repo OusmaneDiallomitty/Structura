@@ -170,7 +170,9 @@ export default function DashboardPage() {
         return;
       }
 
-      toast.error(error.message || 'Erreur lors du chargement du dashboard');
+      if (navigator.onLine) {
+        toast.error(error.message || 'Erreur lors du chargement du dashboard');
+      }
     } finally {
       if (loadId === loadIdRef.current) setIsLoading(false);
     }

@@ -227,7 +227,11 @@ export default function SettingsPage() {
         }
       }
     } catch (err: any) {
-      setLoadError(err.message || "Impossible de charger les paramètres.");
+      if (!navigator.onLine) {
+        setLoadError("Paramètres non disponibles hors ligne. Reconnectez-vous pour accéder à cette page.");
+      } else {
+        setLoadError(err.message || "Impossible de charger les paramètres.");
+      }
     } finally {
       setIsLoading(false);
     }
