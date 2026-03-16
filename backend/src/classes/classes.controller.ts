@@ -52,14 +52,14 @@ export class ClassesController {
   @Get()
   @RequirePermission('classes', 'view')
   findAll(@Request() req) {
-    return this.classesService.findAll(req.user.tenantId, req.user.id, req.user.role);
+    return this.classesService.findAll(req.user.tenantId, req.user.id, req.user.role, req.user.classAssignments);
   }
 
   @SkipThrottle()
   @Get(':id')
   @RequirePermission('classes', 'view')
   findOne(@Request() req, @Param('id') id: string) {
-    return this.classesService.findOne(req.user.tenantId, id, req.user.id, req.user.role);
+    return this.classesService.findOne(req.user.tenantId, id, req.user.id, req.user.role, req.user.classAssignments);
   }
 
   @Patch(':id')

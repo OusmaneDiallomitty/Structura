@@ -44,14 +44,18 @@ export class ClassesService {
   /**
    * Récupérer toutes les classes d'un tenant
    * Production: Tri par ordre logique (CP1, CP2, ..., 12ème) + stats de genre
-   * Si role === TEACHER : filtre sur teacherId = userId
+   * Si role === TEACHER : filtre sur classAssignments (source de vérité unique)
    */
-  async findAll(tenantId: string, userId?: string, role?: string) {
+  async findAll(tenantId: string, userId?: string, role?: string, classAssignments?: any[]) {
     const where: any = { tenantId };
 
-    // Un professeur ne voit que ses classes assignées
+    // Un professeur ne voit que ses classes assignées (via classAssignments — toujours à jour)
     if (role === 'TEACHER' && userId) {
-      where.teacherId = userId;
+      const assignedIds = (classAssignments ?? [])
+        .map((a: any) => a.classId)
+        .filter(Boolean);
+      if (assignedIds.length === 0) return [];
+      where.id = { in: assignedIds };
     }
 
     // 1 requête pour les classes (sans charger tous les élèves)
@@ -95,7 +99,7 @@ export class ClassesService {
     });
   }
 
-  async findOne(tenantId: string, id: string, userId?: string, role?: string) {
+  async findOne(tenantId: string, id: string, userId?: string, role?: string, classAssignments?: any[]) {
     const classEntity = await this.prisma.class.findFirst({
       where: {
         id,
@@ -115,9 +119,12 @@ export class ClassesService {
       throw new NotFoundException('Classe non trouvée');
     }
 
-    // Un professeur ne peut accéder qu'à ses classes assignées
-    if (role === 'TEACHER' && userId && classEntity.teacherId !== userId) {
-      throw new ForbiddenException('Vous n\'êtes pas assigné à cette classe');
+    // Un professeur ne peut accéder qu'à ses classes assignées (via classAssignments)
+    if (role === 'TEACHER' && userId) {
+      const assignedIds = (classAssignments ?? []).map((a: any) => a.classId).filter(Boolean);
+      if (!assignedIds.includes(id)) {
+        throw new ForbiddenException('Vous n\'êtes pas assigné à cette classe');
+      }
     }
 
     return classEntity;
