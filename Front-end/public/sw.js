@@ -44,7 +44,7 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ── Offline Cache ─────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'structura-v3';
+const CACHE_VERSION = 'structura-v4';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
