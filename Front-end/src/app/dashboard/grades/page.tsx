@@ -1675,7 +1675,8 @@ function GradesPageInner() {
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as typeof activeTab)}
         >
-          <TabsList className="bg-gray-100 border border-gray-200 shadow-sm p-1 gap-0.5">
+          <div className="overflow-x-auto pb-0.5">
+          <TabsList className="bg-gray-100 border border-gray-200 shadow-sm p-1 gap-0.5 w-max min-w-full">
             {/* Évaluations : cachées pour le primaire (pas de notes mensuelles) */}
             {!isPrimaryClass && (
               <TabsTrigger value="evaluations" className="flex items-center gap-1.5">
@@ -1701,6 +1702,7 @@ function GradesPageInner() {
               </>
             )}
           </TabsList>
+          </div>
 
           {/* ══════════════════════════════════════════════════════════════ */}
           {/* TAB 1 — EVALUATIONS (professeur uniquement)                   */}
@@ -1759,7 +1761,7 @@ function GradesPageInner() {
                           <button
                             key={month}
                             onClick={() => setEvalMonth(month)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                            className={`flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-xs sm:text-sm font-medium transition-all ${
                               isActive
                                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
                                 : isComplete
@@ -1833,11 +1835,11 @@ function GradesPageInner() {
                             <thead className="bg-gray-50 border-b">
                               <tr>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
-                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
                                 {subjectOptions.map((sub) => {
                                   const coeff = subjectCoeffMap[sub];
                                   return (
-                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[80px] sm:min-w-[90px]">
                                       <div className="flex flex-col items-center gap-0.5">
                                         <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
                                         <span className="text-[10px] text-gray-400 font-normal">/20</span>
@@ -1880,7 +1882,7 @@ function GradesPageInner() {
                                     className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
                                   >
                                     <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
+                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
                                       {student.firstName} {student.lastName}
                                     </td>
                                     {subjectOptions.map((sub) => {
@@ -1888,9 +1890,10 @@ function GradesPageInner() {
                                       const val = raw !== '' ? parseFloat(raw) : null;
                                       const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 20);
                                       return (
-                                        <td key={sub} className="px-2 py-2 text-center">
+                                        <td key={sub} className="px-1 py-2 text-center">
                                           <Input
                                             type="number"
+                                            inputMode="decimal"
                                             min={0}
                                             max={20}
                                             step={0.25}
@@ -1907,7 +1910,7 @@ function GradesPageInner() {
                                               triggerEvalAutoSave(sub, evalMonth);
                                             }}
                                             placeholder="—"
-                                            className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
+                                            className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
                                           />
                                         </td>
                                       );
@@ -2064,13 +2067,13 @@ function GradesPageInner() {
                               <thead className="bg-gray-50 border-b">
                                 <tr>
                                   <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
-                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-gray-50 z-10">
                                     Élève
                                   </th>
                                   {subjectOptions.map((sub) => {
                                     const coeff = subjectCoeffMap[sub];
                                     return (
-                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
+                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[80px] sm:min-w-[90px]">
                                         <div className="flex flex-col items-center gap-0.5">
                                           <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
                                           <span className="text-[10px] text-gray-400 font-normal">/10</span>
@@ -2120,7 +2123,7 @@ function GradesPageInner() {
                                       }`}
                                     >
                                       <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                      <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
+                                      <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
                                         {student.firstName} {student.lastName}
                                       </td>
                                       {subjectOptions.map((sub) => {
@@ -2128,9 +2131,10 @@ function GradesPageInner() {
                                         const val = raw !== "" ? parseFloat(raw) : null;
                                         const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 10);
                                         return (
-                                          <td key={sub} className="px-2 py-2 text-center">
+                                          <td key={sub} className="px-1 py-2 text-center">
                                             <Input
                                               type="number"
+                                              inputMode="decimal"
                                               min={0}
                                               max={10}
                                               step={0.25}
@@ -2146,7 +2150,7 @@ function GradesPageInner() {
                                                 triggerAutoSave(sub);
                                               }}
                                               placeholder="—"
-                                              className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${
+                                              className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${
                                                 isInvalid ? "border-red-400 focus:ring-red-400" : ""
                                               }`}
                                             />
@@ -2254,11 +2258,11 @@ function GradesPageInner() {
                             <thead className="bg-gray-50 border-b">
                               <tr>
                                 <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
-                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
                                 {subjectOptions.map((sub) => {
                                   const coeff = subjectCoeffMap[sub];
                                   return (
-                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[110px]">
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px] sm:min-w-[110px]">
                                       <div className="flex flex-col items-center gap-0.5">
                                         <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
                                         <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
@@ -2298,7 +2302,7 @@ function GradesPageInner() {
                                     className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
                                   >
                                     <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 whitespace-nowrap">
+                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
                                       {student.firstName} {student.lastName}
                                     </td>
                                     {subjectOptions.map((sub) => {
@@ -2310,10 +2314,11 @@ function GradesPageInner() {
                                         ? (course + comp) / 2
                                         : comp !== null && !isInvalid ? comp : null;
                                       return (
-                                        <td key={sub} className="px-2 py-1.5 text-center">
+                                        <td key={sub} className="px-1 py-1.5 text-center">
                                           <div className="flex flex-col items-center gap-0.5">
                                             <Input
                                               type="number"
+                                              inputMode="decimal"
                                               min={0}
                                               max={20}
                                               step={0.25}
@@ -2329,7 +2334,7 @@ function GradesPageInner() {
                                                 triggerCompAutoSave(sub);
                                               }}
                                               placeholder="—"
-                                              className={`w-14 sm:w-20 h-8 text-center font-medium mx-auto ${isInvalid ? 'border-red-400' : ''}`}
+                                              className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${isInvalid ? 'border-red-400' : ''}`}
                                             />
                                             {course !== null && (
                                               <span className="text-[10px] text-gray-400">cours: {course.toFixed(1)}</span>
