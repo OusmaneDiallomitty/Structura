@@ -1878,7 +1878,7 @@ function GradesPageInner() {
                                     .map((e) => e.score);
                                   subAvgs[sub] = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
                                 }
-                                // Moyenne cours pondérée
+                                // Moyenne cours pondérée (fallback simple si tous coeffs = 0)
                                 const hasCoeffs = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
                                 let tp = 0, tc = 0;
                                 for (const sub of subjectOptions) {
@@ -1887,6 +1887,11 @@ function GradesPageInner() {
                                   const avg = subAvgs[sub];
                                   if (avg === null) continue;
                                   tp += avg * coeff; tc += coeff;
+                                }
+                                // Fallback : moyenne simple si aucun coeff valide
+                                if (tc === 0) {
+                                  const validAvgs = subjectOptions.map((s) => subAvgs[s]).filter((v): v is number => v !== null);
+                                  if (validAvgs.length > 0) { tp = validAvgs.reduce((a, b) => a + b, 0); tc = validAvgs.length; }
                                 }
                                 const globalAvg = tc > 0 ? tp / tc : null;
                                 return (
