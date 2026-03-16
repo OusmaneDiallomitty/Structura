@@ -459,6 +459,13 @@ function GradesPageInner() {
 
   // Reset subject / month when class or term changes
   useEffect(() => {
+    // Annuler TOUS les timers d'auto-save en attente pour éviter les sauvegardes fantômes
+    Object.values(evalGridAutoSaveTimers.current).forEach(clearTimeout);
+    evalGridAutoSaveTimers.current = {};
+    Object.values(autoSaveTimers.current).forEach(clearTimeout);
+    autoSaveTimers.current = {};
+    Object.values(compGridAutoSaveTimers.current).forEach(clearTimeout);
+    compGridAutoSaveTimers.current = {};
     setEvalSubject("");
     setCompSubject("");
     setEvalMonth("");
@@ -471,14 +478,17 @@ function GradesPageInner() {
     setCompTeacherNames([]);
     setGridStudents([]);
     setGridScores({});
+    gridScoresRef.current = {};
     setGridSavedSubjects(new Set());
     // Reset grilles secondaire
     setEvalGridStudents([]);
     setEvalGridAllEvals([]);
     setEvalGridScores({});
+    evalGridScoresRef.current = {};
     setEvalGridSavedSubjects(new Set());
     setCompGridStudents([]);
     setCompGridScores({});
+    compGridScoresRef.current = {};
     setCompGridCourseAvgs({});
     setCompGridSavedSubjects(new Set());
   }, [selectedClassId, selectedTerm]);
@@ -730,6 +740,7 @@ function GradesPageInner() {
       );
       setGridStudents(sortedGrid);
       setGridScores(scores);
+      gridScoresRef.current = scores;
       setGridSavedSubjects(new Set());
     } catch (e) {
       toast.error("Erreur lors du chargement de la grille");
@@ -964,6 +975,7 @@ function GradesPageInner() {
       setCompGridStudents(sortedComp);
       setCompGridCourseAvgs(courseAvgs);
       setCompGridScores(compScores);
+      compGridScoresRef.current = compScores;
       setCompGridSavedSubjects(new Set());
     } catch (e) {
       toast.error('Erreur lors du chargement des compositions');
@@ -1438,6 +1450,11 @@ function GradesPageInner() {
   // lors des auto-saves ne doivent PAS écraser les saisies en cours de l'utilisateur.
   useEffect(() => {
     if (isPrimaryClass || evalGridStudents.length === 0 || !evalMonth || subjectOptions.length === 0) return;
+    // Annuler les timers de l'ANCIEN mois avant de changer — évite la corruption :
+    // un timer du mois précédent lirait evalGridScoresRef.current (nouveau mois) et
+    // sauvegarderait les mauvaises notes sous l'ancien mois.
+    Object.values(evalGridAutoSaveTimers.current).forEach(clearTimeout);
+    evalGridAutoSaveTimers.current = {};
     const scores = buildEvalGridScores(evalMonth, evalGridAllEvals, evalGridStudents, subjectOptions);
     setEvalGridScores(scores);
     evalGridScoresRef.current = scores;
@@ -1474,6 +1491,28 @@ function GradesPageInner() {
     loadPrimaryGrid(subjectOptions);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(",")]);
+
+  // ── Polling toutes les 60s — synchronisation en temps réel directeur ↔ prof ──
+  // Recharge silencieusement la grille active si aucune sauvegarde n'est en cours.
+  useEffect(() => {
+    if (!selectedClassId || subjectOptions.length === 0) return;
+    const interval = setInterval(() => {
+      const hasPendingTimers =
+        Object.keys(evalGridAutoSaveTimers.current).length > 0 ||
+        Object.keys(autoSaveTimers.current).length > 0 ||
+        Object.keys(compGridAutoSaveTimers.current).length > 0;
+      if (hasPendingTimers) return; // Ne pas recharger si des sauvegardes sont en attente
+      if (!isPrimaryClass && evalGridStudents.length > 0) {
+        loadSecondaryEvalGrid(subjectOptions);
+      } else if (!isPrimaryClass && compGridStudents.length > 0) {
+        loadSecondaryCompGrid(subjectOptions);
+      } else if (isPrimaryClass && gridStudents.length > 0) {
+        loadPrimaryGrid(subjectOptions);
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClassId, selectedTerm, subjectOptions.join(','), isPrimaryClass]);
 
   // Reset rapport annuel quand la classe change
   useEffect(() => { setAnnualReport(null); }, [selectedClassId, academicYear]);
@@ -1673,7 +1712,12 @@ function GradesPageInner() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => loadSecondaryEvalGrid(subjectOptions)}
+                      onClick={() => {
+                        // Annuler les timers avant rechargement
+                        Object.values(evalGridAutoSaveTimers.current).forEach(clearTimeout);
+                        evalGridAutoSaveTimers.current = {};
+                        loadSecondaryEvalGrid(subjectOptions);
+                      }}
                       disabled={evalGridLoading || !selectedClassId}
                     >
                       {evalGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
@@ -1914,7 +1958,11 @@ function GradesPageInner() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => loadPrimaryGrid(subjectOptions)}
+                        onClick={() => {
+                          Object.values(autoSaveTimers.current).forEach(clearTimeout);
+                          autoSaveTimers.current = {};
+                          loadPrimaryGrid(subjectOptions);
+                        }}
                         disabled={gridLoading || !selectedClassId}
                       >
                         {gridLoading ? (
@@ -2172,7 +2220,11 @@ function GradesPageInner() {
                         })}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => loadSecondaryCompGrid(subjectOptions)} disabled={compGridLoading || !selectedClassId}>
+                        <Button variant="outline" size="sm" onClick={() => {
+                          Object.values(compGridAutoSaveTimers.current).forEach(clearTimeout);
+                          compGridAutoSaveTimers.current = {};
+                          loadSecondaryCompGrid(subjectOptions);
+                        }} disabled={compGridLoading || !selectedClassId}>
                           {compGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
                           Recharger
                         </Button>
