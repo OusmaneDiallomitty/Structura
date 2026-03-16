@@ -29,6 +29,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getClasses, getClassSubjects, saveClassSubjects } from "@/lib/api/classes.service";
 import { getStudents } from "@/lib/api/students.service";
+import { offlineDB, STORES } from "@/lib/offline-db";
 import { getTeamMembers } from "@/lib/api/users.service";
 import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
 import { getFeesConfig } from "@/lib/api/fees.service";
@@ -365,8 +366,32 @@ function GradesPageInner() {
         }
         setClasses(filteredClasses);
       } catch (e) {
-        if (!navigator.onLine) {
-          toast.info("Mode hors ligne — certaines données peuvent être indisponibles");
+        if (!navigator.onLine || (e as any)?.message === 'Failed to fetch') {
+          // Fallback offline : classes depuis IndexedDB + année depuis localStorage
+          try {
+            let cachedClasses = await offlineDB.getAll<any>(STORES.CLASSES);
+            if (!isDirector && teacherAssignments.length > 0) {
+              const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
+              cachedClasses = cachedClasses.filter((c: any) => assignedIds.has(c.id));
+            }
+            setClasses(cachedClasses);
+          } catch { /* ignore */ }
+          // Année scolaire depuis le cache localStorage (peuplé par CurrentYearBadge)
+          try {
+            const token2 = storage.getAuthItem("structura_token");
+            const tenantId = token2 ? JSON.parse(atob(token2.split('.')[1])).tenantId : null;
+            const yearCacheKey = tenantId ? `structura_year_cache:${tenantId}` : null;
+            if (yearCacheKey) {
+              const cached = localStorage.getItem(yearCacheKey);
+              if (cached) {
+                const yr = JSON.parse(cached);
+                if (yr.name) setAcademicYear(yr.name);
+                if (yr.startMonth) setStartMonth(yr.startMonth);
+                if (yr.durationMonths) setDurationMonths(yr.durationMonths);
+              }
+            }
+          } catch { /* ignore */ }
+          toast.info("Mode hors ligne — données chargées depuis le cache");
         } else {
           toast.error("Impossible de charger les données initiales");
         }
@@ -547,7 +572,19 @@ function GradesPageInner() {
       );
       setEvalTeacherNames(names);
     } catch (e) {
-      toast.error("Erreur lors du chargement des notes");
+      if (!navigator.onLine || (e as any)?.message === 'Failed to fetch') {
+        // Fallback offline : élèves depuis IndexedDB, scores vides (seront saisis)
+        try {
+          const allStudents = await offlineDB.getAll<any>(STORES.STUDENTS);
+          const classStudents = allStudents.filter((s: any) => s.classId === selectedClassId);
+          setEvalStudents(classStudents);
+          if (classStudents.length > 0) {
+            toast.info("Mode hors ligne — élèves chargés depuis le cache");
+          }
+        } catch { toast.error("Erreur lors du chargement des notes"); }
+      } else {
+        toast.error("Erreur lors du chargement des notes");
+      }
       console.error(e);
     } finally {
       setEvalLoading(false);

@@ -128,11 +128,29 @@ export default function ClassesPage() {
     const token = storage.getAuthItem('structura_token');
     if (!token) return;
 
+    // Fallback offline → cache localStorage peuplé par CurrentYearBadge
+    const getYearFromCache = () => {
+      try {
+        const tenantId = user?.tenantId;
+        if (!tenantId) return null;
+        const cached = localStorage.getItem(`structura_year_cache:${tenantId}`);
+        return cached ? JSON.parse(cached) : null;
+      } catch { return null; }
+    };
+
+    if (!navigator.onLine) {
+      const yr = getYearFromCache();
+      if (yr?.id) setAcademicYearId(yr.id);
+      return;
+    }
+
     try {
       const year = await getCurrentAcademicYear(token);
       setAcademicYearId(year?.id || null);
     } catch {
-      // Aucune année académique courante — non bloquant
+      // Erreur réseau → fallback cache
+      const yr = getYearFromCache();
+      if (yr?.id) setAcademicYearId(yr.id);
     }
   }
 
