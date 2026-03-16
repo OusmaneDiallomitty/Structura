@@ -72,8 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const staleToken = storage.getAuthItem(TOKEN_KEY);
       if (staleToken) logoutUser(staleToken).catch(() => {});
       clearAuth();
-      toast.error('Vous avez été déconnecté — une nouvelle connexion a été détectée sur un autre appareil.', {
-        duration: 8000,
+      toast.info('Votre session a été fermée. Veuillez vous reconnecter.', {
+        duration: 6000,
       });
       router.push('/login');
     };
@@ -173,6 +173,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
+      // Si un utilisateur différent est déjà connecté sur ce navigateur, fermer
+      // proprement sa session en BDD avant de procéder. Sans ça, son currentSessionId
+      // resterait actif → l'ancien utilisateur se ferait bloquer par l'approbation
+      // s'il essaie de se reconnecter sur le même appareil.
+      const existingToken = storage.getAuthItem(TOKEN_KEY);
+      const existingUserRaw = storage.getAuthItem(USER_KEY);
+      if (existingToken && existingUserRaw) {
+        try {
+          const existingUser = JSON.parse(existingUserRaw);
+          if (existingUser?.email !== email) {
+            await logoutUser(existingToken).catch(() => {});
+            clearAuth();
+          }
+        } catch { /* JSON parse error — nettoyer quand même */ clearAuth(); }
+      }
+
       const response = await loginUser({ email, password });
 
       // Approbation requise — une session active existait sur un autre appareil
