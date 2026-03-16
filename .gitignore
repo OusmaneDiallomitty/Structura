@@ -33,3 +33,4 @@ backend/nul
 
 # Tests
 coverage/
+Front-end/public/*.mp4

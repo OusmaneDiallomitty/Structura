@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { motion, useInView } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,12 +63,40 @@ export default function Home() {
   const router = useRouter();
   const heroRef = useRef(null);
   const featuresRef = useRef(null);
-  
+  const [demoOpen, setDemoOpen] = useState(false);
+
   const heroInView = useInView(heroRef, { once: true, amount: 0.3 });
   const featuresInView = useInView(featuresRef, { once: true, amount: 0.2 });
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Modal démo vidéo */}
+      {demoOpen && (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setDemoOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl bg-black"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setDemoOpen(false)}
+              className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors"
+              aria-label="Fermer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <video
+              src="/Comment s'inscrire sur Structura.mp4"
+              controls
+              autoPlay
+              className="w-full aspect-video"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Enhanced Navigation */}
       <EnhancedNavigation />
 
@@ -137,7 +165,7 @@ export default function Home() {
               <MagneticButton
                 strength={0.2}
                 radius={50}
-                onClick={() => router.push("/contact")}
+                onClick={() => setDemoOpen(true)}
               >
                 <Button
                   size="lg"
