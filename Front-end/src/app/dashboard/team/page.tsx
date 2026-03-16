@@ -345,6 +345,11 @@ export default function TeamPage() {
 
   const handleEdit = (member: MemberView) => {
     setSelectedMember(member);
+    // selectedClassIds : union de taughtClasses (relation BDD) + classAssignments (JSON)
+    // pour résister à une désync entre les deux sources de vérité.
+    const idsFromRelation = member.assignedClasses.map((c) => c.id);
+    const idsFromJson = (member.classAssignments ?? []).map((a) => a.classId);
+    const selectedClassIds = Array.from(new Set([...idsFromRelation, ...idsFromJson]));
     setEditForm({
       firstName: member.firstName,
       lastName: member.lastName,
@@ -352,7 +357,7 @@ export default function TeamPage() {
       phone: member.phone,
       role: member.role,
       isActive: member.isActive,
-      selectedClassIds: member.assignedClasses.map((c) => c.id),
+      selectedClassIds,
       classAssignments: member.classAssignments ?? [],
     });
     setIsEditDialogOpen(true);
@@ -850,18 +855,22 @@ export default function TeamPage() {
                                 )}
                               </div>
 
-                              {/* Ligne 3 : Classes + matières (professeurs) */}
-                              {member.role === "teacher" && member.assignedClasses.length > 0 && (
+                              {/* Ligne 3 : Classes + matières (professeurs)
+                                  Source primaire : classAssignments (JSON toujours à jour),
+                                  enrichi du nom de classe via assignedClasses ou availableClasses */}
+                              {member.role === "teacher" && (member.classAssignments ?? []).length > 0 && (
                                 <div className="flex items-start gap-x-3 gap-y-1 flex-wrap mt-0.5">
-                                  {member.assignedClasses.map((cls) => {
-                                    const assignment = member.classAssignments.find((a) => a.classId === cls.id);
+                                  {(member.classAssignments ?? []).map((assignment) => {
+                                    const cls =
+                                      member.assignedClasses.find((c) => c.id === assignment.classId) ??
+                                      availableClasses.find((c) => c.id === assignment.classId);
                                     return (
-                                      <span key={cls.id} className="flex items-center gap-1 min-w-0">
+                                      <span key={assignment.classId} className="flex items-center gap-1 min-w-0">
                                         <Badge variant="outline" className="text-blue-700 border-blue-200 bg-blue-50 text-xs py-0 h-5 shrink-0">
                                           <BookOpen className="h-2.5 w-2.5 mr-1" />
-                                          {classDisplayName(cls)}
+                                          {cls ? classDisplayName(cls) : assignment.classId}
                                         </Badge>
-                                        {assignment && assignment.subjects.length > 0 && (
+                                        {assignment.subjects.length > 0 && (
                                           <span className="text-xs text-muted-foreground truncate">
                                             {assignment.subjects.join(", ")}
                                           </span>
@@ -871,7 +880,7 @@ export default function TeamPage() {
                                   })}
                                 </div>
                               )}
-                              {member.role === "teacher" && member.assignedClasses.length === 0 && (
+                              {member.role === "teacher" && member.assignedClasses.length === 0 && (member.classAssignments ?? []).length === 0 && (
                                 <p className="text-xs text-amber-600">Aucune classe assignée</p>
                               )}
 
