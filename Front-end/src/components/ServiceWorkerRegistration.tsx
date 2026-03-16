@@ -12,9 +12,11 @@ export default function ServiceWorkerRegistration() {
     if (!("serviceWorker" in navigator)) return;
 
     navigator.serviceWorker
-      .register("/sw.js", { scope: "/" })
+      .register("/sw.js", { scope: "/", updateViaCache: "none" })
       .then((reg) => {
         console.log("[SW] Enregistré :", reg.scope);
+        // Forcer la vérification d'une mise à jour immédiatement
+        reg.update().catch(() => {});
       })
       .catch((err) => {
         console.warn("[SW] Échec enregistrement :", err);

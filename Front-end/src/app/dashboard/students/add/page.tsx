@@ -154,9 +154,41 @@ function AddStudentPageContent() {
 
       router.push("/dashboard/students");
     } catch (error: any) {
-      toast.error("Erreur lors de l'ajout", {
-        description: error.message || "Une erreur est survenue. Veuillez réessayer.",
-      });
+      // Race condition : isOnline=true mais connexion coupée juste avant l'appel
+      if (!navigator.onLine || error.message === 'Failed to fetch') {
+        const tempId = `offline-student-${crypto.randomUUID()}`;
+        const studentDto = {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          classId: formData.class,
+          dateOfBirth: formData.dateOfBirth,
+          gender: formData.gender,
+          parentName: `${formData.parentFirstName} ${formData.parentLastName}`,
+          parentPhone: formData.parentPhone,
+          parentEmail: formData.parentEmail || undefined,
+          parentProfession: formData.parentProfession || undefined,
+          address: formData.address,
+        };
+        const localStudent = {
+          id: tempId,
+          _tempId: tempId,
+          ...studentDto,
+          matricule: "",
+          needsSync: true,
+          createdAt: new Date().toISOString(),
+        };
+        await offlineDB.add(STORES.STUDENTS, localStudent);
+        await syncQueue.add({ type: "student", action: "create", data: { _tempId: tempId, ...studentDto } });
+        toast.info("Élève sauvegardé hors ligne", {
+          description: "Synchronisation automatique dès la reconnexion.",
+          duration: 5000,
+        });
+        router.push("/dashboard/students");
+      } else {
+        toast.error("Erreur lors de l'ajout", {
+          description: error.message || "Une erreur est survenue. Veuillez réessayer.",
+        });
+      }
     } finally {
       setIsLoading(false);
     }

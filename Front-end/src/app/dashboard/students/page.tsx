@@ -187,7 +187,8 @@ export default function StudentsPage() {
       const raw = await offlineDB.getAll<any>(STORES.STUDENTS).catch(() => []);
       const cached = raw.map((s: any) => s.name !== undefined ? s as Student : mapStudent(s));
       if (cached.length > 0) {
-        setStudents(cached.slice(0, itemsPerPage));
+        const start = (currentPage - 1) * itemsPerPage;
+        setStudents(cached.slice(start, start + itemsPerPage));
         setServerTotal(cached.length);
         if (!navigator.onLine) toast.info('Mode hors ligne — données en cache');
         else toast.warning('Erreur réseau — données chargées depuis le cache');
