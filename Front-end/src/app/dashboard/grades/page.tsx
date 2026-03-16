@@ -200,6 +200,7 @@ function GradesPageInner() {
 
   const { user, getValidToken, refreshUserProfile } = useAuth();
   const isDirector = user?.role === "director";
+  const isTeacher  = user?.role === "teacher";
   const teacherAssignments = user?.classAssignments ?? [];
 
   // Rafraîchir le profil au montage pour que classAssignments soit à jour
@@ -358,9 +359,9 @@ function GradesPageInner() {
           if (feesConfig?.schoolCalendar?.durationMonths) setDurationMonths(feesConfig.schoolCalendar.durationMonths);
         }
 
-        // Filter classes for teacher
+        // Filter classes for teacher only (secretary/supervisor/accountant see all)
         let filteredClasses = cls;
-        if (!isDirector && teacherAssignments.length > 0) {
+        if (isTeacher && teacherAssignments.length > 0) {
           const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
           filteredClasses = cls.filter((c) => assignedIds.has(c.id));
         }
@@ -370,7 +371,7 @@ function GradesPageInner() {
           // Fallback offline : classes depuis IndexedDB + année depuis localStorage
           try {
             let cachedClasses = await offlineDB.getAll<any>(STORES.CLASSES);
-            if (!isDirector && teacherAssignments.length > 0) {
+            if (isTeacher && teacherAssignments.length > 0) {
               const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
               cachedClasses = cachedClasses.filter((c: any) => assignedIds.has(c.id));
             }
@@ -408,13 +409,14 @@ function GradesPageInner() {
 
   const availableSubjects = useCallback((): string[] => {
     if (!selectedClassId) return [];
-    if (!isDirector) {
+    // Professeur : matières issues de ses affectations
+    if (isTeacher) {
       const assignment = teacherAssignments.find((a) => a.classId === selectedClassId);
       return assignment?.subjects ?? [];
     }
-    // Director: return from coefficients (loaded lazily) or empty
+    // Directeur et autres rôles (secrétaire, surveillant…) : matières chargées depuis l'API
     return [];
-  }, [selectedClassId, isDirector, teacherAssignments]);
+  }, [selectedClassId, isTeacher, teacherAssignments]);
 
   const [directorSubjects, setDirectorSubjects] = useState<string[]>([]);
 
@@ -425,11 +427,11 @@ function GradesPageInner() {
       return;
     }
     // Pour les profs, les matières viennent de classAssignments (pas besoin d'API)
-    if (!isDirector) {
+    if (isTeacher) {
       setDirectorSubjects([]);
       return;
     }
-    // Pour le directeur : charger depuis l'API ClassSubject
+    // Pour le directeur et les autres rôles (secrétaire…) : charger depuis l'API ClassSubject
     const token = storage.getAuthItem("structura_token");
     if (!token) return;
 
@@ -440,7 +442,7 @@ function GradesPageInner() {
         toast.error("Impossible de charger les matières: " + (err instanceof Error ? err.message : String(err)));
         setDirectorSubjects([]);
       });
-  }, [isDirector, selectedClassId]);
+  }, [isTeacher, selectedClassId]);
 
   // Load teacher names for selected class (directeur seulement)
   useEffect(() => {
