@@ -87,10 +87,11 @@ export default function Home() {
             >
               <X className="w-5 h-5" />
             </button>
-            <video
-              src="/Comment s'inscrire sur Structura.mp4"
-              controls
-              autoPlay
+            <iframe
+              src="https://www.youtube.com/embed/YY7fbMwMefs?autoplay=1&rel=0"
+              title="Comment s'inscrire sur Structura"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
               className="w-full aspect-video"
             />
           </div>
