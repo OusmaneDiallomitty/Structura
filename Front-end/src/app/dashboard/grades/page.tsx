@@ -1750,7 +1750,7 @@ function GradesPageInner() {
                   <EmptyState message="Aucune matière configurée pour cette classe" />
                 ) : (
                   <>
-                    {/* Onglets mois avec complétion */}
+                    {/* Onglets mois avec complétion + synthèse */}
                     <div className="flex flex-wrap gap-1.5">
                       {termMonths.map((month) => {
                         const studentIds = new Set(evalGridStudents.map((s) => s.id));
@@ -1779,6 +1779,20 @@ function GradesPageInner() {
                           </button>
                         );
                       })}
+                      {/* Bouton synthèse cours */}
+                      {evalGridStudents.length > 0 && evalGridAllEvals.length > 0 && (
+                        <button
+                          onClick={() => setEvalMonth('__synthese__')}
+                          className={`flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-xs sm:text-sm font-medium transition-all ${
+                            evalMonth === '__synthese__'
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-md'
+                              : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          Moy. cours
+                        </button>
+                      )}
                     </div>
 
                     {/* Indicateurs par matière */}
@@ -1828,6 +1842,102 @@ function GradesPageInner() {
                       <EmptyState message="Sélectionnez un mois ci-dessus" />
                     ) : evalGridStudents.length === 0 ? (
                       <EmptyState message="Aucun élève dans cette classe" />
+                    ) : evalMonth === '__synthese__' ? (
+                      /* ── Vue synthèse : moyenne cours par élève × matière ── */
+                      <div className="rounded-lg border overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-amber-50 border-b">
+                              <tr>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-amber-50 z-10">#</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-amber-50 z-10">Élève</th>
+                                {subjectOptions.map((sub) => {
+                                  const coeff = subjectCoeffMap[sub];
+                                  return (
+                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[80px] sm:min-w-[90px]">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
+                                        <span className="text-[10px] text-gray-400 font-normal">moy. /20</span>
+                                        {coeff !== undefined && (
+                                          <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>×{coeff}</span>
+                                        )}
+                                      </div>
+                                    </th>
+                                  );
+                                })}
+                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[70px] sticky right-0 bg-amber-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy. cours</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {evalGridStudents.map((student, idx) => {
+                                // Moyennes par matière pour cet élève (tous mois du trimestre)
+                                const subAvgs: Record<string, number | null> = {};
+                                for (const sub of subjectOptions) {
+                                  const scores = evalGridAllEvals
+                                    .filter((e) => e.studentId === student.id && e.subject === sub)
+                                    .map((e) => e.score);
+                                  subAvgs[sub] = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+                                }
+                                // Moyenne cours pondérée
+                                const hasCoeffs = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
+                                let tp = 0, tc = 0;
+                                for (const sub of subjectOptions) {
+                                  const coeff = hasCoeffs ? (subjectCoeffMap[sub] ?? 1) : 1;
+                                  if (coeff === 0) continue;
+                                  const avg = subAvgs[sub];
+                                  if (avg === null) continue;
+                                  tp += avg * coeff; tc += coeff;
+                                }
+                                const globalAvg = tc > 0 ? tp / tc : null;
+                                return (
+                                  <tr key={student.id} className={`border-b last:border-0 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
+                                      {student.firstName} {student.lastName}
+                                    </td>
+                                    {subjectOptions.map((sub) => {
+                                      const avg = subAvgs[sub];
+                                      const monthScores = evalGridAllEvals
+                                        .filter((e) => e.studentId === student.id && e.subject === sub);
+                                      return (
+                                        <td key={sub} className="px-2 py-2 text-center">
+                                          {avg !== null ? (
+                                            <div className="flex flex-col items-center gap-0.5">
+                                              <span className={`font-semibold text-sm ${avgColor(avg, 20)}`}>{avg.toFixed(2)}</span>
+                                              <span className="text-[10px] text-gray-400">{monthScores.length} mois</span>
+                                            </div>
+                                          ) : (
+                                            <span className="text-gray-300">—</span>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                                      <span className={`font-bold text-sm ${avgColor(globalAvg, 20)}`}>
+                                        {globalAvg !== null ? globalAvg.toFixed(2) : '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="bg-amber-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Trimestre :</span>
+                            <span className="font-semibold text-amber-700">{selectedTerm}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">Mois saisis :</span>
+                            <span className="font-semibold text-amber-700">{termMonths.filter((m) => {
+                              const studentIds = new Set(evalGridStudents.map((s) => s.id));
+                              const { filled } = getMonthCompletion(m, evalGridAllEvals, studentIds, subjectOptions);
+                              return filled > 0;
+                            }).length} / {termMonths.length}</span>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="rounded-lg border overflow-hidden">
                         <div className="overflow-x-auto">
