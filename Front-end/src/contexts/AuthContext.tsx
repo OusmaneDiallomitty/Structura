@@ -129,7 +129,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (!isTokenExpired(token)) return token;
 
-    // Token expiré → tenter un refresh
+    // Offline + token expiré → retourner le token périmé pour permettre le travail hors ligne
+    if (!navigator.onLine) return token;
+
+    // Token expiré + en ligne → tenter un refresh
     const refreshed = await tryRefreshToken();
     if (!refreshed) {
       clearAuth();
@@ -145,12 +148,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (token && userData) {
         if (isTokenExpired(token)) {
-          // Token expiré → tenter un refresh silencieux
-          const refreshed = await tryRefreshToken();
-          if (!refreshed) {
-            clearAuth();
-            return;
+          // Token expiré → tenter un refresh silencieux seulement si en ligne
+          if (navigator.onLine) {
+            const refreshed = await tryRefreshToken();
+            if (!refreshed) {
+              clearAuth();
+              return;
+            }
           }
+          // Offline + token expiré : on garde la session active (travail hors ligne)
         }
         // Lire les données utilisateur (inchangées après refresh)
         const freshUserData = storage.getAuthItem(USER_KEY);
