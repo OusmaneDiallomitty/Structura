@@ -462,7 +462,8 @@ interface StudentSummary {
 export default function PaymentsPage() {
   const isOnline = useOnline();
   const { user }  = useAuth();
-  const canConfigureFees = usePermission("payments", "configure");
+  const canConfigureFees  = usePermission("payments", "configure");
+  const canCreatePayment  = usePermission("payments", "create");
 
   // Confidentialité financière : montants visibles uniquement par directeur et comptable
   const canViewAmounts = user?.role === "director" || user?.role === "accountant";
@@ -1742,22 +1743,24 @@ export default function PaymentsPage() {
 
                   {/* Action principale */}
                   <TableCell className="py-3 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      size="sm"
-                      className={cn(
-                        "h-8 text-xs font-semibold gap-1.5 shadow-sm",
-                        summary.status === "paid"
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                          : summary.status === "partial"
-                          ? "bg-amber-500 hover:bg-amber-600 text-white"
-                          : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                      )}
-                      onClick={() => openPaymentDialog(summary.student)}
-                      title="Enregistrer un paiement pour cet élève"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {summary.status === "paid" ? "Ajouter" : "Paiement"}
-                    </Button>
+                    {canCreatePayment && (
+                      <Button
+                        size="sm"
+                        className={cn(
+                          "h-8 text-xs font-semibold gap-1.5 shadow-sm",
+                          summary.status === "paid"
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            : summary.status === "partial"
+                            ? "bg-amber-500 hover:bg-amber-600 text-white"
+                            : "bg-primary hover:bg-primary/90 text-primary-foreground"
+                        )}
+                        onClick={() => openPaymentDialog(summary.student)}
+                        title="Enregistrer un paiement pour cet élève"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        {summary.status === "paid" ? "Ajouter" : "Paiement"}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -2030,15 +2033,17 @@ export default function PaymentsPage() {
               </div>
 
               {/* ── Footer fixe : bouton toujours visible ── */}
-              <div className="shrink-0 px-6 py-3 border-t bg-white">
-                <Button
-                  className="w-full gap-2"
-                  onClick={() => { setDrawerStudent(null); if (s) openPaymentDialog(s.student); }}
-                >
-                  <CreditCard className="h-4 w-4" />
-                  Enregistrer un paiement
-                </Button>
-              </div>
+              {canCreatePayment && (
+                <div className="shrink-0 px-6 py-3 border-t bg-white">
+                  <Button
+                    className="w-full gap-2"
+                    onClick={() => { setDrawerStudent(null); if (s) openPaymentDialog(s.student); }}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Enregistrer un paiement
+                  </Button>
+                </div>
+              )}
             </SheetContent>
           </Sheet>
         );

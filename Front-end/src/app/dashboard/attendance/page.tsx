@@ -176,11 +176,12 @@ function sortLevels(levels: string[]): string[] {
 // ─── Composant principal ───────────────────────────────────────────────────────
 
 export default function AttendancePage() {
-  const { user, refreshUserProfile } = useAuth();
+  const { user, refreshUserProfile, hasPermission } = useAuth();
   const isOnline = useOnline();
 
   const role = (user?.role ?? "").toLowerCase();
-  const canSeeOverview = ["director", "admin", "supervisor"].includes(role);
+  const canSeeOverview   = ["director", "admin", "supervisor"].includes(role);
+  const canSaveAttendance = hasPermission("attendance", "create") || hasPermission("attendance", "edit");
 
   // Rafraîchit classAssignments depuis le serveur au montage de la page.
   // Garantit que si le directeur a modifié les classes du prof,
@@ -1507,25 +1508,27 @@ export default function AttendancePage() {
                           <span className="text-amber-600 font-medium">Modifications en attente…</span>
                         )}
                       </div>
-                      <Button
-                        onClick={handleSave}
-                        disabled={saveDisabled}
-                        size="lg"
-                        className="gap-2 min-w-44"
-                      >
-                        {isSaving ? (
-                          <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement…</>
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4" />
-                            {alreadySaved && hasChanges
-                              ? "Mettre à jour"
-                              : alreadySaved
-                              ? "À jour ✓"
-                              : "Enregistrer les présences"}
-                          </>
-                        )}
-                      </Button>
+                      {canSaveAttendance && (
+                        <Button
+                          onClick={handleSave}
+                          disabled={saveDisabled}
+                          size="lg"
+                          className="gap-2 min-w-44"
+                        >
+                          {isSaving ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement…</>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4" />
+                              {alreadySaved && hasChanges
+                                ? "Mettre à jour"
+                                : alreadySaved
+                                ? "À jour ✓"
+                                : "Enregistrer les présences"}
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </>
                 )}

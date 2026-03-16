@@ -81,7 +81,10 @@ import type { Student } from "@/types";
 
 export default function StudentsPage() {
   const isOnline = useOnline();
-  const { user, refreshUserProfile } = useAuth();
+  const { user, refreshUserProfile, hasPermission } = useAuth();
+  const canCreate = hasPermission("students", "create");
+  const canEdit   = hasPermission("students", "edit");
+  const canDelete = hasPermission("students", "delete");
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -757,12 +760,14 @@ export default function StudentsPage() {
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
           </Button>
-          <Button asChild size="sm" className="gap-2 w-full sm:w-auto">
-            <Link href="/dashboard/students/add">
-              <Plus className="h-4 w-4" />
-              Ajouter
-            </Link>
-          </Button>
+          {canCreate && (
+            <Button asChild size="sm" className="gap-2 w-full sm:w-auto">
+              <Link href="/dashboard/students/add">
+                <Plus className="h-4 w-4" />
+                Ajouter
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1057,26 +1062,30 @@ export default function StudentsPage() {
                                 Voir le profil
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link
-                                href={`/dashboard/students/${student.id}/edit`}
-                                className="flex items-center cursor-pointer"
-                              >
-                                <Edit2 className="h-4 w-4 mr-2" />
-                                Modifier
-                              </Link>
-                            </DropdownMenuItem>
+                            {canEdit && (
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  href={`/dashboard/students/${student.id}/edit`}
+                                  className="flex items-center cursor-pointer"
+                                >
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Modifier
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleGenerateCertificate(student)}>
                               <FileText className="h-4 w-4 mr-2" />
                               Certificat de scolarité
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDelete(student)}
-                              className="text-destructive cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Supprimer
-                            </DropdownMenuItem>
+                            {canDelete && (
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(student)}
+                                className="text-destructive cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Supprimer
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1138,26 +1147,30 @@ export default function StudentsPage() {
                                     Voir le profil
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link
-                                    href={`/dashboard/students/${student.id}/edit`}
-                                    className="flex items-center cursor-pointer"
-                                  >
-                                    <Edit2 className="h-4 w-4 mr-2" />
-                                    Modifier
-                                  </Link>
-                                </DropdownMenuItem>
+                                {canEdit && (
+                                  <DropdownMenuItem asChild>
+                                    <Link
+                                      href={`/dashboard/students/${student.id}/edit`}
+                                      className="flex items-center cursor-pointer"
+                                    >
+                                      <Edit2 className="h-4 w-4 mr-2" />
+                                      Modifier
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem onClick={() => handleGenerateCertificate(student)}>
                                   <FileText className="h-4 w-4 mr-2" />
                                   Certificat
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDelete(student)}
-                                  className="text-destructive cursor-pointer"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Supprimer
-                                </DropdownMenuItem>
+                                {canDelete && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleDelete(student)}
+                                    className="text-destructive cursor-pointer"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Supprimer
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>

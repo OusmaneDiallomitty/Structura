@@ -198,10 +198,11 @@ function getMonthCompletion(
 function GradesPageInner() {
   useSearchParams(); // required for Suspense boundary
 
-  const { user, getValidToken, refreshUserProfile } = useAuth();
-  const isDirector = user?.role === "director";
-  const isTeacher  = user?.role === "teacher";
+  const { user, getValidToken, refreshUserProfile, hasPermission } = useAuth();
+  const isDirector    = user?.role === "director";
+  const isTeacher     = user?.role === "teacher";
   const teacherAssignments = user?.classAssignments ?? [];
+  const canSaveGrades = hasPermission("grades", "create") || hasPermission("grades", "edit");
 
   // Rafraîchir le profil au montage pour que classAssignments soit à jour
   // sans que le prof ait besoin de se reconnecter après une assignation par le directeur.
@@ -1789,15 +1790,17 @@ function GradesPageInner() {
                       {evalGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
                       Recharger
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => saveEvalGrid(subjectOptions, evalMonth, evalGridScores)}
-                      disabled={!evalMonth || evalGridStudents.length === 0}
-                      className="bg-indigo-600 hover:bg-indigo-700"
-                    >
-                      <Save className="w-4 h-4 mr-1.5" />
-                      Enregistrer tout
-                    </Button>
+                    {canSaveGrades && (
+                      <Button
+                        size="sm"
+                        onClick={() => saveEvalGrid(subjectOptions, evalMonth, evalGridScores)}
+                        disabled={!evalMonth || evalGridStudents.length === 0}
+                        className="bg-indigo-600 hover:bg-indigo-700"
+                      >
+                        <Save className="w-4 h-4 mr-1.5" />
+                        Enregistrer tout
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -2154,19 +2157,21 @@ function GradesPageInner() {
                         )}
                         Recharger
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => savePrimaryGrid(subjectOptions)}
-                        disabled={gridSaving || gridStudents.length === 0}
-                        className="bg-indigo-600 hover:bg-indigo-700"
-                      >
-                        {gridSaving ? (
-                          <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                        ) : (
-                          <Save className="w-4 h-4 mr-1.5" />
-                        )}
-                        Enregistrer tout
-                      </Button>
+                      {canSaveGrades && (
+                        <Button
+                          size="sm"
+                          onClick={() => savePrimaryGrid(subjectOptions)}
+                          disabled={gridSaving || gridStudents.length === 0}
+                          className="bg-indigo-600 hover:bg-indigo-700"
+                        >
+                          {gridSaving ? (
+                            <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4 mr-1.5" />
+                          )}
+                          Enregistrer tout
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2411,10 +2416,12 @@ function GradesPageInner() {
                           {compGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
                           Recharger
                         </Button>
-                        <Button size="sm" onClick={() => saveCompGrid(subjectOptions)} disabled={compGridStudents.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
-                          <Save className="w-4 h-4 mr-1.5" />
-                          Enregistrer tout
-                        </Button>
+                        {canSaveGrades && (
+                          <Button size="sm" onClick={() => saveCompGrid(subjectOptions)} disabled={compGridStudents.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                            <Save className="w-4 h-4 mr-1.5" />
+                            Enregistrer tout
+                          </Button>
+                        )}
                       </div>
                     </div>
 
