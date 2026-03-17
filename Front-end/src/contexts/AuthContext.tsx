@@ -189,7 +189,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch { /* JSON parse error — nettoyer quand même */ clearAuth(); }
       }
 
-      const response = await loginUser({ email, password });
+      // Récupérer ou créer un identifiant d'appareil persistant (localStorage — survit à la fermeture du navigateur).
+      // Permet de sauter l'approbation quand l'utilisateur ferme Chrome puis revient sur le même appareil.
+      let deviceId = localStorage.getItem('structura_device_id');
+      if (!deviceId) {
+        deviceId = crypto.randomUUID();
+        localStorage.setItem('structura_device_id', deviceId);
+      }
+
+      const response = await loginUser({ email, password, deviceId });
 
       // Approbation requise — une session active existait sur un autre appareil
       if ('status' in response && response.status === 'PENDING_APPROVAL') {

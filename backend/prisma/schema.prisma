@@ -146,6 +146,7 @@ model User {
   // Sécurité session — session unique par appareil
   currentSessionId        String?   // UUID généré à chaque login; invalide les anciens tokens
   refreshTokenHash        String?   // SHA-256 du refresh token actif (révocation immédiate possible)
+  lastTrustedDeviceId     String?   // UUID appareil stocké dans localStorage — skip approbation si même appareil
   // Approbation connexion nouvel appareil (Option B — code d'échange)
   // Flux : login → pendingLoginToken en BDD → email → approbation → pendingExchangeCode → /auth/exchange → JWT
   // Aucun token JWT n'est jamais stocké en BDD.

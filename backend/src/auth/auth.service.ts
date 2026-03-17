@@ -201,11 +201,15 @@ export class AuthService {
     // Si une session existait déjà, bloquer l'accès et envoyer un email d'approbation.
     // L'ancien appareil garde sa session intacte jusqu'à la décision (Approuver/Refuser).
     // Exception : SUPER_ADMIN bypass — contrôle du système, pas besoin d'auto-approbation.
+    // Exception : même appareil reconnu (lastTrustedDeviceId = deviceId localStorage persistant).
+    //   → Fermer Chrome sans se déconnecter puis revenir ne déclenche pas l'approbation.
     const hadActiveSession = !!matchedUser.currentSessionId;
     const isSuperAdmin = matchedUser.role === 'SUPER_ADMIN';
     const isDevMode = this.configService.get('NODE_ENV') === 'development';
+    const isSameDevice = !!(loginDto.deviceId && matchedUser.lastTrustedDeviceId &&
+      loginDto.deviceId === matchedUser.lastTrustedDeviceId);
 
-    if (hadActiveSession && loginContext && !isSuperAdmin && !isDevMode) {
+    if (hadActiveSession && loginContext && !isSuperAdmin && !isDevMode && !isSameDevice) {
       const pendingToken = crypto.randomUUID();
       const loginTime    = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Conakry' });
 
@@ -243,9 +247,11 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: matchedUser.id },
       data: {
-        lastLoginAt:      new Date(),
-        currentSessionId: tokens.sessionId,
-        refreshTokenHash: refreshHash,
+        lastLoginAt:           new Date(),
+        currentSessionId:      tokens.sessionId,
+        refreshTokenHash:      refreshHash,
+        // Mémoriser l'appareil pour les prochaines connexions (skip approbation si même appareil)
+        ...(loginDto.deviceId ? { lastTrustedDeviceId: loginDto.deviceId } : {}),
       },
     });
 

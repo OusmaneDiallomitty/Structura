@@ -28,6 +28,7 @@ export interface RegisterPayload {
 export interface LoginPayload {
   email: string;
   password: string;
+  deviceId?: string;  // UUID persistant localStorage — skip approbation si même appareil
 }
 
 export interface AuthResponse {
