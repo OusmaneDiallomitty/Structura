@@ -23,38 +23,46 @@ function VerifyEmailContent() {
       return;
     }
 
-    verifyEmail(token);
-  }, [token]);
+    // AbortController + flag cancelled : empêche le double-appel React (StrictMode / remount)
+    // Sans ça : 1er appel réussit → token supprimé BDD → 2e appel échoue → setStatus('error')
+    // écrase setStatus('success') → l'utilisateur voit l'erreur alors que la vérification a marché.
+    let cancelled = false;
+    const controller = new AbortController();
 
-  const verifyEmail = async (verificationToken: string) => {
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/verify-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: verificationToken }),
-      });
+    (async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/verify-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+          signal: controller.signal,
+        });
 
-      const data = await response.json();
+        if (cancelled) return;
 
-      if (response.ok) {
-        // Mettre à jour l'état auth local pour débloquer le dashboard
-        refreshEmailVerified();
-        setStatus('success');
-        setMessage('Votre email a été vérifié avec succès !');
-
-        // Rediriger vers le dashboard après 3 secondes
-        setTimeout(() => {
-          router.push('/dashboard');
-        }, 3000);
-      } else {
+        if (response.ok) {
+          refreshEmailVerified();
+          setStatus('success');
+          setMessage('Votre email a été vérifié avec succès !');
+          setTimeout(() => {
+            if (!cancelled) router.push('/dashboard');
+          }, 3000);
+        } else {
+          setStatus('error');
+          setMessage('Le lien de vérification est invalide ou a expiré.');
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError' || cancelled) return; // annulation normale, pas une erreur
         setStatus('error');
-        setMessage('Le lien de vérification est invalide ou a expiré.');
+        setMessage('Impossible de contacter le serveur. Vérifiez votre connexion.');
       }
-    } catch {
-      setStatus('error');
-      setMessage('Impossible de contacter le serveur. Vérifiez votre connexion.');
-    }
-  };
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [token]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4">
