@@ -303,6 +303,7 @@ function GradesPageInner() {
   const [evalGridStudents, setEvalGridStudents] = useState<BackendStudent[]>([]);
   // Vue mobile : matière active (une matière à la fois)
   const [mobileActiveSub, setMobileActiveSub] = useState<string>("");
+  const [mobileActiveSubComp, setMobileActiveSubComp] = useState<string>("");
   const [evalGridAllEvals, setEvalGridAllEvals] = useState<Evaluation[]>([]);
   const [evalGridScores, setEvalGridScores] = useState<Record<string, Record<string, string>>>({});
   const [evalGridLoading, setEvalGridLoading] = useState(false);
@@ -1588,6 +1589,9 @@ function GradesPageInner() {
     if (subjectOptions.length > 0 && !subjectOptions.includes(mobileActiveSub)) {
       setMobileActiveSub(subjectOptions[0]);
     }
+    if (subjectOptions.length > 0 && !subjectOptions.includes(mobileActiveSubComp)) {
+      setMobileActiveSubComp(subjectOptions[0]);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectOptions.join(',')]);
 
@@ -2351,39 +2355,103 @@ function GradesPageInner() {
 
                         {/* Grille élèves × matières */}
                         <div className="rounded-lg border overflow-hidden">
-                          <div className="overflow-x-auto">
+
+                          {/* ── VUE MOBILE : une matière à la fois ── */}
+                          <div className="block sm:hidden">
+                            <div className="flex overflow-x-auto gap-2 p-3 border-b bg-gray-50 scrollbar-none">
+                              {subjectOptions.map((sub) => {
+                                const filledCount = gridStudents.filter((s) => {
+                                  const raw = gridScores[s.id]?.[sub];
+                                  return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                                }).length;
+                                const isActive = mobileActiveSubComp === sub;
+                                const isSaved = gridSavedSubjects.has(sub);
+                                return (
+                                  <button key={sub} onClick={() => setMobileActiveSubComp(sub)}
+                                    className={`shrink-0 flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                                      isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow'
+                                      : isSaved ? 'bg-green-50 border-green-200 text-green-700'
+                                      : 'bg-white border-gray-200 text-gray-600'}`}>
+                                    <span className="max-w-[70px] truncate">{sub}</span>
+                                    <span className={`text-[10px] ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{filledCount}/{gridStudents.length}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {mobileActiveSubComp && (
+                              <div className="px-3 py-2 bg-amber-50 border-b flex items-center justify-between">
+                                <span className="font-semibold text-amber-700 text-sm">{mobileActiveSubComp}</span>
+                                <span className="text-xs text-gray-500">
+                                  {subjectCoeffMap[mobileActiveSubComp] !== undefined ? `Coeff ×${subjectCoeffMap[mobileActiveSubComp]} · ` : ''}/10
+                                </span>
+                              </div>
+                            )}
+                            <div className="divide-y">
+                              {gridStudents.map((student, idx) => {
+                                const raw = gridScores[student.id]?.[mobileActiveSubComp] ?? '';
+                                const val = raw !== '' ? parseFloat(raw) : null;
+                                const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 10);
+                                return (
+                                  <div key={student.id} className={`flex items-center justify-between px-3 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="text-xs text-gray-400 w-5 shrink-0">{idx + 1}</span>
+                                      <span className="font-medium text-gray-800 text-sm truncate">{student.firstName} {student.lastName}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                      {canSaveGrades ? (
+                                        <Input type="number" inputMode="decimal" min={0} max={10} step={0.25} value={raw}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            const sid = student.id;
+                                            setGridScores((prev) => {
+                                              const updated = { ...prev, [sid]: { ...prev[sid], [mobileActiveSubComp]: value } };
+                                              gridScoresRef.current = updated;
+                                              return updated;
+                                            });
+                                            triggerAutoSave(mobileActiveSubComp);
+                                          }}
+                                          placeholder="—"
+                                          className={`w-20 h-12 text-center text-lg font-semibold ${isInvalid ? 'border-red-400' : ''}`}
+                                        />
+                                      ) : (
+                                        <span className={`text-lg font-semibold w-20 text-center ${val !== null ? avgColor(val, 10) : 'text-gray-300'}`}>
+                                          {val !== null ? val : '—'}
+                                        </span>
+                                      )}
+                                      <span className="text-xs text-gray-400">/10</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* ── VUE DESKTOP ── */}
+                          <div className="hidden sm:block overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead className="bg-gray-50 border-b">
                                 <tr>
                                   <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
-                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-gray-50 z-10">
-                                    Élève
-                                  </th>
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
                                   {subjectOptions.map((sub) => {
                                     const coeff = subjectCoeffMap[sub];
                                     return (
-                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[80px] sm:min-w-[90px]">
+                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px]">
                                         <div className="flex flex-col items-center gap-0.5">
                                           <span className="truncate max-w-[80px]" title={sub}>{sub}</span>
                                           <span className="text-[10px] text-gray-400 font-normal">/10</span>
                                           {coeff !== undefined && (
-                                            <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
-                                              ×{coeff}
-                                            </span>
+                                            <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>×{coeff}</span>
                                           )}
                                         </div>
                                       </th>
                                     );
                                   })}
-                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
-                                    Moy.
-                                  </th>
+                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy.</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {gridStudents.map((student, idx) => {
-                                  // Moyenne pondérée par coefficients (identique au bulletin)
-                                  // coeff=0 → matière exclue. Si aucun coeff configuré → moyenne simple
                                   let rowAvg: number | null = null;
                                   const hasCoeffs = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
                                   const simpleAvgP = () => { const ss = subjectOptions.map((sub) => { const raw = gridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const v = parseFloat(raw); return !isNaN(v) && v >= 0 && v <= 10 ? v : null; }).filter((n): n is number => n !== null); return ss.length > 0 ? ss.reduce((a, b) => a + b, 0) / ss.length : null; };
@@ -2403,31 +2471,17 @@ function GradesPageInner() {
                                   } else {
                                     rowAvg = simpleAvgP();
                                   }
-
                                   return (
-                                    <tr
-                                      key={student.id}
-                                      className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${
-                                        idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                                      }`}
-                                    >
+                                    <tr key={student.id} className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                                       <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>{idx + 1}</td>
-                                      <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                                        {student.firstName} {student.lastName}
-                                      </td>
+                                      <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 truncate ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>{student.firstName} {student.lastName}</td>
                                       {subjectOptions.map((sub) => {
                                         const raw = gridScores[student.id]?.[sub] ?? "";
                                         const val = raw !== "" ? parseFloat(raw) : null;
                                         const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 10);
                                         return (
                                           <td key={sub} className="px-1 py-2 text-center">
-                                            <Input
-                                              type="number"
-                                              inputMode="decimal"
-                                              min={0}
-                                              max={10}
-                                              step={0.25}
-                                              value={raw}
+                                            <Input type="number" inputMode="decimal" min={0} max={10} step={0.25} value={raw}
                                               onChange={(e) => {
                                                 const value = e.target.value;
                                                 const sid = student.id;
@@ -2439,17 +2493,13 @@ function GradesPageInner() {
                                                 triggerAutoSave(sub);
                                               }}
                                               placeholder="—"
-                                              className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${
-                                                isInvalid ? "border-red-400 focus:ring-red-400" : ""
-                                              }`}
+                                              className={`w-20 h-9 text-center font-medium mx-auto text-sm ${isInvalid ? "border-red-400 focus:ring-red-400" : ""}`}
                                             />
                                           </td>
                                         );
                                       })}
                                       <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                                        <span className={`font-semibold text-sm ${avgColor(rowAvg, 10)}`}>
-                                          {rowAvg !== null ? rowAvg.toFixed(2) : "—"}
-                                        </span>
+                                        <span className={`font-semibold text-sm ${avgColor(rowAvg, 10)}`}>{rowAvg !== null ? rowAvg.toFixed(2) : "—"}</span>
                                       </td>
                                     </tr>
                                   );
@@ -2544,132 +2594,227 @@ function GradesPageInner() {
                       <EmptyState message="Chargement de la grille…" />
                     ) : (
                       <div className="rounded-lg border overflow-hidden">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-gray-50 border-b">
-                              <tr>
-                                <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
-                                <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[120px] sm:min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
-                                {subjectOptions.map((sub) => {
-                                  const coeff = subjectCoeffMap[sub];
-                                  return (
-                                    <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[90px] sm:min-w-[110px]">
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
-                                        <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
-                                        {coeff !== undefined && (
-                                          <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
-                                            ×{coeff}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </th>
-                                  );
-                                })}
-                                <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy. gén.</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {compGridStudents.map((student, idx) => {
-                                // Moyenne générale preview pondérée : (cours + compo) / 2 par matière × coeff
-                                let rowAvg: number | null = null;
-                                const hasCoeffsC = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
-                                const simpleAvgC = () => { const ss = subjectOptions.map((sub) => { const raw = compGridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const comp = parseFloat(raw); if (isNaN(comp) || comp < 0 || comp > 20) return null; const course = compGridCourseAvgs[student.id]?.[sub] ?? null; return course !== null ? (course + comp) / 2 : comp; }).filter((n): n is number => n !== null); return ss.length > 0 ? ss.reduce((a, b) => a + b, 0) / ss.length : null; };
-                                let tp = 0, tc = 0;
-                                for (const sub of subjectOptions) {
-                                  const coeff = hasCoeffsC ? (subjectCoeffMap[sub] ?? 1) : 1;
-                                  if (coeff === 0) continue;
-                                  const raw = compGridScores[student.id]?.[sub];
-                                  const comp = raw && raw !== '' ? parseFloat(raw) : null;
-                                  if (comp === null || isNaN(comp) || comp < 0 || comp > 20) continue;
-                                  const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
-                                  const subjAvg = course !== null ? (course + comp) / 2 : comp;
-                                  tp += subjAvg * coeff; tc += coeff;
-                                }
-                                rowAvg = tc > 0 ? tp / tc : simpleAvgC();
-                                return (
-                                  <tr
-                                    key={student.id}
-                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                                  >
-                                    <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{idx + 1}</td>
-                                    <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                      {student.firstName} {student.lastName}
-                                    </td>
-                                    {subjectOptions.map((sub) => {
-                                      const raw = compGridScores[student.id]?.[sub] ?? '';
-                                      const comp = raw !== '' ? parseFloat(raw) : null;
-                                      const isInvalid = comp !== null && (isNaN(comp) || comp < 0 || comp > 20);
-                                      const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
-                                      const subjAvg = comp !== null && !isInvalid && course !== null
-                                        ? (course + comp) / 2
-                                        : comp !== null && !isInvalid ? comp : null;
-                                      return (
-                                        <td key={sub} className="px-1 py-1.5 text-center">
-                                          <div className="flex flex-col items-center gap-0.5">
-                                            <Input
-                                              type="number"
-                                              inputMode="decimal"
-                                              min={0}
-                                              max={20}
-                                              step={0.25}
-                                              value={raw}
-                                              onChange={(e) => {
-                                                const value = e.target.value;
-                                                const sid = student.id;
-                                                setCompGridScores((prev) => {
-                                                  const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
-                                                  compGridScoresRef.current = updated;
-                                                  return updated;
-                                                });
-                                                triggerCompAutoSave(sub);
-                                              }}
-                                              placeholder="—"
-                                              className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${isInvalid ? 'border-red-400' : ''}`}
-                                            />
-                                            {course !== null && (
-                                              <span className="text-[10px] text-gray-400">cours: {course.toFixed(1)}</span>
-                                            )}
-                                            {subjAvg !== null && (
-                                              <span className={`text-[10px] font-semibold ${avgColor(subjAvg, 20)}`}>
-                                                → {subjAvg.toFixed(2)}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                      );
-                                    })}
-                                    <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                      <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
-                                        {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Élèves :</span>
-                            <span className="font-semibold text-indigo-700">{compGridStudents.length}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Matières complètes :</span>
-                            <span className="font-semibold text-indigo-700">
-                              {subjectOptions.filter((sub) =>
-                                compGridStudents.every((s) => {
+
+                        {/* ── VUE MOBILE (compositions secondaire) ── */}
+                        <div className="block sm:hidden">
+                          {/* Sélecteur de matière */}
+                          <div className="p-3 border-b bg-gray-50">
+                            <p className="text-xs text-gray-500 mb-2 font-medium">Choisir une matière :</p>
+                            <div className="flex flex-wrap gap-2">
+                              {subjectOptions.map((sub) => {
+                                const filled = compGridStudents.filter((s) => {
                                   const raw = compGridScores[s.id]?.[sub];
                                   return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
-                                })
-                              ).length} / {subjectOptions.length}
+                                }).length;
+                                const total = compGridStudents.length;
+                                const isActive = mobileActiveSubComp === sub;
+                                return (
+                                  <button
+                                    key={sub}
+                                    onClick={() => setMobileActiveSubComp(sub)}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                      isActive
+                                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                                        : filled === total && total > 0
+                                        ? 'bg-green-50 border-green-300 text-green-700'
+                                        : 'bg-white border-gray-300 text-gray-600'
+                                    }`}
+                                  >
+                                    {sub} {total > 0 && <span className={isActive ? 'text-indigo-200' : 'text-gray-400'}>{filled}/{total}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Liste des élèves pour la matière sélectionnée */}
+                          {mobileActiveSubComp ? (
+                            <div>
+                              <div className="px-3 py-2 bg-amber-50 border-b flex items-center gap-2">
+                                <span className="font-semibold text-amber-700 text-sm">{mobileActiveSubComp}</span>
+                                <span className="text-xs text-amber-600">
+                                  {subjectCoeffMap[mobileActiveSubComp] !== undefined ? `Coeff ×${subjectCoeffMap[mobileActiveSubComp]} · ` : ''}compo /20
+                                </span>
+                              </div>
+                              <div className="divide-y">
+                                {compGridStudents.map((student, idx) => {
+                                  const raw = compGridScores[student.id]?.[mobileActiveSubComp] ?? '';
+                                  const comp = raw !== '' ? parseFloat(raw) : null;
+                                  const isInvalid = comp !== null && (isNaN(comp) || comp < 0 || comp > 20);
+                                  const course = compGridCourseAvgs[student.id]?.[mobileActiveSubComp] ?? null;
+                                  const subjAvg = comp !== null && !isInvalid && course !== null
+                                    ? (course + comp) / 2
+                                    : comp !== null && !isInvalid ? comp : null;
+                                  return (
+                                    <div key={student.id} className={`flex items-center justify-between px-3 py-2.5 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-800 truncate">{idx + 1}. {student.firstName} {student.lastName}</p>
+                                        {course !== null && <p className="text-xs text-gray-400">cours: {course.toFixed(1)}{subjAvg !== null ? ` · moy: ${subjAvg.toFixed(2)}` : ''}</p>}
+                                      </div>
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min={0}
+                                        max={20}
+                                        step={0.25}
+                                        value={raw}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          const sid = student.id;
+                                          setCompGridScores((prev) => {
+                                            const updated = { ...prev, [sid]: { ...prev[sid], [mobileActiveSubComp]: value } };
+                                            compGridScoresRef.current = updated;
+                                            return updated;
+                                          });
+                                          triggerCompAutoSave(mobileActiveSubComp);
+                                        }}
+                                        placeholder="—"
+                                        className={`w-20 h-12 text-center font-semibold text-base ml-3 shrink-0 ${isInvalid ? 'border-red-400' : ''}`}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-6 text-center text-sm text-gray-400">Sélectionnez une matière ci-dessus</div>
+                          )}
+
+                          {/* Footer mobile */}
+                          <div className="bg-indigo-50 border-t px-3 py-2 flex flex-wrap gap-3 text-xs">
+                            <span className="text-gray-500">Élèves : <strong className="text-indigo-700">{compGridStudents.length}</strong></span>
+                            <span className="text-gray-500">Complètes : <strong className="text-indigo-700">
+                              {subjectOptions.filter((sub) => compGridStudents.every((s) => { const raw = compGridScores[s.id]?.[sub]; return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw)); })).length}/{subjectOptions.length}
+                            </strong></span>
+                          </div>
+                        </div>
+
+                        {/* ── VUE DESKTOP (compositions secondaire) ── */}
+                        <div className="hidden sm:block">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 border-b">
+                                <tr>
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 w-8 sticky left-0 bg-gray-50 z-10">#</th>
+                                  <th className="text-left px-3 py-3 font-medium text-gray-600 min-w-[160px] sticky left-8 bg-gray-50 z-10">Élève</th>
+                                  {subjectOptions.map((sub) => {
+                                    const coeff = subjectCoeffMap[sub];
+                                    return (
+                                      <th key={sub} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[110px]">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                          <span className="truncate max-w-[100px]" title={sub}>{sub}</span>
+                                          <span className="text-[10px] text-gray-400 font-normal">compo /20</span>
+                                          {coeff !== undefined && (
+                                            <span className={`text-[10px] font-semibold px-1 rounded ${coeff === 0 ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                              ×{coeff}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </th>
+                                    );
+                                  })}
+                                  <th className="text-center px-3 py-3 font-medium text-gray-600 min-w-[80px] sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Moy. gén.</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {compGridStudents.map((student, idx) => {
+                                  let rowAvg: number | null = null;
+                                  const hasCoeffsC = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
+                                  const simpleAvgC = () => { const ss = subjectOptions.map((sub) => { const raw = compGridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const comp = parseFloat(raw); if (isNaN(comp) || comp < 0 || comp > 20) return null; const course = compGridCourseAvgs[student.id]?.[sub] ?? null; return course !== null ? (course + comp) / 2 : comp; }).filter((n): n is number => n !== null); return ss.length > 0 ? ss.reduce((a, b) => a + b, 0) / ss.length : null; };
+                                  let tp = 0, tc = 0;
+                                  for (const sub of subjectOptions) {
+                                    const coeff = hasCoeffsC ? (subjectCoeffMap[sub] ?? 1) : 1;
+                                    if (coeff === 0) continue;
+                                    const raw = compGridScores[student.id]?.[sub];
+                                    const comp = raw && raw !== '' ? parseFloat(raw) : null;
+                                    if (comp === null || isNaN(comp) || comp < 0 || comp > 20) continue;
+                                    const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
+                                    const subjAvg = course !== null ? (course + comp) / 2 : comp;
+                                    tp += subjAvg * coeff; tc += coeff;
+                                  }
+                                  rowAvg = tc > 0 ? tp / tc : simpleAvgC();
+                                  return (
+                                    <tr key={student.id} className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                      <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{idx + 1}</td>
+                                      <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                        {student.firstName} {student.lastName}
+                                      </td>
+                                      {subjectOptions.map((sub) => {
+                                        const raw = compGridScores[student.id]?.[sub] ?? '';
+                                        const comp = raw !== '' ? parseFloat(raw) : null;
+                                        const isInvalid = comp !== null && (isNaN(comp) || comp < 0 || comp > 20);
+                                        const course = compGridCourseAvgs[student.id]?.[sub] ?? null;
+                                        const subjAvg = comp !== null && !isInvalid && course !== null
+                                          ? (course + comp) / 2
+                                          : comp !== null && !isInvalid ? comp : null;
+                                        return (
+                                          <td key={sub} className="px-1 py-1.5 text-center">
+                                            <div className="flex flex-col items-center gap-0.5">
+                                              <Input
+                                                type="number"
+                                                inputMode="decimal"
+                                                min={0}
+                                                max={20}
+                                                step={0.25}
+                                                value={raw}
+                                                onChange={(e) => {
+                                                  const value = e.target.value;
+                                                  const sid = student.id;
+                                                  setCompGridScores((prev) => {
+                                                    const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
+                                                    compGridScoresRef.current = updated;
+                                                    return updated;
+                                                  });
+                                                  triggerCompAutoSave(sub);
+                                                }}
+                                                placeholder="—"
+                                                className={`w-20 h-9 text-center font-medium mx-auto text-sm ${isInvalid ? 'border-red-400' : ''}`}
+                                              />
+                                              {course !== null && (
+                                                <span className="text-[10px] text-gray-400">cours: {course.toFixed(1)}</span>
+                                              )}
+                                              {subjAvg !== null && (
+                                                <span className={`text-[10px] font-semibold ${avgColor(subjAvg, 20)}`}>
+                                                  → {subjAvg.toFixed(2)}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </td>
+                                        );
+                                      })}
+                                      <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                        <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
+                                          {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">Élèves :</span>
+                              <span className="font-semibold text-indigo-700">{compGridStudents.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">Matières complètes :</span>
+                              <span className="font-semibold text-indigo-700">
+                                {subjectOptions.filter((sub) =>
+                                  compGridStudents.every((s) => {
+                                    const raw = compGridScores[s.id]?.[sub];
+                                    return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                                  })
+                                ).length} / {subjectOptions.length}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400 italic self-center">
+                              La moyenne générale officielle est calculée par le serveur (onglet Bulletin)
                             </span>
                           </div>
-                          <span className="text-xs text-gray-400 italic self-center">
-                            La moyenne générale officielle est calculée par le serveur (onglet Bulletin)
-                          </span>
                         </div>
+
                       </div>
                     )}
                   </>
