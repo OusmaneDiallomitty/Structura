@@ -301,6 +301,8 @@ function GradesPageInner() {
   // ── Grille évaluations secondaire ────────────────────────────────────────
   // Un seul chargement pour tout le trimestre — switching mois = instantané
   const [evalGridStudents, setEvalGridStudents] = useState<BackendStudent[]>([]);
+  // Vue mobile : matière active (une matière à la fois)
+  const [mobileActiveSub, setMobileActiveSub] = useState<string>("");
   const [evalGridAllEvals, setEvalGridAllEvals] = useState<Evaluation[]>([]);
   const [evalGridScores, setEvalGridScores] = useState<Record<string, Record<string, string>>>({});
   const [evalGridLoading, setEvalGridLoading] = useState(false);
@@ -1581,6 +1583,14 @@ function GradesPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClassId, selectedTerm, subjectOptions.join(','), isPrimaryClass]);
 
+  // Synchroniser la matière active mobile quand les matières changent
+  useEffect(() => {
+    if (subjectOptions.length > 0 && !subjectOptions.includes(mobileActiveSub)) {
+      setMobileActiveSub(subjectOptions[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectOptions.join(',')]);
+
   // Reset rapport annuel quand la classe change
   useEffect(() => { setAnnualReport(null); }, [selectedClassId, academicYear]);
 
@@ -2010,7 +2020,105 @@ function GradesPageInner() {
                       </div>
                     ) : (
                       <div className="rounded-lg border overflow-hidden">
-                        <div className="overflow-x-auto">
+
+                        {/* ── VUE MOBILE : une matière à la fois ── */}
+                        <div className="block sm:hidden">
+                          {/* Sélecteur de matière */}
+                          <div className="flex overflow-x-auto gap-2 p-3 border-b bg-gray-50 scrollbar-none">
+                            {subjectOptions.map((sub) => {
+                              const filledCount = evalGridStudents.filter((s) => {
+                                const raw = evalGridScores[s.id]?.[sub];
+                                return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
+                              }).length;
+                              const isActive = mobileActiveSub === sub;
+                              const isSaved = evalGridSavedSubjects.has(sub);
+                              return (
+                                <button
+                                  key={sub}
+                                  onClick={() => setMobileActiveSub(sub)}
+                                  className={`shrink-0 flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                                    isActive
+                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow'
+                                      : isSaved
+                                      ? 'bg-green-50 border-green-200 text-green-700'
+                                      : 'bg-white border-gray-200 text-gray-600'
+                                  }`}
+                                >
+                                  <span className="max-w-[70px] truncate">{sub}</span>
+                                  <span className={`text-[10px] ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                    {filledCount}/{evalGridStudents.length}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Matière active + coeff */}
+                          {mobileActiveSub && (
+                            <div className="px-3 py-2 bg-indigo-50 border-b flex items-center justify-between">
+                              <span className="font-semibold text-indigo-700 text-sm">{mobileActiveSub}</span>
+                              <span className="text-xs text-gray-500">
+                                {subjectCoeffMap[mobileActiveSub] !== undefined
+                                  ? `Coeff ×${subjectCoeffMap[mobileActiveSub]}`
+                                  : ''} · /20
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Liste élèves */}
+                          <div className="divide-y">
+                            {evalGridStudents.map((student, idx) => {
+                              const raw = evalGridScores[student.id]?.[mobileActiveSub] ?? '';
+                              const val = raw !== '' ? parseFloat(raw) : null;
+                              const isInvalid = val !== null && (isNaN(val) || val < 0 || val > 20);
+                              return (
+                                <div
+                                  key={student.id}
+                                  className={`flex items-center justify-between px-3 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-xs text-gray-400 w-5 shrink-0">{idx + 1}</span>
+                                    <span className="font-medium text-gray-800 text-sm truncate">
+                                      {student.firstName} {student.lastName}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                    {canSaveGrades ? (
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min={0}
+                                        max={20}
+                                        step={0.25}
+                                        value={raw}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          const sid = student.id;
+                                          setEvalGridScores((prev) => {
+                                            const updated = { ...prev, [sid]: { ...prev[sid], [mobileActiveSub]: value } };
+                                            evalGridScoresRef.current = updated;
+                                            return updated;
+                                          });
+                                          triggerEvalAutoSave(mobileActiveSub, evalMonth);
+                                        }}
+                                        placeholder="—"
+                                        className={`w-20 h-12 text-center text-lg font-semibold ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
+                                      />
+                                    ) : (
+                                      <span className={`text-lg font-semibold w-20 text-center ${val !== null ? avgColor(val, 20) : 'text-gray-300'}`}>
+                                        {val !== null ? val : '—'}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-400">/20</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* ── VUE DESKTOP : grille complète ── */}
+                        <div className="hidden sm:block overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 border-b">
                               <tr>
@@ -2037,7 +2145,6 @@ function GradesPageInner() {
                             </thead>
                             <tbody>
                               {evalGridStudents.map((student, idx) => {
-                                // Moyenne pondérée par coefficients (fallback simple si tous coeff=0)
                                 let rowAvg: number | null = null;
                                 const hasCoeffsE = subjectOptions.some((s) => subjectCoeffMap[s] !== undefined);
                                 const simpleAvgE = () => { const ss = subjectOptions.map((sub) => { const raw = evalGridScores[student.id]?.[sub]; if (!raw || raw === '') return null; const v = parseFloat(raw); return !isNaN(v) && v >= 0 && v <= 20 ? v : null; }).filter((n): n is number => n !== null); return ss.length > 0 ? ss.reduce((a, b) => a + b, 0) / ss.length : null; };
@@ -2081,7 +2188,6 @@ function GradesPageInner() {
                                             onChange={(e) => {
                                               const value = e.target.value;
                                               const sid = student.id;
-                                              // Update fonctionnelle : évite le stale closure quand on tape vite
                                               setEvalGridScores((prev) => {
                                                 const updated = { ...prev, [sid]: { ...prev[sid], [sub]: value } };
                                                 evalGridScoresRef.current = updated;
@@ -2090,7 +2196,7 @@ function GradesPageInner() {
                                               triggerEvalAutoSave(sub, evalMonth);
                                             }}
                                             placeholder="—"
-                                            className={`w-12 sm:w-20 h-9 text-center font-medium mx-auto text-xs sm:text-sm ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
+                                            className={`w-20 h-9 text-center font-medium mx-auto text-sm ${isInvalid ? 'border-red-400 focus:ring-red-400' : ''}`}
                                           />
                                         </td>
                                       );
@@ -2106,6 +2212,7 @@ function GradesPageInner() {
                             </tbody>
                           </table>
                         </div>
+
                         <div className="bg-indigo-50 border-t px-4 py-3 flex flex-wrap gap-4 text-sm">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-500">Mois :</span>
