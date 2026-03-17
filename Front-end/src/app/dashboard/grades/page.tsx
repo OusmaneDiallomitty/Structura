@@ -1682,12 +1682,14 @@ function GradesPageInner() {
                   <SelectContent>
                     {TERMS.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {t}
-                        {getTermMonths(startMonth, durationMonths, t).length > 0 && (
-                          <span className="ml-2 text-gray-400 text-xs">
-                            ({getTermMonths(startMonth, durationMonths, t).join(", ")})
-                          </span>
-                        )}
+                        <span className="flex items-center gap-2 flex-wrap">
+                          {t}
+                          {getTermMonths(startMonth, durationMonths, t).length > 0 && (
+                            <span className="hidden sm:inline text-gray-400 text-xs">
+                              ({getTermMonths(startMonth, durationMonths, t).join(", ")})
+                            </span>
+                          )}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1958,9 +1960,9 @@ function GradesPageInner() {
                                 }
                                 const globalAvg = tc > 0 ? tp / tc : null;
                                 return (
-                                  <tr key={student.id} className={`border-b last:border-0 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
+                                  <tr key={student.id} className={`border-b last:border-0 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                    <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{idx + 1}</td>
+                                    <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       {student.firstName} {student.lastName}
                                     </td>
                                     {subjectOptions.map((sub) => {
@@ -1980,7 +1982,7 @@ function GradesPageInner() {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                                    <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       <span className={`font-bold text-sm ${avgColor(globalAvg, 20)}`}>
                                         {globalAvg !== null ? globalAvg.toFixed(2) : '—'}
                                       </span>
@@ -2057,10 +2059,10 @@ function GradesPageInner() {
                                 return (
                                   <tr
                                     key={student.id}
-                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
+                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                                   >
-                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
+                                    <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{idx + 1}</td>
+                                    <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       {student.firstName} {student.lastName}
                                     </td>
                                     {subjectOptions.map((sub) => {
@@ -2093,7 +2095,7 @@ function GradesPageInner() {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                                    <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
                                         {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
                                       </span>
@@ -2299,11 +2301,11 @@ function GradesPageInner() {
                                     <tr
                                       key={student.id}
                                       className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${
-                                        idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                                        idx % 2 === 0 ? "bg-white" : "bg-gray-50"
                                       }`}
                                     >
-                                      <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                      <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
+                                      <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>{idx + 1}</td>
+                                      <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                                         {student.firstName} {student.lastName}
                                       </td>
                                       {subjectOptions.map((sub) => {
@@ -2337,7 +2339,7 @@ function GradesPageInner() {
                                           </td>
                                         );
                                       })}
-                                      <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                                      <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                                         <span className={`font-semibold text-sm ${avgColor(rowAvg, 10)}`}>
                                           {rowAvg !== null ? rowAvg.toFixed(2) : "—"}
                                         </span>
@@ -2481,10 +2483,10 @@ function GradesPageInner() {
                                 return (
                                   <tr
                                     key={student.id}
-                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
+                                    className={`border-b last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                                   >
-                                    <td className="px-3 py-2 text-gray-400 text-xs sticky left-0 bg-inherit z-10">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-800 sticky left-8 bg-inherit z-10 max-w-[120px] sm:max-w-none truncate">
+                                    <td className={`px-3 py-2 text-gray-400 text-xs sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>{idx + 1}</td>
+                                    <td className={`px-3 py-2 font-medium text-gray-800 sticky left-8 z-10 max-w-[120px] sm:max-w-none truncate ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       {student.firstName} {student.lastName}
                                     </td>
                                     {subjectOptions.map((sub) => {
@@ -2530,7 +2532,7 @@ function GradesPageInner() {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-3 py-2 text-center sticky right-0 bg-inherit z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                                    <td className={`px-3 py-2 text-center sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                       <span className={`font-semibold text-sm ${avgColor(rowAvg, 20)}`}>
                                         {rowAvg !== null ? rowAvg.toFixed(2) : '—'}
                                       </span>
