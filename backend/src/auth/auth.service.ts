@@ -647,6 +647,7 @@ export class AuthService {
         emailVerified: true,
         emailVerificationToken: null,
         emailVerificationExpiry: null,
+        lastLoginAt: new Date(), // 1ère activation = 1ère connexion effective
       },
     });
 
