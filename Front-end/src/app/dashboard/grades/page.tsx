@@ -1852,7 +1852,7 @@ function GradesPageInner() {
                             {month}
                             {total > 0 && (
                               <span className={`text-xs ${isActive ? 'text-indigo-200' : isComplete ? 'text-green-500' : 'text-gray-400'}`}>
-                                {filled}/{total}
+                                {filled === total ? '✓' : `${filled} / ${total} él.`}
                               </span>
                             )}
                           </button>
@@ -1899,7 +1899,7 @@ function GradesPageInner() {
                                 : isSaved ? <CheckCircle className="w-3.5 h-3.5" /> : null}
                               <span>{sub}</span>
                               <span className="text-gray-400">·</span>
-                              <span>{filled}/{total}</span>
+                              <span>{filled === total && total > 0 ? '✓' : `${filled} / ${total} él.`}</span>
                               {filled > 0 && (
                                 <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                   <div
@@ -2337,7 +2337,7 @@ function GradesPageInner() {
                                 ) : null}
                                 <span>{sub}</span>
                                 <span className="text-gray-400">·</span>
-                                <span>{filled}/{total}</span>
+                                <span>{filled === total && total > 0 ? '✓' : `${filled} / ${total} él.`}</span>
                                 {filled > 0 && (
                                   <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                     <div
@@ -2364,16 +2364,20 @@ function GradesPageInner() {
                                   const raw = gridScores[s.id]?.[sub];
                                   return raw !== undefined && raw !== '' && !isNaN(parseFloat(raw));
                                 }).length;
+                                const total = gridStudents.length;
                                 const isActive = mobileActiveSubComp === sub;
                                 const isSaved = gridSavedSubjects.has(sub);
+                                const isComplete = filledCount === total && total > 0;
                                 return (
                                   <button key={sub} onClick={() => setMobileActiveSubComp(sub)}
                                     className={`shrink-0 flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                                       isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow'
-                                      : isSaved ? 'bg-green-50 border-green-200 text-green-700'
+                                      : isSaved || isComplete ? 'bg-green-50 border-green-200 text-green-700'
                                       : 'bg-white border-gray-200 text-gray-600'}`}>
                                     <span className="max-w-[70px] truncate">{sub}</span>
-                                    <span className={`text-[10px] ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{filledCount}/{gridStudents.length}</span>
+                                    <span className={`text-[10px] ${isActive ? 'text-indigo-200' : isComplete ? 'text-green-500' : 'text-gray-400'}`}>
+                                      {filledCount === total ? '✓ complet' : `${filledCount} / ${total} él.`}
+                                    </span>
                                   </button>
                                 );
                               })}
@@ -2563,7 +2567,7 @@ function GradesPageInner() {
                               {isAutoSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 : isSaved ? <CheckCircle className="w-3.5 h-3.5" /> : null}
                               <span>{sub}</span>
-                              {total > 0 && <><span className="text-gray-400">·</span><span>{filled}/{total}</span></>}
+                              {total > 0 && <><span className="text-gray-400">·</span><span>{filled === total ? '✓' : `${filled} / ${total} él.`}</span></>}
                             </div>
                           );
                         })}
@@ -2620,7 +2624,12 @@ function GradesPageInner() {
                                         : 'bg-white border-gray-300 text-gray-600'
                                     }`}
                                   >
-                                    {sub} {total > 0 && <span className={isActive ? 'text-indigo-200' : 'text-gray-400'}>{filled}/{total}</span>}
+                                    <span>{sub}</span>
+                                    {total > 0 && (
+                                      <span className={`text-[10px] ml-1 ${isActive ? 'text-indigo-200' : filled === total ? 'text-green-500' : 'text-gray-400'}`}>
+                                        {filled === total ? '✓' : `${filled} / ${total} él.`}
+                                      </span>
+                                    )}
                                   </button>
                                 );
                               })}
