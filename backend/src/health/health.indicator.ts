@@ -13,10 +13,11 @@ export class PrismaHealthIndicator extends HealthIndicator {
       await this.prisma.$queryRaw`SELECT 1`;
       return this.getStatus(key, true);
     } catch {
-      // Neon ferme les connexions inactives — on force une reconnexion et on réessaie
+      // Neon (serverless PG) ferme les connexions inactives après un timeout.
+      // Prisma recrée automatiquement une connexion au prochain appel — un retry
+      // simple suffit. On évite $disconnect()/$connect() qui est un singleton
+      // partagé et couperait les requêtes en cours des autres utilisateurs.
       try {
-        await this.prisma.$disconnect();
-        await this.prisma.$connect();
         await this.prisma.$queryRaw`SELECT 1`;
         return this.getStatus(key, true);
       } catch (retryError: any) {
