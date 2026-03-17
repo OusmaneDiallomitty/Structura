@@ -103,7 +103,7 @@ export default function Home() {
       <EnhancedNavigation />
 
       {/* Hero Section - Premium Version */}
-      <section ref={heroRef} className="relative bg-white pt-24 pb-16 md:pt-32 md:pb-24 overflow-hidden min-h-screen flex items-center">
+      <section ref={heroRef} className="relative bg-white pt-20 pb-12 md:pt-32 md:pb-24 overflow-x-hidden flex items-center">
         {/* Background Effects - Ultra-simplified for maximum performance */}
         {/* Static gradient only - all animations disabled for performance */}
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/30 via-purple-50/20 to-pink-50/30 -z-10" />
@@ -123,7 +123,7 @@ export default function Home() {
           >
             {/* Heading - Simplified for performance */}
             <motion.div variants={fadeInUp}>
-              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 leading-tight">
+              <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 leading-tight">
                 <span className="block">
                   Gérez votre organisation
                 </span>
@@ -149,7 +149,7 @@ export default function Home() {
             {/* CTA Buttons with Magnetic Effect */}
             <motion.div
               variants={fadeInUp}
-              className="flex flex-col sm:flex-row gap-4 justify-center items-center"
+              className="flex flex-col sm:flex-row gap-4 justify-center items-stretch sm:items-center"
             >
               <MagneticButton
                 strength={0.3}
@@ -158,7 +158,7 @@ export default function Home() {
               >
                 <Button
                   size="lg"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white h-14 px-10 text-base shadow-lg"
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white h-14 px-10 text-base shadow-lg"
                 >
                   Commencer gratuitement
                   <ArrowRight className="ml-2 h-5 w-5" />
@@ -172,7 +172,7 @@ export default function Home() {
                 <Button
                   size="lg"
                   variant="outline"
-                  className="h-14 px-10 text-base border-gray-300 hover:border-indigo-300 hover:bg-indigo-50"
+                  className="w-full sm:w-auto h-14 px-10 text-base border-gray-300 hover:border-indigo-300 hover:bg-indigo-50"
                 >
                   <PlayCircle className="mr-2 h-5 w-5" />
                   Voir la démo
@@ -181,12 +181,12 @@ export default function Home() {
             </motion.div>
           </motion.div>
 
-          {/* 3D Isometric Dashboard */}
+          {/* 3D Isometric Dashboard — caché sur mobile */}
           <motion.div
             variants={fadeInUp}
             initial="hidden"
             animate={heroInView ? "visible" : "hidden"}
-            className="mt-16"
+            className="hidden sm:block mt-16 overflow-hidden"
           >
             <IsometricDashboard />
           </motion.div>
@@ -540,7 +540,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {/* Brand */}
             <div className="space-y-4">
               <Logo variant="dark" size="sm" />

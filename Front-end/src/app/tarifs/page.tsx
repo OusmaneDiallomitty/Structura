@@ -212,13 +212,13 @@ export default function TarifsPage() {
           </p>
 
           {/* Toggle mensuel / annuel */}
-          <div className="flex items-center justify-center gap-4 pt-2">
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <span className={`text-sm font-medium ${!annual ? "text-gray-900" : "text-gray-400"}`}>
               Mensuel
             </span>
             <button
               onClick={() => setAnnual(!annual)}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${
                 annual ? "bg-indigo-600" : "bg-gray-200"
               }`}
             >
@@ -226,9 +226,9 @@ export default function TarifsPage() {
                 annual ? "translate-x-6" : "translate-x-0"
               }`} />
             </button>
-            <span className={`text-sm font-medium ${annual ? "text-gray-900" : "text-gray-400"}`}>
+            <span className={`text-sm font-medium flex items-center gap-2 flex-wrap justify-center ${annual ? "text-gray-900" : "text-gray-400"}`}>
               Annuel
-              <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
+              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
                 Économisez 2–3 mois
               </span>
             </span>
@@ -239,7 +239,7 @@ export default function TarifsPage() {
       {/* ── Cards plans ─────────────────────────────────────────────────────── */}
       <section className="pb-20 px-4">
         <div className="container mx-auto max-w-5xl">
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
             {PLANS.map((plan, i) => {
               const Icon  = plan.icon;
               const price = annual ? plan.annualGNF : plan.monthlyGNF;
@@ -362,66 +362,70 @@ export default function TarifsPage() {
           </motion.div>
 
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            {/* En-tête tableau */}
-            <div className="grid grid-cols-4 border-b border-gray-100 bg-gray-50/80">
-              <div className="p-4 col-span-1" />
-              {["Gratuit", "Pro", "Pro+"].map((name) => (
-                <div key={name} className="p-4 text-center">
-                  <span className="font-semibold text-gray-900 text-sm">{name}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Lignes de features */}
-            {FEATURE_TABLE.map((section, si) => (
-              <div key={si}>
-                {/* Catégorie */}
-                <div className="grid grid-cols-4 bg-gray-50/50 border-b border-gray-100">
-                  <div className="p-3 col-span-4 flex items-center gap-2">
-                    <section.icon className="w-4 h-4 text-gray-400" />
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      {section.category}
-                    </span>
-                  </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-120">
+                {/* En-tête tableau */}
+                <div className="grid grid-cols-4 border-b border-gray-100 bg-gray-50/80">
+                  <div className="p-4 col-span-1" />
+                  {["Gratuit", "Pro", "Pro+"].map((name) => (
+                    <div key={name} className="p-4 text-center">
+                      <span className="font-semibold text-gray-900 text-sm">{name}</span>
+                    </div>
+                  ))}
                 </div>
 
-                {section.features.map((feat, fi) => (
-                  <div
-                    key={fi}
-                    className={`grid grid-cols-4 border-b border-gray-50 ${
-                      fi % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                    }`}
-                  >
-                    <div className="p-3 pl-4 text-sm text-gray-700 flex items-center">
-                      {feat.label}
+                {/* Lignes de features */}
+                {FEATURE_TABLE.map((section, si) => (
+                  <div key={si}>
+                    {/* Catégorie */}
+                    <div className="grid grid-cols-4 bg-gray-50/50 border-b border-gray-100">
+                      <div className="p-3 col-span-4 flex items-center gap-2">
+                        <section.icon className="w-4 h-4 text-gray-400" />
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                          {section.category}
+                        </span>
+                      </div>
                     </div>
-                    <div className="p-3 flex items-center justify-center">
-                      <FeatureCell value={feat.free} />
-                    </div>
-                    <div className="p-3 flex items-center justify-center">
-                      <FeatureCell value={feat.pro} />
-                    </div>
-                    <div className="p-3 flex items-center justify-center">
-                      <FeatureCell value={feat.proPlus} />
-                    </div>
+
+                    {section.features.map((feat, fi) => (
+                      <div
+                        key={fi}
+                        className={`grid grid-cols-4 border-b border-gray-50 ${
+                          fi % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+                        }`}
+                      >
+                        <div className="p-3 pl-4 text-sm text-gray-700 flex items-center">
+                          {feat.label}
+                        </div>
+                        <div className="p-3 flex items-center justify-center">
+                          <FeatureCell value={feat.free} />
+                        </div>
+                        <div className="p-3 flex items-center justify-center">
+                          <FeatureCell value={feat.pro} />
+                        </div>
+                        <div className="p-3 flex items-center justify-center">
+                          <FeatureCell value={feat.proPlus} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
-              </div>
-            ))}
 
-            {/* Footer tableau — CTAs */}
-            <div className="grid grid-cols-4 p-4 gap-3 bg-gray-50/80">
-              <div />
-              {PLANS.map((plan) => (
-                <Link key={plan.key} href={plan.ctaHref}>
-                  <Button
-                    variant={plan.highlighted ? "default" : "outline"}
-                    className={`w-full text-xs ${plan.highlighted ? "bg-purple-600 hover:bg-purple-700" : ""}`}
-                  >
-                    {plan.cta}
-                  </Button>
-                </Link>
-              ))}
+                {/* Footer tableau — CTAs */}
+                <div className="grid grid-cols-4 p-4 gap-3 bg-gray-50/80">
+                  <div />
+                  {PLANS.map((plan) => (
+                    <Link key={plan.key} href={plan.ctaHref}>
+                      <Button
+                        variant={plan.highlighted ? "default" : "outline"}
+                        className={`w-full text-xs ${plan.highlighted ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                      >
+                        {plan.cta}
+                      </Button>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -538,8 +542,8 @@ export default function TarifsPage() {
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>
-              <Link href="/login">
-                <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 w-full sm:w-auto">
+              <Link href="/login" className="w-full sm:w-auto">
+                <Button size="lg" className="w-full sm:w-auto bg-transparent border border-white/60 text-white hover:bg-white/15">
                   Déjà inscrit ? Se connecter
                 </Button>
               </Link>
