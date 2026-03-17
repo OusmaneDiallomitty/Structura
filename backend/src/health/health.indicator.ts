@@ -12,8 +12,16 @@ export class PrismaHealthIndicator extends HealthIndicator {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       return this.getStatus(key, true);
-    } catch (error: any) {
-      return this.getStatus(key, false, { error: error.message });
+    } catch {
+      // Neon ferme les connexions inactives — on force une reconnexion et on réessaie
+      try {
+        await this.prisma.$disconnect();
+        await this.prisma.$connect();
+        await this.prisma.$queryRaw`SELECT 1`;
+        return this.getStatus(key, true);
+      } catch (retryError: any) {
+        return this.getStatus(key, false, { error: retryError.message });
+      }
     }
   }
 }
