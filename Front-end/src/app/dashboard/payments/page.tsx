@@ -782,11 +782,26 @@ export default function PaymentsPage() {
     const token = storage.getAuthItem("structura_token");
     if (!token) { toast.error("Session expirée."); return; }
 
+    // Résoudre le terme dans le même format que le paiement individuel
+    // - mensuel  : "Octobre" → "Octobre 2025"
+    // - annuel   : "Annuel"  → "Annuel 2025-2026"
+    // - trimestr : "Trimestre 1" → inchangé (déjà le bon format)
+    const rawTerm = bulkTerm || selectedTerm;
+    let resolvedTerm = rawTerm;
+    if (rawTerm === "Annuel") {
+      resolvedTerm = `Annuel ${selectedYear}`;
+    } else if (!rawTerm.startsWith("Trimestre") && !rawTerm.includes(" ")) {
+      // Mois sans année → trouver la version avec année dans le calendrier scolaire
+      const found = getSchoolMonthsWithYear(selectedYear, schoolCalendar).find(
+        (m) => m.startsWith(rawTerm + " ")
+      );
+      resolvedTerm = found || rawTerm;
+    }
+
     setBulkSaving(true);
     setBulkProgress({ done: 0, total: validRows.length });
     let succeeded = 0;
     let failed = 0;
-    const term = bulkTerm || selectedTerm;
 
     for (const row of validRows) {
       try {
@@ -794,10 +809,11 @@ export default function PaymentsPage() {
           studentId:    row.id,
           amount:       Number(row.amount),
           method:       row.method,
+          currency:     getActiveCurrency(),
           status:       "paid",
           description:  "Frais de scolarité",
           academicYear: selectedYear,
-          term,
+          term:         resolvedTerm,
           paidDate:     new Date().toISOString(),
         });
         succeeded++;
@@ -810,7 +826,7 @@ export default function PaymentsPage() {
     if (failed > 0) toast.error(`${failed} paiement${failed > 1 ? "s" : ""} ont échoué.`);
     setBulkProgress(null);
     await loadData();
-    if (bulkClassId) buildBulkRows(bulkClassId, term);
+    if (bulkClassId) buildBulkRows(bulkClassId, resolvedTerm);
   };
 
   useEffect(() => {
