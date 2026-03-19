@@ -127,8 +127,19 @@ export default function StudentsPage() {
   const handleQuickSave = async () => {
     const token = storage.getAuthItem('structura_token');
     if (!token) return;
-    const valid = quickRows.filter(r => r.firstName.trim() && r.lastName.trim());
-    if (valid.length === 0) { toast.error('Saisissez au moins un prénom et un nom'); return; }
+    // Valides = prénom + nom remplis
+    const filled = quickRows.filter(r => r.firstName.trim() && r.lastName.trim());
+    if (filled.length === 0) { toast.error('Saisissez au moins un prénom et un nom'); return; }
+    // Lignes sans classe sélectionnée
+    const missingClass = filled.filter(r => !r.classId);
+    if (missingClass.length > 0) {
+      toast.error(
+        `${missingClass.length} élève(s) sans classe`,
+        { description: `Veuillez sélectionner une classe pour : ${missingClass.map(r => `${r.firstName} ${r.lastName}`).join(', ')}` }
+      );
+      return;
+    }
+    const valid = filled;
     setQuickSaving(true);
     setQuickProgress({ done: 0, total: valid.length });
     let success = 0, errors = 0;
@@ -137,7 +148,7 @@ export default function StudentsPage() {
         await createStudent(token, {
           firstName:   row.firstName.trim(),
           lastName:    row.lastName.trim(),
-          classId:     row.classId || '',
+          classId:     row.classId,
           parentName:  row.parentName.trim()  || undefined,
           parentPhone: row.parentPhone.trim() || undefined,
         });
