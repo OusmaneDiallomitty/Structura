@@ -440,6 +440,15 @@ function getTermMonthCount(
 
 type PaymentStatus = "paid" | "partial" | "unpaid";
 
+type BulkPayRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  amount: string;
+  method: "CASH" | "MOBILE_MONEY" | "BANK_TRANSFER" | "CHECK";
+  skip: boolean; // déjà payé → ligne grisée
+};
+
 interface StudentSummary {
   student:             BackendStudent;
   payments:            Payment[];
@@ -518,6 +527,14 @@ export default function PaymentsPage() {
   // Calendrier scolaire
   const [schoolCalendar,      setSchoolCalendar]      = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
   const [draftSchoolCalendar, setDraftSchoolCalendar] = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
+
+  // ── Saisie en masse des paiements ─────────────────────────────────────────
+  const [bulkOpen,           setBulkOpen]           = useState(false);
+  const [bulkClassId,        setBulkClassId]        = useState<string>("");
+  const [bulkRows,           setBulkRows]           = useState<BulkPayRow[]>([]);
+  const [bulkTerm,           setBulkTerm]           = useState<string>("");
+  const [bulkSaving,         setBulkSaving]         = useState(false);
+  const [bulkProgress,       setBulkProgress]       = useState<{ done: number; total: number } | null>(null);
 
   // ── Alerte fin de mois ────────────────────────────────────────────────────
 
@@ -618,6 +635,63 @@ export default function PaymentsPage() {
     }
   };
 
+  // ── Handlers saisie en masse ──────────────────────────────────────────────
+
+  const buildBulkRows = useCallback((classId: string, term: string) => {
+    const classStudents = students.filter((s) => s.classId === classId);
+    const cls = classes.find((c) => c.id === classId);
+    const virtualLevel = cls?.virtualLevel ?? cls?.level ?? "";
+    const monthlyFee = getStudentFee(classId, virtualLevel, feeConfig);
+    const termMonths = getTermMonthCount(term, selectedYear, schoolCalendar);
+    const fee = monthlyFee * termMonths;
+
+    setBulkRows(classStudents.map((s) => {
+      const alreadyPaid = payments.some(
+        (p) => p.studentId === s.id &&
+               p.status === "paid" &&
+               (!p.academicYear || p.academicYear === selectedYear) &&
+               (!p.term || paymentCoversViewTerm(p.term, term, selectedYear, schoolCalendar))
+      );
+      return {
+        id: s.id,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        amount: alreadyPaid ? "" : fee > 0 ? String(fee) : "",
+        method: "CASH" as const,
+        skip: alreadyPaid,
+      };
+    }));
+  }, [students, classes, feeConfig, payments, selectedYear, schoolCalendar]);
+
+  const handleBulkClassChange = useCallback((classId: string) => {
+    setBulkClassId(classId);
+    const term = bulkTerm || selectedTerm;
+    setBulkTerm(term);
+    buildBulkRows(classId, term);
+  }, [buildBulkRows, bulkTerm, selectedTerm]);
+
+  const handleBulkTermChange = useCallback((term: string) => {
+    setBulkTerm(term);
+    if (bulkClassId) buildBulkRows(bulkClassId, term);
+  }, [buildBulkRows, bulkClassId]);
+
+  const updateBulkRow = (studentId: string, field: "amount" | "method", value: string) => {
+    setBulkRows((prev) => prev.map((r) =>
+      r.id === studentId ? { ...r, [field]: value } : r
+    ));
+  };
+
+  const fillAllAmounts = () => {
+    if (!bulkClassId) return;
+    const cls = classes.find((c) => c.id === bulkClassId);
+    const virtualLevel = cls?.virtualLevel ?? cls?.level ?? "";
+    const monthlyFee = getStudentFee(bulkClassId, virtualLevel, feeConfig);
+    const term = bulkTerm || selectedTerm;
+    const termMonths = getTermMonthCount(term, selectedYear, schoolCalendar);
+    const fee = monthlyFee * termMonths;
+    setBulkRows((prev) => prev.map((r) => r.skip ? r : { ...r, amount: fee > 0 ? String(fee) : r.amount }));
+  };
+
   // ── Chargement ────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -701,6 +775,43 @@ export default function PaymentsPage() {
   }, [isOnline]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleBulkSave = async () => {
+    const validRows = bulkRows.filter((r) => !r.skip && r.amount && Number(r.amount) > 0);
+    if (validRows.length === 0) { toast.info("Aucun paiement à enregistrer."); return; }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) { toast.error("Session expirée."); return; }
+
+    setBulkSaving(true);
+    setBulkProgress({ done: 0, total: validRows.length });
+    let succeeded = 0;
+    let failed = 0;
+    const term = bulkTerm || selectedTerm;
+
+    for (const row of validRows) {
+      try {
+        await createPayment(token, {
+          studentId:    row.id,
+          amount:       Number(row.amount),
+          method:       row.method,
+          status:       "paid",
+          description:  "Frais de scolarité",
+          academicYear: selectedYear,
+          term,
+          paidDate:     new Date().toISOString(),
+        });
+        succeeded++;
+      } catch { failed++; }
+      setBulkProgress({ done: succeeded + failed, total: validRows.length });
+    }
+
+    setBulkSaving(false);
+    if (succeeded > 0) toast.success(`${succeeded} paiement${succeeded > 1 ? "s" : ""} enregistré${succeeded > 1 ? "s" : ""}.`);
+    if (failed > 0) toast.error(`${failed} paiement${failed > 1 ? "s" : ""} ont échoué.`);
+    setBulkProgress(null);
+    await loadData();
+    if (bulkClassId) buildBulkRows(bulkClassId, term);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem(RECEIPTS_DONE_KEY);
@@ -1531,6 +1642,168 @@ export default function PaymentsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Saisie paiements en masse ── */}
+      {canCreatePayment && (
+        <Card className="border-dashed">
+          <CardHeader
+            className="py-3 px-4 cursor-pointer select-none"
+            onClick={() => setBulkOpen((v) => !v)}
+          >
+            <CardTitle className="text-sm font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-primary" />
+                Saisie paiements en masse
+                <span className="text-xs font-normal text-muted-foreground">(enregistrer plusieurs élèves d'un coup)</span>
+              </span>
+              <span className="text-muted-foreground text-xs">{bulkOpen ? "▲ Réduire" : "▼ Ouvrir"}</span>
+            </CardTitle>
+          </CardHeader>
+
+          {bulkOpen && (
+            <CardContent className="px-4 pb-4 space-y-3">
+              {/* Sélecteurs classe + période */}
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">Classe</label>
+                  <Select value={bulkClassId} onValueChange={handleBulkClassChange}>
+                    <SelectTrigger className="h-9 w-52 text-sm">
+                      <SelectValue placeholder="Choisir une classe…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((cls) => (
+                        <SelectItem key={cls.id} value={cls.id}>{cls.displayName}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">Période</label>
+                  <Select value={bulkTerm || selectedTerm} onValueChange={handleBulkTermChange}>
+                    <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {getPeriodsForFrequency(paymentFrequency).map((p) => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {bulkClassId && bulkRows.length > 0 && (
+                  <Button size="sm" variant="outline" className="h-9 text-xs gap-1.5" onClick={fillAllAmounts}>
+                    <Check className="h-3.5 w-3.5" />
+                    Pré-remplir les montants
+                  </Button>
+                )}
+              </div>
+
+              {/* Grille élèves */}
+              {bulkClassId && bulkRows.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead className="text-xs py-2 pl-3 w-8">#</TableHead>
+                        <TableHead className="text-xs py-2">Élève</TableHead>
+                        <TableHead className="text-xs py-2 w-36">Montant (GNF)</TableHead>
+                        <TableHead className="text-xs py-2 w-40">Méthode</TableHead>
+                        <TableHead className="text-xs py-2 w-24 text-center">Statut</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bulkRows.map((row, idx) => (
+                        <TableRow
+                          key={row.id}
+                          className={cn(row.skip ? "opacity-50 bg-muted/20" : "")}
+                        >
+                          <TableCell className="py-1.5 pl-3 text-xs text-muted-foreground">{idx + 1}</TableCell>
+                          <TableCell className="py-1.5">
+                            <span className="text-sm font-medium">{row.lastName} {row.firstName}</span>
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            {row.skip ? (
+                              <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Déjà payé
+                              </span>
+                            ) : (
+                              <Input
+                                type="number"
+                                min="0"
+                                value={row.amount}
+                                onChange={(e) => updateBulkRow(row.id, "amount", e.target.value)}
+                                className="h-8 text-sm w-32"
+                                placeholder="0"
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            {!row.skip && (
+                              <Select
+                                value={row.method}
+                                onValueChange={(v) => updateBulkRow(row.id, "method", v)}
+                              >
+                                <SelectTrigger className="h-8 text-xs w-36"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="CASH">Espèces</SelectItem>
+                                  <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
+                                  <SelectItem value="BANK_TRANSFER">Virement</SelectItem>
+                                  <SelectItem value="CHECK">Chèque</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-1.5 text-center">
+                            {row.skip ? (
+                              <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Payé</Badge>
+                            ) : row.amount && Number(row.amount) > 0 ? (
+                              <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">À enregistrer</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] text-muted-foreground">—</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {bulkClassId && bulkRows.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Aucun élève dans cette classe.</p>
+              )}
+
+              {!bulkClassId && (
+                <p className="text-sm text-muted-foreground text-center py-4">Sélectionnez une classe pour afficher les élèves.</p>
+              )}
+
+              {/* Bouton enregistrer */}
+              {bulkClassId && bulkRows.some((r) => !r.skip && r.amount && Number(r.amount) > 0) && (
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {bulkRows.filter((r) => !r.skip && r.amount && Number(r.amount) > 0).length} paiement(s) à enregistrer
+                  </span>
+                  <Button
+                    onClick={handleBulkSave}
+                    disabled={bulkSaving}
+                    className="gap-2"
+                  >
+                    {bulkSaving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {bulkProgress ? `${bulkProgress.done} / ${bulkProgress.total}…` : "Enregistrement…"}
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Enregistrer tout
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {/* ── Filtres (recherche + classe + statut) ── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
