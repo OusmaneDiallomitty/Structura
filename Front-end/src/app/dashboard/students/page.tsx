@@ -113,6 +113,48 @@ export default function StudentsPage() {
   // Sélection multiple
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
 
+  // ── Saisie rapide (grille multi-élèves) ────────────────────────────────────
+  type QuickRow = { id: string; firstName: string; lastName: string; classId: string; parentName: string; parentPhone: string; };
+  const newEmptyRow = (): QuickRow => ({ id: crypto.randomUUID(), firstName: '', lastName: '', classId: '', parentName: '', parentPhone: '' });
+  const [quickOpen, setQuickOpen]   = useState(false);
+  const [quickRows, setQuickRows]   = useState<QuickRow[]>(() => Array(5).fill(null).map(newEmptyRow));
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [quickProgress, setQuickProgress] = useState<{done: number; total: number} | null>(null);
+
+  const updateQuickRow = (id: string, field: keyof QuickRow, value: string) =>
+    setQuickRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+
+  const handleQuickSave = async () => {
+    const token = storage.getAuthItem('structura_token');
+    if (!token) return;
+    const valid = quickRows.filter(r => r.firstName.trim() && r.lastName.trim());
+    if (valid.length === 0) { toast.error('Saisissez au moins un prénom et un nom'); return; }
+    setQuickSaving(true);
+    setQuickProgress({ done: 0, total: valid.length });
+    let success = 0, errors = 0;
+    for (const row of valid) {
+      try {
+        await createStudent(token, {
+          firstName:   row.firstName.trim(),
+          lastName:    row.lastName.trim(),
+          classId:     row.classId || '',
+          parentName:  row.parentName.trim()  || undefined,
+          parentPhone: row.parentPhone.trim() || undefined,
+        });
+        success++;
+      } catch { errors++; }
+      setQuickProgress(p => p ? { ...p, done: p.done + 1 } : null);
+    }
+    setQuickSaving(false);
+    setQuickProgress(null);
+    if (success > 0) {
+      toast.success(`${success} élève(s) enregistré(s) avec succès`);
+      setQuickRows(Array(5).fill(null).map(newEmptyRow));
+      loadStudents();
+    }
+    if (errors > 0) toast.error(`${errors} élève(s) n'ont pas pu être enregistré(s)`);
+  };
+
   /** Transforme un élève backend → format frontend */
   const mapStudent = (s: any): Student => ({
     id: s.id,
@@ -770,6 +812,106 @@ export default function StudentsPage() {
           )}
         </div>
       </div>
+
+      {/* ── Saisie rapide ─────────────────────────────────────────────────── */}
+      {canCreate && (
+        <Card className="border-indigo-200">
+          <CardHeader className="pb-3 cursor-pointer select-none" onClick={() => setQuickOpen(o => !o)}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <Plus className="h-4 w-4 text-indigo-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm font-semibold text-indigo-700">Saisie rapide — plusieurs élèves à la fois</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">Remplissez le tableau ligne par ligne puis enregistrez tout d'un coup</CardDescription>
+                </div>
+              </div>
+              <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${quickOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </CardHeader>
+
+          {quickOpen && (
+            <CardContent className="pt-0 space-y-3">
+              {/* Grille */}
+              <div className="rounded-lg border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-center px-2 py-2 font-medium text-gray-500 w-8">#</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-700 min-w-[130px]">Prénom <span className="text-red-400">*</span></th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-700 min-w-[130px]">Nom <span className="text-red-400">*</span></th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-700 min-w-[150px]">Classe</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-700 min-w-[130px]">Nom parent</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-700 min-w-[130px]">Tél. parent</th>
+                        <th className="w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {quickRows.map((row, idx) => (
+                        <tr key={row.id} className={`border-b last:border-0 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                          <td className="text-center px-2 py-1.5 text-gray-400 text-xs">{idx + 1}</td>
+                          <td className="px-1.5 py-1.5">
+                            <Input value={row.firstName} onChange={e => updateQuickRow(row.id, 'firstName', e.target.value)}
+                              placeholder="Prénom" className="h-8 text-sm border-0 bg-transparent focus:bg-white focus:border focus:border-indigo-300 px-2" />
+                          </td>
+                          <td className="px-1.5 py-1.5">
+                            <Input value={row.lastName} onChange={e => updateQuickRow(row.id, 'lastName', e.target.value)}
+                              placeholder="Nom" className="h-8 text-sm border-0 bg-transparent focus:bg-white focus:border focus:border-indigo-300 px-2" />
+                          </td>
+                          <td className="px-1.5 py-1.5">
+                            <select value={row.classId} onChange={e => updateQuickRow(row.id, 'classId', e.target.value)}
+                              className="w-full h-8 text-sm rounded-md border-0 bg-transparent focus:bg-white focus:border focus:border-indigo-300 px-2 outline-none">
+                              <option value="">— aucune —</option>
+                              {classes.map(c => (
+                                <option key={c.id} value={c.id}>{formatClassName(c.name, c.section)}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-1.5 py-1.5">
+                            <Input value={row.parentName} onChange={e => updateQuickRow(row.id, 'parentName', e.target.value)}
+                              placeholder="Nom parent" className="h-8 text-sm border-0 bg-transparent focus:bg-white focus:border focus:border-indigo-300 px-2" />
+                          </td>
+                          <td className="px-1.5 py-1.5">
+                            <Input value={row.parentPhone} onChange={e => updateQuickRow(row.id, 'parentPhone', e.target.value)}
+                              placeholder="Téléphone" className="h-8 text-sm border-0 bg-transparent focus:bg-white focus:border focus:border-indigo-300 px-2" />
+                          </td>
+                          <td className="px-1 py-1.5 text-center">
+                            <button onClick={() => setQuickRows(prev => prev.filter(r => r.id !== row.id))}
+                              className="text-gray-300 hover:text-red-400 transition-colors p-1 rounded">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <button onClick={() => setQuickRows(prev => [...prev, newEmptyRow()])}
+                  className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+                  <Plus className="h-4 w-4" /> Ajouter une ligne
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">
+                    {quickRows.filter(r => r.firstName.trim() && r.lastName.trim()).length} élève(s) prêt(s) à enregistrer
+                  </span>
+                  <Button onClick={handleQuickSave} disabled={quickSaving || quickRows.filter(r => r.firstName.trim() && r.lastName.trim()).length === 0}
+                    size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                    {quickSaving
+                      ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />{quickProgress ? `${quickProgress.done}/${quickProgress.total}…` : 'Enregistrement…'}</>
+                      : <><Plus className="h-4 w-4 mr-1.5" />Enregistrer tout</>}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {/* Stats */}
       <div className={`grid gap-4 ${canViewPayments ? 'md:grid-cols-4' : 'md:grid-cols-1 max-w-xs'}`}>
