@@ -31,6 +31,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import * as storage from "@/lib/storage";
 import { getStudentById } from "@/lib/api/students.service";
+import { getEvaluations, getCompositions } from "@/lib/api/grades.service";
+import type { Evaluation, Composition } from "@/lib/api/grades.service";
 import { formatClassName } from "@/lib/class-helpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/use-subscription";
@@ -95,6 +97,8 @@ export default function StudentProfilePage() {
   const [payments, setPayments] = useState<any[]>([]);
   const [attendances, setAttendances] = useState<any[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [compositions, setCompositions] = useState<Composition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => { loadStudent(); }, [studentId]);
@@ -126,6 +130,9 @@ export default function StudentProfilePage() {
         // Utilise le paymentStatus recalculé depuis le backend (qui inclut les vrais paiements)
         paymentStatus: data.paymentStatus?.toLowerCase() || "pending",
         lastPaidTerm: data.lastPaidTerm || null,
+        gradeMode: data.class?.gradeMode ?? "SECONDARY",
+        classLevel: data.class?.level ?? "",
+        className: data.class?.name ?? "",
       });
 
       setPayments(data.payments || []);
@@ -137,6 +144,14 @@ export default function StudentProfilePage() {
         }))
       );
       setGrades(data.grades || []);
+
+      // Charger les évaluations et compositions en parallèle
+      const [evalsData, compsData] = await Promise.all([
+        getEvaluations(token, { studentId }).catch(() => []),
+        getCompositions(token, { studentId }).catch(() => []),
+      ]);
+      setEvaluations(evalsData);
+      setCompositions(compsData);
     } catch (error: any) {
       console.error("Erreur chargement élève:", error);
       toast.error("Impossible de charger les informations");
@@ -183,20 +198,57 @@ export default function StudentProfilePage() {
     ? ((presentCount / totalAttendances) * 100).toFixed(0)
     : "0";
 
-  // ─── Notes ─────────────────────────────────────────────────────────────────
+  // ─── Notes (depuis évaluations + compositions réelles) ─────────────────────
 
-  const gradesByTerm = grades.reduce((acc: Record<string, any[]>, g) => {
-    const key = g.term || "Non défini";
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(g);
+  // Détection primaire/secondaire pour seuils corrects
+  const isPrimary =
+    student?.gradeMode === "PRIMARY" ||
+    ["Primaire", "Maternelle"].includes(student?.classLevel ?? "") ||
+    /^(CP|CE|CM)\d/i.test(student?.className ?? "") ||
+    /^(Petite|Moyenne|Grande)\s+Section$/i.test(student?.className ?? "");
+  const scoreMax      = isPrimary ? 10 : 20;
+  const passThreshold = isPrimary ? 5 : 10;
+
+  // Grouper les évaluations par trimestre puis par matière
+  type SubjectData = { subject: string; evals: Evaluation[]; comp?: Composition; };
+  const gradesByTerm = evaluations.reduce((acc: Record<string, SubjectData[]>, ev) => {
+    const term = ev.term || "Non défini";
+    if (!acc[term]) acc[term] = [];
+    const existing = acc[term].find((s) => s.subject === ev.subject);
+    if (existing) existing.evals.push(ev);
+    else acc[term].push({ subject: ev.subject, evals: [ev] });
     return acc;
   }, {});
 
-  const latestTerm = Object.keys(gradesByTerm)[0];
-  const latestGrades = latestTerm ? gradesByTerm[latestTerm] : [];
-  const generalAverage = latestGrades.length > 0
-    ? (latestGrades.reduce((sum, g) => sum + (g.score / (g.maxScore || 20)) * 20, 0) / latestGrades.length).toFixed(1)
+  // Ajouter les compositions dans les trimestres correspondants
+  compositions.forEach((comp) => {
+    const term = comp.term || "Non défini";
+    if (!gradesByTerm[term]) gradesByTerm[term] = [];
+    const existing = gradesByTerm[term].find((s) => s.subject === comp.subject);
+    if (existing) existing.comp = comp;
+    else gradesByTerm[term].push({ subject: comp.subject, evals: [], comp });
+  });
+
+  // Calculer la moyenne par matière
+  function subjectAverage(s: SubjectData): number | null {
+    const evalAvg = s.evals.length > 0 ? s.evals.reduce((sum, e) => sum + e.score, 0) / s.evals.length : null;
+    const compScore = s.comp ? s.comp.compositionScore : null;
+    if (evalAvg !== null && compScore !== null) return (evalAvg + compScore) / 2;
+    if (evalAvg !== null) return evalAvg;
+    if (compScore !== null) return compScore;
+    return null;
+  }
+
+  // Moyenne générale (dernier trimestre saisi)
+  const sortedTerms = Object.keys(gradesByTerm).sort().reverse();
+  const latestTerm = sortedTerms[0];
+  const latestSubjects = latestTerm ? gradesByTerm[latestTerm] : [];
+  const validAverages = latestSubjects.map(subjectAverage).filter((v): v is number => v !== null);
+  const generalAverage = validAverages.length > 0
+    ? (validAverages.reduce((s, v) => s + v, 0) / validAverages.length).toFixed(1)
     : null;
+  // Décision admis/insuffisant selon niveau
+  const isAdmis = generalAverage !== null && parseFloat(generalAverage) >= passThreshold;
 
   // ─── Badge paiement ─────────────────────────────────────────────────────────
 
@@ -305,6 +357,35 @@ export default function StudentProfilePage() {
         </CardContent>
       </Card>
 
+      {/* ─── Strip récapitulatif (pour réunion parents) ─── */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className={`border-l-4 ${parseInt(attendanceRate) >= 75 ? "border-l-emerald-500" : "border-l-red-500"}`}>
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-xs text-muted-foreground">Taux de présence</p>
+            <p className={`text-2xl font-bold ${parseInt(attendanceRate) >= 75 ? "text-emerald-600" : "text-red-600"}`}>
+              {attendanceRate}%
+            </p>
+            <p className="text-[11px] text-muted-foreground">{presentCount} présences / {totalAttendances} jours</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-xs text-muted-foreground">Total encaissé</p>
+            <p className="text-2xl font-bold text-blue-600">{totalPaid.toLocaleString("fr-FR")} GNF</p>
+            <p className="text-[11px] text-muted-foreground">{paidPayments.length} versement{paidPayments.length > 1 ? "s" : ""}</p>
+          </CardContent>
+        </Card>
+        <Card className={`border-l-4 ${isAdmis ? "border-l-indigo-500" : "border-l-amber-500"}`}>
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-xs text-muted-foreground">Moyenne générale</p>
+            <p className={`text-2xl font-bold ${isAdmis ? "text-indigo-600" : "text-amber-600"}`}>
+              {generalAverage !== null ? `${generalAverage}/${scoreMax}` : "—"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">{latestTerm ?? "Aucune note"}</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* ─── Onglets ─── */}
       <Tabs defaultValue="info" className="space-y-4">
         <TabsList className="grid w-full grid-cols-4 h-11 bg-gray-100/80 p-1 rounded-xl">
@@ -321,9 +402,9 @@ export default function StudentProfilePage() {
           >
             <FileText className="h-4 w-4 shrink-0" />
             <span className="hidden sm:inline">Notes</span>
-            {grades.length > 0 && (
+            {(evaluations.length + compositions.length) > 0 && (
               <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
-                {grades.length}
+                {sortedTerms.length}T
               </span>
             )}
           </TabsTrigger>
@@ -428,91 +509,108 @@ export default function StudentProfilePage() {
 
         {/* ═══ Onglet Notes ═══ */}
         <TabsContent value="grades" className="space-y-4">
-          {grades.length === 0 ? (
+          {sortedTerms.length === 0 ? (
             <Card>
               <CardContent className="py-16 text-center text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-40" />
                 <p className="font-medium">Aucune note enregistrée</p>
-                <p className="text-sm mt-1">Les notes seront visibles ici après saisie</p>
+                <p className="text-sm mt-1">Les notes apparaîtront ici après saisie par les professeurs</p>
               </CardContent>
             </Card>
           ) : (
             <>
-              <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Moyenne générale</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold">{generalAverage !== null ? `${generalAverage}/20` : "-"}</div>
-                    <p className="text-xs text-muted-foreground mt-1">{latestTerm || "Dernier trimestre"}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Matières évaluées</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold">{grades.length}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Au total</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Résultat global</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2">
-                      {generalAverage !== null && parseFloat(generalAverage) >= 10 ? (
-                        <><TrendingUp className="h-6 w-6 text-emerald-600" /><span className="text-2xl font-bold text-emerald-600">Admis</span></>
-                      ) : (
-                        <><TrendingDown className="h-6 w-6 text-red-600" /><span className="text-2xl font-bold text-red-600">Insuffisant</span></>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+              {/* Résumé trimestriel */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                {sortedTerms.map((term) => {
+                  const subjects = gradesByTerm[term];
+                  const avgs = subjects.map(subjectAverage).filter((v): v is number => v !== null);
+                  const avg = avgs.length > 0 ? avgs.reduce((s, v) => s + v, 0) / avgs.length : null;
+                  const termPass = avg !== null && avg >= passThreshold;
+                  return (
+                    <Card key={term} className={`border-l-4 ${avg !== null && termPass ? "border-l-indigo-400" : avg !== null ? "border-l-amber-400" : "border-l-muted"}`}>
+                      <CardContent className="pt-3 pb-3 px-4">
+                        <p className="text-xs text-muted-foreground">{term}</p>
+                        <p className={`text-2xl font-bold ${avg !== null && termPass ? "text-indigo-600" : avg !== null ? "text-amber-600" : "text-muted-foreground"}`}>
+                          {avg !== null ? `${avg.toFixed(1)}/${scoreMax}` : "—"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">{subjects.length} matière{subjects.length > 1 ? "s" : ""}</p>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
 
-              {Object.entries(gradesByTerm).map(([term, termGrades]) => (
-                <Card key={term}>
-                  <CardHeader>
-                    <CardTitle>Notes — {term}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Matière</TableHead>
-                          <TableHead>Note</TableHead>
-                          <TableHead>Coefficient</TableHead>
-                          <TableHead>Statut</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(termGrades as any[]).map((grade: any) => {
-                          const pct = grade.maxScore > 0 ? (grade.score / grade.maxScore) * 100 : 0;
-                          return (
-                            <TableRow key={grade.id}>
-                              <TableCell className="font-medium">{grade.subject || "Matière inconnue"}</TableCell>
-                              <TableCell>
-                                <span className={`font-bold ${pct >= 75 ? "text-emerald-600" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>
-                                  {grade.score}/{grade.maxScore || 20}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">{grade.coefficient ?? 1}</TableCell>
-                              <TableCell>
-                                {pct >= 50
-                                  ? <Badge className="bg-emerald-500/10 text-emerald-700 border-0"><CheckCircle2 className="h-3 w-3 mr-1" />Admis</Badge>
-                                  : <Badge className="bg-red-500/10 text-red-700 border-0"><XCircle className="h-3 w-3 mr-1" />Insuffisant</Badge>}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              ))}
+              {/* Détail par trimestre */}
+              {sortedTerms.map((term) => {
+                const subjects = gradesByTerm[term];
+                return (
+                  <Card key={term}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold">Notes — {term}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-0 pb-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/30">
+                            <TableHead className="pl-4">Matière</TableHead>
+                            <TableHead className="text-center">Moy. devoirs</TableHead>
+                            <TableHead className="text-center">Composition</TableHead>
+                            <TableHead className="text-center">Moyenne</TableHead>
+                            <TableHead>Statut</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {subjects.map((s) => {
+                            const evalAvg = s.evals.length > 0
+                              ? s.evals.reduce((sum, e) => sum + e.score, 0) / s.evals.length
+                              : null;
+                            const compScore = s.comp ? s.comp.compositionScore : null;
+                            const avg = subjectAverage(s);
+                            const pass = avg !== null && avg >= passThreshold;
+                            const goodThreshold = scoreMax * 0.7; // ≥14/20 ou ≥7/10
+                            return (
+                              <TableRow key={s.subject}>
+                                <TableCell className="pl-4 font-medium">{s.subject}</TableCell>
+                                <TableCell className="text-center text-sm">
+                                  {evalAvg !== null ? (
+                                    <span className={evalAvg >= passThreshold ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>
+                                      {evalAvg.toFixed(1)}/{scoreMax}
+                                    </span>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                  {s.evals.length > 0 && (
+                                    <span className="text-[10px] text-muted-foreground ml-1">({s.evals.length} dev.)</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-center text-sm">
+                                  {compScore !== null ? (
+                                    <span className={compScore >= passThreshold ? "text-emerald-600 font-medium" : "text-red-600 font-medium"}>
+                                      {compScore.toFixed(1)}/{scoreMax}
+                                    </span>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {avg !== null ? (
+                                    <span className={`font-bold ${avg >= goodThreshold ? "text-emerald-600" : avg >= passThreshold ? "text-blue-600" : "text-red-600"}`}>
+                                      {avg.toFixed(1)}/{scoreMax}
+                                    </span>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                </TableCell>
+                                <TableCell>
+                                  {avg !== null ? (
+                                    pass
+                                      ? <Badge className="bg-emerald-500/10 text-emerald-700 border-0 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Admis</Badge>
+                                      : <Badge className="bg-red-500/10 text-red-700 border-0 text-xs"><XCircle className="h-3 w-3 mr-1" />Insuffisant</Badge>
+                                  ) : <span className="text-muted-foreground text-xs">—</span>}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </>
           )}
         </TabsContent>

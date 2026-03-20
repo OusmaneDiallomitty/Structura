@@ -1691,6 +1691,66 @@ export default function PaymentsPage() {
         </Card>
       </div>
 
+      {/* ── Recouvrement par classe ── */}
+      {canViewAmounts && classes.length > 0 && activeClass === "all" && !isLoading && (
+        <Card>
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <GraduationCap className="h-4 w-4 text-primary" />
+              Recouvrement par classe
+              <span className="text-xs font-normal text-muted-foreground">— {selectedTerm} {selectedYear}</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="space-y-3">
+              {classes
+                .map((cls) => {
+                  const scope = studentSummaries.filter((s) => s.student.classId === cls.id);
+                  if (scope.length === 0) return null;
+                  const paid    = scope.filter((s) => s.status === "paid").length;
+                  const partial = scope.filter((s) => s.status === "partial").length;
+                  const rate    = Math.round((paid / scope.length) * 100);
+                  const collected = scope.reduce((sum, s) => sum + s.totalPaid, 0);
+                  return { cls, scope, paid, partial, rate, collected };
+                })
+                .filter(Boolean)
+                .sort((a, b) => (b!.rate - a!.rate))
+                .map((item) => {
+                  const { cls, scope, paid, partial, rate, collected } = item!;
+                  return (
+                    <div key={cls.id} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <button
+                          onClick={() => setActiveClass(cls.id)}
+                          className="font-medium hover:text-primary transition-colors text-left"
+                        >
+                          {cls.displayName}
+                        </button>
+                        <div className="flex items-center gap-3 text-muted-foreground">
+                          <span>
+                            <span className="font-semibold text-foreground">{paid}</span>/{scope.length} payés
+                            {partial > 0 && <span className="ml-1 text-amber-600">({partial} partiels)</span>}
+                          </span>
+                          <span className="font-semibold text-emerald-600">{formatCurrency(collected)}</span>
+                          <span className={`font-bold w-9 text-right ${rate >= 80 ? "text-emerald-600" : rate >= 50 ? "text-amber-600" : "text-red-600"}`}>
+                            {rate}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${rate >= 80 ? "bg-emerald-500" : rate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                          style={{ width: `${rate}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Saisie paiements en masse ── */}
       {canCreatePayment && (
         <Card className="border-dashed">
