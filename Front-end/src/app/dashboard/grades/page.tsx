@@ -249,6 +249,8 @@ function GradesPageInner() {
   const [bulletinLoading, setBulletinLoading] = useState(false);
   const [trimesterLock, setTrimesterLock] = useState<TrimesterLock | null>(null);
   const [lockLoading, setLockLoading] = useState(false);
+  // Trimestre verrouillé → profs bloqués. Le directeur garde l'accès.
+  const isLocked = !!trimesterLock && !isDirector;
 
   // Subject detail sheet
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -983,7 +985,20 @@ function GradesPageInner() {
         return [...filtered, ...newEvals];
       });
     } catch (err: any) {
-      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      if (!navigator.onLine || err?.message === 'Failed to fetch') {
+        await syncQueue.add({ type: "evaluation", action: "create", data: {
+          classId: selectedClassId, subject, term: selectedTerm, month,
+          academicYear: academicYear || undefined,
+          teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+          evaluations: students.map((s) => {
+            const raw = scores[s.id]?.[subject];
+            const score = parseFloat(raw ?? '');
+            return !isNaN(score) && score >= 0 && score <= 20 ? { studentId: s.id, score } : null;
+          }).filter(Boolean),
+        }});
+      } else {
+        toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      }
     } finally {
       setEvalGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     }
@@ -1114,7 +1129,20 @@ function GradesPageInner() {
       });
       setCompGridSavedSubjects((prev) => new Set([...prev, subject]));
     } catch (err: any) {
-      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      if (!navigator.onLine || err?.message === 'Failed to fetch') {
+        await syncQueue.add({ type: "composition", action: "create", data: {
+          classId: selectedClassId, subject, term: selectedTerm,
+          academicYear: academicYear || undefined,
+          teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+          compositions: students.map((s) => {
+            const raw = scores[s.id]?.[subject];
+            const score = parseFloat(raw ?? '');
+            return !isNaN(score) && score >= 0 && score <= 20 ? { studentId: s.id, compositionScore: score } : null;
+          }).filter(Boolean),
+        }});
+      } else {
+        toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      }
     } finally {
       setCompGridAutoSavingSubjects((prev) => { const n = new Set(prev); n.delete(subject); return n; });
     }
@@ -1158,7 +1186,20 @@ function GradesPageInner() {
       });
       setGridSavedSubjects((prev) => new Set([...prev, subject]));
     } catch (err: any) {
-      toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      if (!navigator.onLine || err?.message === 'Failed to fetch') {
+        await syncQueue.add({ type: "composition", action: "create", data: {
+          classId: selectedClassId, subject, term: selectedTerm,
+          academicYear: academicYear || undefined,
+          teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
+          compositions: students.map((s) => {
+            const raw = scores[s.id]?.[subject];
+            const score = parseFloat(raw ?? '');
+            return !isNaN(score) && score >= 0 && score <= 10 ? { studentId: s.id, compositionScore: score } : null;
+          }).filter(Boolean),
+        }});
+      } else {
+        toast.error(err?.message || 'Erreur lors de la sauvegarde des notes');
+      }
     } finally {
       setGridAutoSavingSubjects((prev) => {
         const next = new Set(prev);
@@ -2095,6 +2136,7 @@ function GradesPageInner() {
                                         max={20}
                                         step={0.25}
                                         value={raw}
+                                        disabled={isLocked}
                                         onChange={(e) => {
                                           const value = e.target.value;
                                           const sid = student.id;
@@ -2189,6 +2231,7 @@ function GradesPageInner() {
                                             max={20}
                                             step={0.25}
                                             value={raw}
+                                            disabled={isLocked}
                                             onChange={(e) => {
                                               const value = e.target.value;
                                               const sid = student.id;
@@ -2404,6 +2447,7 @@ function GradesPageInner() {
                                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                                       {canSaveGrades ? (
                                         <Input type="number" inputMode="decimal" min={0} max={10} step={0.25} value={raw}
+                                          disabled={isLocked}
                                           onChange={(e) => {
                                             const value = e.target.value;
                                             const sid = student.id;
@@ -2486,6 +2530,7 @@ function GradesPageInner() {
                                         return (
                                           <td key={sub} className="px-1 py-2 text-center">
                                             <Input type="number" inputMode="decimal" min={0} max={10} step={0.25} value={raw}
+                                              disabled={isLocked}
                                               onChange={(e) => {
                                                 const value = e.target.value;
                                                 const sid = student.id;
@@ -2667,6 +2712,7 @@ function GradesPageInner() {
                                         max={20}
                                         step={0.25}
                                         value={raw}
+                                        disabled={isLocked}
                                         onChange={(e) => {
                                           const value = e.target.value;
                                           const sid = student.id;
@@ -2766,6 +2812,7 @@ function GradesPageInner() {
                                                 max={20}
                                                 step={0.25}
                                                 value={raw}
+                                                disabled={isLocked}
                                                 onChange={(e) => {
                                                   const value = e.target.value;
                                                   const sid = student.id;

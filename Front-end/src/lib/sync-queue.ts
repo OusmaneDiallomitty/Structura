@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import * as storage from "@/lib/storage";
 import { createStudent, updateStudent, deleteStudent } from "@/lib/api/students.service";
 import { createClass, updateClass, deleteClass } from "@/lib/api/classes.service";
-import { createPayment, updatePayment } from "@/lib/api/payments.service";
+import { createPayment, updatePayment, deletePayment } from "@/lib/api/payments.service";
 import { createAttendance, updateAttendance } from "@/lib/api/attendance.service";
 import { bulkSaveEvaluations, bulkSaveCompositions } from "@/lib/api/grades.service";
 
@@ -214,6 +214,13 @@ class SyncQueue {
           } else if (action.action === "update") {
             const { id, _tempId, needsSync, ...dto } = action.data;
             await updatePayment(token, id, dto);
+          } else if (action.action === "delete") {
+            try {
+              await deletePayment(token, action.data.id);
+            } catch (err: any) {
+              if (this.isNotFoundError(err)) return;
+              throw err;
+            }
           }
           break;
         }
@@ -275,6 +282,9 @@ class SyncQueue {
    * Mettre à jour le flag needsSync après synchronisation réussie
    */
   private async updateSyncFlag(action: SyncAction): Promise<void> {
+    // evaluation et composition utilisent des clés composites — pas de flag needsSync à mettre à jour
+    if (action.type === "evaluation" || action.type === "composition") return;
+
     const storeMap: Record<string, string> = {
       student: STORES.STUDENTS,
       payment: STORES.PAYMENTS,

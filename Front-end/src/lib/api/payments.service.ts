@@ -128,6 +128,20 @@ export async function createPayment(token: string, data: CreatePaymentDto) {
 }
 
 /**
+ * Supprimer un paiement
+ */
+export async function deletePayment(token: string, id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/payments/${id}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Failed to delete payment' }));
+    throw new Error(error.message || 'Failed to delete payment');
+  }
+}
+
+/**
  * Mettre à jour un paiement
  */
 export async function updatePayment(token: string, id: string, data: UpdatePaymentDto) {
