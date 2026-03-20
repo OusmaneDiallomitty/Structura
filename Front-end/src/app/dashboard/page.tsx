@@ -40,6 +40,18 @@ import {
   getAttendanceChartData,
   getStudentsDistribution,
 } from "@/lib/api/dashboard.service";
+import { getCurrentAcademicYear, createAcademicYear } from "@/lib/api/academic-years.service";
+
+/** Calcule le nom de l'année scolaire courante selon la date du jour.
+ *  En Guinée l'année commence en Septembre.
+ *  Si on est en sept. ou plus → "2025-2026", sinon → "2024-2025".
+ */
+function guessCurrentSchoolYearName(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+  return month >= 9 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
 
 /**
  * Formate un montant en GNF de façon lisible.
@@ -106,10 +118,31 @@ export default function DashboardPage() {
   const loadIdRef = useRef(0);
 
   // Handlers pour l'onboarding
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = async () => {
     setShowOnboardingModal(false);
-    toast.success('C\'est parti ! Commencez par créer votre année scolaire.');
-    // Reste sur le dashboard — le widget "Créer l'année scolaire" est ici
+    // Auto-créer l'année scolaire courante si aucune n'existe
+    try {
+      const token = storage.getAuthItem('structura_token');
+      if (token) {
+        const existing = await getCurrentAcademicYear(token).catch(() => null);
+        if (!existing) {
+          const yearName = guessCurrentSchoolYearName();
+          await createAcademicYear(token, {
+            name: yearName,
+            startMonth: 'Septembre',
+            durationMonths: 9,
+            isCurrent: true,
+          });
+          toast.success(`Année scolaire ${yearName} créée automatiquement`, {
+            description: 'Vous pouvez maintenant créer vos classes.',
+          });
+        } else {
+          toast.success('C\'est parti ! Créez vos classes pour commencer.');
+        }
+      }
+    } catch {
+      toast.info('Pensez à créer votre année scolaire dans les paramètres.');
+    }
   };
 
   const handleOnboardingSkip = () => {
@@ -420,6 +453,63 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {/* Alertes contextuelles — directeur uniquement */}
+      {user?.role === 'director' && stats && (() => {
+        const now = new Date();
+        const dayOfMonth = now.getDate();
+        const month = now.getMonth() + 1;
+        // Fin de trimestre approximative (mois 12, 3, 6 en calendrier scolaire guinéen)
+        const isEndOfTerm = [12, 3, 6].includes(month) && dayOfMonth >= 20;
+
+        const alerts: { type: 'warning' | 'info' | 'error'; message: string; description: string; href?: string }[] = [];
+
+        if (!stats.currentAcademicYear) {
+          alerts.push({ type: 'error', message: 'Aucune année scolaire active', description: 'Créez une année scolaire pour commencer à gérer votre école.', href: '/dashboard/settings' });
+        }
+        if (stats.totalClasses === 0) {
+          alerts.push({ type: 'warning', message: 'Aucune classe créée', description: 'Ajoutez vos classes pour pouvoir inscrire des élèves.', href: '/dashboard/classes' });
+        }
+        if (stats.totalStudents === 0 && stats.totalClasses > 0) {
+          alerts.push({ type: 'info', message: 'Aucun élève inscrit', description: 'Commencez à inscrire vos élèves dans vos classes.', href: '/dashboard/students/add' });
+        }
+        const attendanceNum = parseFloat(String(stats.attendanceRate ?? 0));
+        if (attendanceNum > 0 && attendanceNum < 75) {
+          alerts.push({ type: 'warning', message: `Taux de présence faible : ${Math.round(attendanceNum)} %`, description: 'Le taux de présence est en dessous de 75 %. Vérifiez les absences récentes.', href: '/dashboard/attendance' });
+        }
+        if (isEndOfTerm) {
+          alerts.push({ type: 'info', message: 'Fin de trimestre approche', description: 'Pensez à vérouiller les notes du trimestre en cours avant la clôture.', href: '/dashboard/grades' });
+        }
+
+        if (alerts.length === 0) return null;
+
+        const colorMap = {
+          error:   { bg: 'bg-red-50',    border: 'border-red-200',    dot: 'bg-red-500',    text: 'text-red-800',    sub: 'text-red-600' },
+          warning: { bg: 'bg-amber-50',  border: 'border-amber-200',  dot: 'bg-amber-500',  text: 'text-amber-800',  sub: 'text-amber-600' },
+          info:    { bg: 'bg-blue-50',   border: 'border-blue-200',   dot: 'bg-blue-500',   text: 'text-blue-800',   sub: 'text-blue-600' },
+        };
+
+        return (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Points d'attention</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {alerts.map((alert, i) => {
+                const c = colorMap[alert.type];
+                const content = (
+                  <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${c.bg} ${c.border} ${alert.href ? 'cursor-pointer hover:brightness-95 transition-all' : ''}`}>
+                    <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${c.dot}`} />
+                    <div className="min-w-0">
+                      <p className={`text-sm font-semibold ${c.text}`}>{alert.message}</p>
+                      <p className={`text-xs mt-0.5 ${c.sub}`}>{alert.description}</p>
+                    </div>
+                  </div>
+                );
+                return alert.href ? <Link key={i} href={alert.href}>{content}</Link> : content;
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Content Grid */}
       <div className="grid gap-6">

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { syncQueue } from "@/lib/sync-queue";
+import { useOnline } from "@/hooks/use-online";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -109,8 +111,22 @@ const navigation: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
+  const isOnline = useOnline();
   const [isOpen, setIsOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [pendingSync, setPendingSync] = useState(0);
+
+  // Compteur d'actions en attente de synchronisation
+  const refreshPendingCount = useCallback(async () => {
+    const count = await syncQueue.getPendingCount();
+    setPendingSync(count);
+  }, []);
+
+  useEffect(() => {
+    refreshPendingCount();
+    const id = setInterval(refreshPendingCount, 8000);
+    return () => clearInterval(id);
+  }, [isOnline, refreshPendingCount]);
 
   // Ouvrir automatiquement les sous-menus de la route active
   useEffect(() => {
@@ -149,15 +165,22 @@ export function Sidebar() {
     <>
       {/* Mobile Menu Button - Only show when sidebar is closed */}
       {!isOpen && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="fixed top-3 left-3 z-50 lg:hidden transition-all duration-200 hover:scale-110 bg-background border shadow-lg"
-          onClick={() => setIsOpen(true)}
-          aria-label="Ouvrir le menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+        <div className="fixed top-3 left-3 z-50 lg:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative transition-all duration-200 hover:scale-110 bg-background border shadow-lg"
+            onClick={() => setIsOpen(true)}
+            aria-label="Ouvrir le menu"
+          >
+            <Menu className="h-5 w-5" />
+            {pendingSync > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {pendingSync > 9 ? "9+" : pendingSync}
+              </span>
+            )}
+          </Button>
+        </div>
       )}
 
       {/* Overlay */}
@@ -289,6 +312,22 @@ export function Sidebar() {
 
           {/* Footer */}
           <div className="p-4 border-t space-y-2">
+            {/* Indicateur sync offline */}
+            {pendingSync > 0 && (
+              <div className={cn(
+                "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium",
+                isOnline ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
+              )}>
+                <span className={cn(
+                  "h-2 w-2 rounded-full shrink-0",
+                  isOnline ? "bg-blue-500 animate-pulse" : "bg-amber-500"
+                )} />
+                {isOnline
+                  ? `${pendingSync} action${pendingSync > 1 ? "s" : ""} en attente de sync`
+                  : `${pendingSync} action${pendingSync > 1 ? "s" : ""} hors ligne`
+                }
+              </div>
+            )}
             <Link
               href="/dashboard/profile"
               onClick={closeSidebar}

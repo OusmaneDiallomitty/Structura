@@ -83,6 +83,7 @@ import type { Payment, BackendStudent } from "@/types";
 import { useAuth, usePermission } from "@/contexts/AuthContext";
 import { formatClassName } from "@/lib/class-helpers";
 import { cn } from "@/lib/utils";
+import { exportToCSV } from "@/lib/csv-handler";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -930,6 +931,31 @@ export default function PaymentsPage() {
       );
   }, [studentSummaries, activeClass, searchQuery, statusFilter]);
 
+  // ── Export CSV ────────────────────────────────────────────────────────────
+  const handleExportPayments = () => {
+    if (filteredSummaries.length === 0) {
+      toast.error("Aucun paiement à exporter. Ajustez vos filtres.");
+      return;
+    }
+    const statusLabel: Record<string, string> = { paid: "Payé", partial: "Partiel", unpaid: "Non payé" };
+    exportToCSV({
+      filename: `paiements-${selectedTerm.replace(/\s+/g, "-")}-${selectedYear}`,
+      headers: ["Matricule", "Prénom", "Nom", "Classe", "Période", "Attendu", "Payé", "Reste", "Statut"],
+      data: filteredSummaries.map((s) => ({
+        Matricule:  s.student.matricule,
+        Prénom:     s.student.firstName,
+        Nom:        s.student.lastName,
+        Classe:     s.className,
+        Période:    selectedTerm,
+        Attendu:    s.expectedFee,
+        Payé:       s.totalPaid,
+        Reste:      s.remaining,
+        Statut:     statusLabel[s.status] ?? s.status,
+      })),
+    });
+    toast.success(`${filteredSummaries.length} paiement(s) exporté(s)`);
+  };
+
   // ── Stats ─────────────────────────────────────────────────────────────────
 
   const stats = useMemo(() => {
@@ -1504,10 +1530,16 @@ export default function PaymentsPage() {
             </Badge>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading} className="gap-2 self-start">
-          <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-          Actualiser
-        </Button>
+        <div className="flex gap-2 self-start">
+          <Button variant="outline" size="sm" onClick={handleExportPayments} disabled={filteredSummaries.length === 0} className="gap-2">
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Exporter</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading} className="gap-2">
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+            <span className="hidden sm:inline">Actualiser</span>
+          </Button>
+        </div>
       </div>
 
       {/* ── Alerte fin de mois ── */}
