@@ -120,6 +120,14 @@ export function NewYearWizard({
     }
   }, [currentYear]);
 
+  // Reset le step à chaque ouverture selon l'état de currentYear
+  // (important si l'user crée la 1ère année puis rouvre le wizard)
+  useEffect(() => {
+    if (open) {
+      setStep(currentYear ? "promotion" : "form");
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (open && currentYear) {
       loadPromotionPreview();
