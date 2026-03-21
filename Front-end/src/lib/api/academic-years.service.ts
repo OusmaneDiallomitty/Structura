@@ -47,6 +47,7 @@ export interface CreateNewYearTransitionDto {
   startMonth?: string;      // "Octobre"
   durationMonths?: number;  // 9
   studentTransitionMode?: StudentTransitionMode;
+  studentDecisions?: StudentDecisionEntry[];
 }
 
 export interface TransitionSummary {
@@ -207,6 +208,53 @@ export async function setCurrentAcademicYear(token: string, id: string): Promise
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Failed to set current academic year' }));
     throw new Error(error.message || 'Failed to set current academic year');
+  }
+
+  return await response.json();
+}
+
+// ── Types promotion preview ───────────────────────────────────────────────
+
+export type PromotionDecision = 'promote' | 'repeat' | 'graduate';
+
+export interface PromotionPreviewStudent {
+  id: string;
+  firstName: string;
+  lastName: string;
+  matricule: string | null;
+  finalAverage: number | null;
+  scoreMax: number | null;
+  passed: boolean;
+  suggestedDecision: PromotionDecision;
+}
+
+export interface PromotionPreviewClass {
+  classId: string;
+  className: string;
+  nextClassName: string | null;
+  students: PromotionPreviewStudent[];
+}
+
+export interface StudentDecisionEntry {
+  studentId: string;
+  decision: PromotionDecision;
+}
+
+/**
+ * Récupérer l'aperçu de promotion pour la transition d'année
+ */
+export async function getPromotionPreview(token: string): Promise<PromotionPreviewClass[]> {
+  const response = await fetch(`${API_BASE_URL}/academic-years/promotion-preview`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Failed to fetch promotion preview' }));
+    throw new Error(error.message || 'Failed to fetch promotion preview');
   }
 
   return await response.json();
