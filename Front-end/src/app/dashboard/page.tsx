@@ -151,6 +151,9 @@ export default function DashboardPage() {
       }
     } catch {
       toast.info('Pensez à créer votre année scolaire dans les paramètres.');
+    } finally {
+      // Recharger le dashboard pour refléter la nouvelle année scolaire sans actualiser
+      loadDashboardData();
     }
   };
 
