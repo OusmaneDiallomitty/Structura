@@ -75,7 +75,7 @@ import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { useSubscription } from "@/hooks/use-subscription";
 import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
-import { getPayments, createPayment } from "@/lib/api/payments.service";
+import { getPayments, createPayment, deletePayment } from "@/lib/api/payments.service";
 import { getStudents } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
 import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
@@ -571,9 +571,10 @@ export default function PaymentsPage() {
   const [schoolCalendar,      setSchoolCalendar]      = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
   const [draftSchoolCalendar, setDraftSchoolCalendar] = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
 
-  // ── Dialog "Ajouter un poste de frais" (école publique) ──────────────────
+  // ── Dialog "Ajouter / Éditer un poste de frais" (école publique) ─────────
   const [isFeeItemDialogOpen,  setIsFeeItemDialogOpen]  = useState(false);
   const [feeItemSaving,        setFeeItemSaving]        = useState(false);
+  const [editingFeeItem, setEditingFeeItem] = useState<import("@/lib/api/fees.service").FeeItem | null>(null);
   const [feeItemForm, setFeeItemForm] = useState({
     name: "",
     amount: "",
@@ -581,6 +582,19 @@ export default function PaymentsPage() {
     classIds: [] as string[],
     allClasses: true,
   });
+
+  // ── Vue publique — filtres & actions ──────────────────────────────────────
+  const [publicSearchQuery, setPublicSearchQuery] = useState("");
+  const [publicClassFilter, setPublicClassFilter] = useState("all");
+  const [deletingFeeItemId, setDeletingFeeItemId] = useState<string | null>(null);
+  const [markPaidDialog,    setMarkPaidDialog]    = useState<{
+    student: BackendStudent;
+    item: import("@/lib/api/fees.service").FeeItem;
+  } | null>(null);
+  const [markPaidMethod, setMarkPaidMethod] = useState<"CASH" | "MOBILE_MONEY" | "BANK_TRANSFER">("CASH");
+  const [markPaidNote,   setMarkPaidNote]   = useState("");
+  const [markPaidSaving, setMarkPaidSaving] = useState(false);
+  const [bulkMarkingItemId, setBulkMarkingItemId] = useState<string | null>(null);
 
   // ── Saisie en masse des paiements ─────────────────────────────────────────
   const [bulkOpen,           setBulkOpen]           = useState(false);
@@ -1572,18 +1586,30 @@ export default function PaymentsPage() {
     if (!token) return;
     setFeeItemSaving(true);
     try {
-      const newItem: import("@/lib/api/fees.service").FeeItem = {
-        id: crypto.randomUUID(),
-        name: feeItemForm.name.trim(),
-        amount: Number(feeItemForm.amount),
-        classIds: feeItemForm.allClasses ? [] : feeItemForm.classIds,
-        academicYear: feeItemForm.academicYear,
-        createdAt: new Date().toISOString(),
-      };
-      const updated = [...feeItems, newItem];
+      let updated: import("@/lib/api/fees.service").FeeItem[];
+      if (editingFeeItem) {
+        // Mode édition : remplacer l'existant
+        updated = feeItems.map((fi) =>
+          fi.id === editingFeeItem.id
+            ? { ...fi, name: feeItemForm.name.trim(), amount: Number(feeItemForm.amount), classIds: feeItemForm.allClasses ? [] : feeItemForm.classIds, academicYear: feeItemForm.academicYear }
+            : fi
+        );
+      } else {
+        // Mode ajout
+        const newItem: import("@/lib/api/fees.service").FeeItem = {
+          id: crypto.randomUUID(),
+          name: feeItemForm.name.trim(),
+          amount: Number(feeItemForm.amount),
+          classIds: feeItemForm.allClasses ? [] : feeItemForm.classIds,
+          academicYear: feeItemForm.academicYear,
+          createdAt: new Date().toISOString(),
+        };
+        updated = [...feeItems, newItem];
+      }
       await updateFeesConfig(token, { feeItems: updated });
       setFeeItems(updated);
       setIsFeeItemDialogOpen(false);
+      setEditingFeeItem(null);
       setFeeItemForm({
         name: "",
         amount: "",
@@ -1591,7 +1617,7 @@ export default function PaymentsPage() {
         classIds: [],
         allClasses: true,
       });
-      toast.success("Poste de frais ajouté");
+      toast.success(editingFeeItem ? "Poste de frais modifié" : "Poste de frais ajouté");
     } catch {
       toast.error("Impossible d'enregistrer le poste de frais");
     } finally {
@@ -1599,32 +1625,170 @@ export default function PaymentsPage() {
     }
   };
 
-  const handleMarkPublicPaid = async (student: BackendStudent, item: import("@/lib/api/fees.service").FeeItem) => {
+  // ── Handlers vue publique ─────────────────────────────────────────────────
+
+  const openEditFeeItem = (item: import("@/lib/api/fees.service").FeeItem) => {
+    setEditingFeeItem(item);
+    setFeeItemForm({
+      name: item.name,
+      amount: String(item.amount),
+      academicYear: item.academicYear,
+      classIds: item.classIds,
+      allClasses: item.classIds.length === 0,
+    });
+    setIsFeeItemDialogOpen(true);
+  };
+
+  const openAddFeeItem = () => {
+    setEditingFeeItem(null);
+    setFeeItemForm({
+      name: "",
+      amount: "",
+      academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+      classIds: [],
+      allClasses: true,
+    });
+    setIsFeeItemDialogOpen(true);
+  };
+
+  const handleDeleteFeeItem = async (itemId: string) => {
     const token = storage.getAuthItem("structura_token");
     if (!token) return;
+    setDeletingFeeItemId(itemId);
     try {
-      await createPayment(token, {
+      const newItems = feeItems.filter((fi) => fi.id !== itemId);
+      await updateFeesConfig(token, { feeItems: newItems });
+      setFeeItems(newItems);
+      toast.success("Poste de frais supprimé");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossible de supprimer");
+    } finally {
+      setDeletingFeeItemId(null);
+    }
+  };
+
+  const handleMarkPaidConfirm = async () => {
+    if (!markPaidDialog) return;
+    const { student, item } = markPaidDialog;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setMarkPaidSaving(true);
+    try {
+      const result = await createPayment(token, {
         studentId: student.id,
         amount: item.amount,
-        method: "CASH",
+        method: markPaidMethod,
         currency: getActiveCurrency(),
         status: "paid",
-        description: item.name,
+        description: markPaidNote.trim() || item.name,
         term: item.id,
         academicYear: item.academicYear,
         paidDate: new Date().toISOString(),
       });
-      toast.success(`Paiement enregistré pour ${student.firstName} ${student.lastName}`);
-      loadData().catch(() => {}); // rafraîchir en arrière-plan
+      const cls = classes.find((c) => c.id === student.classId);
+      setMarkPaidDialog(null);
+      setMarkPaidNote("");
+      toast.success(`Paiement enregistré — ${student.firstName} ${student.lastName}`, {
+        action: result?.receiptNumber ? {
+          label: "Imprimer reçu",
+          onClick: () => generatePaymentReceipt({
+            studentName: `${student.firstName} ${student.lastName}`,
+            studentMatricule: student.matricule,
+            className: cls?.displayName ?? "",
+            amount: item.amount,
+            totalPaid: item.amount,
+            expectedFee: item.amount,
+            remaining: 0,
+            paymentMethod: markPaidMethod,
+            description: markPaidNote.trim() || item.name,
+            date: new Date().toLocaleDateString("fr-FR"),
+            receiptNumber: result.receiptNumber ?? `REC-${Date.now()}`,
+            academicYear: item.academicYear,
+            term: item.name,
+            schoolName: user?.schoolName ?? "",
+            schoolAddress: "",
+            schoolPhone: "",
+          }).catch(() => {}),
+        } : undefined,
+      });
+      loadData().catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossible d'enregistrer le paiement");
+    } finally {
+      setMarkPaidSaving(false);
     }
+  };
+
+  const handleCancelPublicPayment = async (paymentId: string, studentName: string) => {
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    try {
+      await deletePayment(token, paymentId);
+      toast.success(`Paiement annulé — ${studentName}`);
+      loadData().catch(() => {});
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossible d'annuler le paiement");
+    }
+  };
+
+  const handleBulkMarkPaid = async (item: import("@/lib/api/fees.service").FeeItem, unpaidStudents: BackendStudent[]) => {
+    const token = storage.getAuthItem("structura_token");
+    if (!token || unpaidStudents.length === 0) return;
+    setBulkMarkingItemId(item.id);
+    let done = 0;
+    for (const student of unpaidStudents) {
+      try {
+        await createPayment(token, {
+          studentId: student.id,
+          amount: item.amount,
+          method: "CASH",
+          currency: getActiveCurrency(),
+          status: "paid",
+          description: item.name,
+          term: item.id,
+          academicYear: item.academicYear,
+          paidDate: new Date().toISOString(),
+        });
+        done++;
+      } catch { /* continuer malgré l'erreur sur un élève */ }
+    }
+    setBulkMarkingItemId(null);
+    toast.success(`${done}/${unpaidStudents.length} paiements enregistrés`);
+    loadData().catch(() => {});
   };
 
   // ─── Rendu ──────────────────────────────────────────────────────────────
 
   // ── Vue école publique ────────────────────────────────────────────────────
   if (schoolType === "public") {
+    // ── Stats globales ──
+    const allConcernedStudents = new Set(
+      feeItems.flatMap((item) =>
+        item.classIds.length === 0
+          ? students.map((s) => s.id)
+          : students.filter((s) => item.classIds.includes(s.classId)).map((s) => s.id)
+      )
+    );
+    const totalCollectedAll = payments
+      .filter((p) => feeItems.some((fi) => fi.id === p.term) && p.status === "paid")
+      .reduce((sum, p) => sum + p.amount, 0);
+    const totalExpectedAll = feeItems.reduce((sum, item) => {
+      const count = item.classIds.length === 0
+        ? students.length
+        : students.filter((s) => item.classIds.includes(s.classId)).length;
+      return sum + item.amount * count;
+    }, 0);
+    const globalRate = totalExpectedAll > 0 ? Math.round((totalCollectedAll / totalExpectedAll) * 100) : 0;
+
+    // ── Filtres ──
+    const searchLower = publicSearchQuery.toLowerCase();
+    const filterStudents = (list: BackendStudent[]) =>
+      list.filter((s) => {
+        const matchClass = publicClassFilter === "all" || s.classId === publicClassFilter;
+        const matchSearch = !searchLower || `${s.firstName} ${s.lastName}`.toLowerCase().includes(searchLower) || (s.matricule ?? "").toLowerCase().includes(searchLower);
+        return matchClass && matchSearch;
+      });
+
     return (
       <div className="space-y-5">
         {/* En-tête */}
@@ -1637,12 +1801,65 @@ export default function PaymentsPage() {
             </p>
           </div>
           {canConfigureFees && (
-            <Button onClick={() => setIsFeeItemDialogOpen(true)} className="gap-2 self-start">
+            <Button onClick={openAddFeeItem} className="gap-2 self-start">
               <Plus className="h-4 w-4" />
-              Ajouter un poste de frais
+              Ajouter un poste
             </Button>
           )}
         </div>
+
+        {/* Cards stats */}
+        {feeItems.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Postes actifs</p>
+              <p className="text-2xl font-bold">{feeItems.length}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Élèves concernés</p>
+              <p className="text-2xl font-bold">{allConcernedStudents.size}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Collecté</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalCollectedAll)}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Taux global</p>
+              <div className="flex items-end gap-2">
+                <p className="text-2xl font-bold">{globalRate}%</p>
+              </div>
+              <div className="w-full bg-muted rounded-full h-1.5 mt-2">
+                <div className="bg-green-500 h-1.5 rounded-full transition-all" style={{ width: `${globalRate}%` }} />
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Barre recherche + filtre classe */}
+        {feeItems.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher un élève…"
+                value={publicSearchQuery}
+                onChange={(e) => setPublicSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={publicClassFilter} onValueChange={setPublicClassFilter}>
+              <SelectTrigger className="sm:w-48">
+                <SelectValue placeholder="Toutes les classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les classes</SelectItem>
+                {classes.map((cls) => (
+                  <SelectItem key={cls.id} value={cls.id}>{cls.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* État vide */}
         {feeItems.length === 0 && (
@@ -1651,10 +1868,10 @@ export default function PaymentsPage() {
               <DollarSign className="h-12 w-12 text-muted-foreground/40 mb-4" />
               <h3 className="font-semibold text-lg mb-1">Aucun frais configuré</h3>
               <p className="text-muted-foreground text-sm max-w-sm">
-                Ajoutez des postes de frais (uniforme, examens...) quand nécessaire.
+                Ajoutez des postes de frais ponctuels (uniforme, examens, sorties…) selon les besoins.
               </p>
               {canConfigureFees && (
-                <Button onClick={() => setIsFeeItemDialogOpen(true)} className="mt-4 gap-2">
+                <Button onClick={openAddFeeItem} className="mt-4 gap-2">
                   <Plus className="h-4 w-4" />
                   Ajouter un poste
                 </Button>
@@ -1665,39 +1882,95 @@ export default function PaymentsPage() {
 
         {/* Liste des postes de frais */}
         {feeItems.map((item) => {
-          // Students concerned by this fee item
-          const concernedStudents = item.classIds.length === 0
+          const baseConcerned = item.classIds.length === 0
             ? students
             : students.filter((s) => item.classIds.includes(s.classId));
+          const concernedStudents = filterStudents(baseConcerned);
 
-          const paidStudentIds = new Set(
+          const paidMap = new Map(
             payments
               .filter((p) => p.term === item.id && p.status === "paid")
-              .map((p) => p.studentId)
+              .map((p) => [p.studentId, p])
           );
 
-          const paidCount = concernedStudents.filter((s) => paidStudentIds.has(s.id)).length;
-          const totalCollected = payments
-            .filter((p) => p.term === item.id && p.status === "paid")
-            .reduce((sum, p) => sum + p.amount, 0);
+          const paidCount    = baseConcerned.filter((s) => paidMap.has(s.id)).length;
+          const totalCount   = baseConcerned.length;
+          const totalCollected = [...paidMap.values()].reduce((sum, p) => sum + p.amount, 0);
+          const progressPct  = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0;
+          const unpaidFiltered = concernedStudents.filter((s) => !paidMap.has(s.id));
+          const isDeleting   = deletingFeeItemId === item.id;
+          const isBulking    = bulkMarkingItemId === item.id;
 
           return (
             <Card key={item.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  {/* Titre + badges */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <CardTitle className="text-base">{item.name}</CardTitle>
-                    <Badge variant="secondary">{formatCurrency(item.amount)}</Badge>
+                    <Badge variant="secondary" className="font-mono">{formatCurrency(item.amount)}</Badge>
                     <Badge variant="outline" className="text-xs">{item.academicYear}</Badge>
+                    {item.classIds.length > 0 && (
+                      <Badge variant="outline" className="text-xs text-blue-600 border-blue-200 bg-blue-50">
+                        {item.classIds.length} classe{item.classIds.length > 1 ? "s" : ""}
+                      </Badge>
+                    )}
                   </div>
-                  <div className="text-sm text-muted-foreground whitespace-nowrap">
-                    {paidCount}/{concernedStudents.length} payés · {formatCurrency(totalCollected)} collectés
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5">
+                    {canCreatePayment && unpaidFiltered.length > 0 && (
+                      <Button
+                        size="sm" variant="outline"
+                        className="h-7 text-xs gap-1"
+                        disabled={isBulking}
+                        onClick={() => handleBulkMarkPaid(item, baseConcerned.filter((s) => !paidMap.has(s.id)))}
+                      >
+                        {isBulking ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                        Tout marquer payé
+                      </Button>
+                    )}
+                    {canConfigureFees && (
+                      <>
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          onClick={() => openEditFeeItem(item)}
+                        >
+                          <Settings2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                          disabled={isDeleting}
+                          onClick={() => handleDeleteFeeItem(item.id)}
+                        >
+                          {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Barre de progression */}
+                <div className="mt-3 space-y-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{paidCount}/{totalCount} élèves payés</span>
+                    <span className="font-medium text-foreground">{formatCurrency(totalCollected)} collectés · {progressPct}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className={cn("h-2 rounded-full transition-all", progressPct === 100 ? "bg-green-500" : "bg-blue-500")}
+                      style={{ width: `${progressPct}%` }}
+                    />
                   </div>
                 </div>
               </CardHeader>
+
               <CardContent className="pt-0">
                 {concernedStudents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">Aucun élève concerné.</p>
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    {publicSearchQuery || publicClassFilter !== "all" ? "Aucun élève correspond aux filtres." : "Aucun élève concerné par ce poste."}
+                  </p>
                 ) : (
                   <Table>
                     <TableHeader>
@@ -1707,20 +1980,28 @@ export default function PaymentsPage() {
                         <TableHead>Statut</TableHead>
                         <TableHead>Montant</TableHead>
                         <TableHead>Date</TableHead>
-                        <TableHead className="w-[120px]"></TableHead>
+                        <TableHead>Méthode</TableHead>
+                        <TableHead className="w-[130px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {concernedStudents.map((student) => {
-                        const paid = paidStudentIds.has(student.id);
-                        const paymentRecord = payments.find(
-                          (p) => p.term === item.id && p.studentId === student.id && p.status === "paid"
-                        );
+                        const paymentRecord = paidMap.get(student.id);
+                        const paid = !!paymentRecord;
                         const cls = classes.find((c) => c.id === student.classId);
+                        const methodLabel: Record<string, string> = {
+                          cash: "Espèces", mobile_money: "Mobile Money",
+                          bank_transfer: "Virement", check: "Chèque",
+                          CASH: "Espèces", MOBILE_MONEY: "Mobile Money",
+                          BANK_TRANSFER: "Virement", CHECK: "Chèque",
+                        };
                         return (
-                          <TableRow key={student.id}>
+                          <TableRow key={student.id} className={paid ? "" : "bg-amber-50/30"}>
                             <TableCell className="font-medium">
                               {student.firstName} {student.lastName}
+                              {student.matricule && (
+                                <span className="block text-xs text-muted-foreground font-normal">{student.matricule}</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
                               {cls?.displayName ?? "—"}
@@ -1738,24 +2019,71 @@ export default function PaymentsPage() {
                                 </Badge>
                               )}
                             </TableCell>
-                            <TableCell>{paid ? formatCurrency(paymentRecord?.amount ?? item.amount) : "—"}</TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {paid ? formatCurrency(paymentRecord.amount) : "—"}
+                            </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
                               {paymentRecord?.paidDate
                                 ? new Date(paymentRecord.paidDate).toLocaleDateString("fr-FR")
                                 : "—"}
                             </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {paid ? (methodLabel[paymentRecord.method] ?? paymentRecord.method) : "—"}
+                            </TableCell>
                             <TableCell>
-                              {!paid && canCreatePayment && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs gap-1"
-                                  onClick={() => handleMarkPublicPaid(student, item)}
-                                >
-                                  <Check className="h-3 w-3" />
-                                  Marquer payé
-                                </Button>
-                              )}
+                              <div className="flex items-center gap-1">
+                                {!paid && canCreatePayment && (
+                                  <Button
+                                    size="sm" variant="default"
+                                    className="h-7 text-xs gap-1"
+                                    onClick={() => {
+                                      setMarkPaidMethod("CASH");
+                                      setMarkPaidNote("");
+                                      setMarkPaidDialog({ student, item });
+                                    }}
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    Marquer payé
+                                  </Button>
+                                )}
+                                {paid && canCreatePayment && paymentRecord.id && (
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    className="h-7 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => handleCancelPublicPayment(paymentRecord.id, `${student.firstName} ${student.lastName}`)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                    Annuler
+                                  </Button>
+                                )}
+                                {paid && paymentRecord.id && (
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                                    title="Imprimer reçu"
+                                    onClick={() => generatePaymentReceipt({
+                                      studentName: `${student.firstName} ${student.lastName}`,
+                                      studentMatricule: student.matricule,
+                                      className: cls?.displayName ?? "",
+                                      amount: paymentRecord.amount,
+                                      totalPaid: paymentRecord.amount,
+                                      expectedFee: item.amount,
+                                      remaining: 0,
+                                      paymentMethod: paymentRecord.method,
+                                      description: item.name,
+                                      date: paymentRecord.paidDate ? new Date(paymentRecord.paidDate).toLocaleDateString("fr-FR") : new Date().toLocaleDateString("fr-FR"),
+                                      receiptNumber: paymentRecord.receiptNumber ?? `REC-${paymentRecord.id.slice(0, 8)}`,
+                                      academicYear: item.academicYear,
+                                      term: item.name,
+                                      schoolName: user?.schoolName ?? "",
+                                      schoolAddress: "",
+                                      schoolPhone: "",
+                                    }).catch(() => {})}
+                                  >
+                                    <Printer className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -1768,13 +2096,61 @@ export default function PaymentsPage() {
           );
         })}
 
-        {/* Dialog ajout poste de frais */}
-        <Dialog open={isFeeItemDialogOpen} onOpenChange={setIsFeeItemDialogOpen}>
+        {/* Dialog "Marquer payé" avec méthode */}
+        <Dialog open={!!markPaidDialog} onOpenChange={(o) => { if (!o) setMarkPaidDialog(null); }}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Enregistrer le paiement</DialogTitle>
+              <DialogDescription>
+                {markPaidDialog && (
+                  <span>
+                    <strong>{markPaidDialog.student.firstName} {markPaidDialog.student.lastName}</strong>
+                    {" — "}{markPaidDialog.item.name}{" — "}<span className="font-mono">{formatCurrency(markPaidDialog.item.amount)}</span>
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Méthode de paiement</Label>
+                <Select value={markPaidMethod} onValueChange={(v) => setMarkPaidMethod(v as typeof markPaidMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">Espèces</SelectItem>
+                    <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
+                    <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mp-note">Note (optionnel)</Label>
+                <Input
+                  id="mp-note"
+                  placeholder="ex: Reçu n°…, remarque…"
+                  value={markPaidNote}
+                  onChange={(e) => setMarkPaidNote(e.target.value)}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMarkPaidDialog(null)}>Annuler</Button>
+              <Button onClick={handleMarkPaidConfirm} disabled={markPaidSaving} className="gap-2">
+                {markPaidSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Confirmer
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog ajout / édition poste de frais */}
+        <Dialog open={isFeeItemDialogOpen} onOpenChange={(o) => { if (!o) { setIsFeeItemDialogOpen(false); setEditingFeeItem(null); } }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Ajouter un poste de frais</DialogTitle>
+              <DialogTitle>{editingFeeItem ? "Modifier le poste de frais" : "Ajouter un poste de frais"}</DialogTitle>
               <DialogDescription>
-                Ce poste sera appliqué aux élèves sélectionnés.
+                Ce poste sera appliqué aux élèves des classes sélectionnées.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -1839,8 +2215,8 @@ export default function PaymentsPage() {
                           }
                           className={`px-2 py-1 rounded text-xs border transition-colors ${
                             selected
-                              ? "bg-blue-600 text-white border-blue-600"
-                              : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-foreground border-border hover:bg-muted"
                           }`}
                         >
                           {cls.displayName}
@@ -1852,7 +2228,7 @@ export default function PaymentsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsFeeItemDialogOpen(false)}>
+              <Button variant="outline" onClick={() => { setIsFeeItemDialogOpen(false); setEditingFeeItem(null); }}>
                 Annuler
               </Button>
               <Button
@@ -1860,7 +2236,7 @@ export default function PaymentsPage() {
                 disabled={feeItemSaving || !feeItemForm.name.trim() || !feeItemForm.amount}
               >
                 {feeItemSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Enregistrer
+                {editingFeeItem ? "Enregistrer les modifications" : "Ajouter le poste"}
               </Button>
             </DialogFooter>
           </DialogContent>
