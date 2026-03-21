@@ -91,6 +91,7 @@ import { exportPaymentSummaryToXLSX } from "@/lib/csv-handler";
 const PAYMENT_FREQ_KEY    = "structura_payment_frequency";
 const CLASS_FEES_KEY      = "structura_class_fees_v2";
 const SCHOOL_CALENDAR_KEY = "structura_school_calendar_v1";
+const SCHOOL_TYPE_KEY     = "structura_school_type";
 
 type PaymentFrequency = "monthly" | "quarterly" | "annual";
 type FeeMode = "global" | "by-level" | "by-class";
@@ -650,16 +651,19 @@ export default function PaymentsPage() {
           if (config.feeConfig)      localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
           if (config.schoolCalendar) localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(config.schoolCalendar));
           localStorage.setItem(PAYMENT_FREQ_KEY, config.paymentFrequency || "monthly");
+          if (config.schoolType)     localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
         })
         .catch(() => {
           // Réseau indisponible malgré isOnline — utiliser le cache local
           const savedFees = localStorage.getItem(CLASS_FEES_KEY);
           const savedCal  = localStorage.getItem(SCHOOL_CALENDAR_KEY);
           const savedFreq = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
+          const savedType = localStorage.getItem(SCHOOL_TYPE_KEY);
           applyConfig(
             savedFees  ? JSON.parse(savedFees)  as FeeConfig      : null,
             savedFreq,
             savedCal   ? JSON.parse(savedCal)   as SchoolCalendar : null,
+            savedType,
           );
         });
     } else {
@@ -667,10 +671,12 @@ export default function PaymentsPage() {
       const savedFees = localStorage.getItem(CLASS_FEES_KEY);
       const savedCal  = localStorage.getItem(SCHOOL_CALENDAR_KEY);
       const savedFreq = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
+      const savedType = localStorage.getItem(SCHOOL_TYPE_KEY);
       applyConfig(
         savedFees ? JSON.parse(savedFees)  as FeeConfig      : null,
         savedFreq,
         savedCal  ? JSON.parse(savedCal)   as SchoolCalendar : null,
+        savedType,
       );
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -821,7 +827,7 @@ export default function PaymentsPage() {
     } catch (error: any) {
       try {
         const cached = await offlineDB.getAll<Payment>(STORES.PAYMENTS);
-        if (cached.length > 0) { setPayments(cached); toast.info("Vous êtes hors ligne — affichage des dernières données"); }
+        if (cached.length > 0) { setPayments(cached); toast.info("Erreur réseau — affichage du cache local"); }
         else toast.error("Impossible de charger les paiements. Vérifiez votre connexion.");
       } catch { toast.error("Impossible de charger les paiements. Vérifiez votre connexion."); }
     } finally { setIsLoading(false); }
