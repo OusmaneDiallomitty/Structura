@@ -177,16 +177,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // proprement sa session en BDD avant de procéder. Sans ça, son currentSessionId
       // resterait actif → l'ancien utilisateur se ferait bloquer par l'approbation
       // s'il essaie de se reconnecter sur le même appareil.
+      // Toujours invalider l'ancienne session avant une nouvelle connexion.
+      // Même email : le compte peut avoir été recréé (tenant supprimé/recréé) →
+      // l'ancien token pointerait vers un utilisateur supprimé → SESSION_INVALIDATED.
       const existingToken = storage.getAuthItem(TOKEN_KEY);
-      const existingUserRaw = storage.getAuthItem(USER_KEY);
-      if (existingToken && existingUserRaw) {
-        try {
-          const existingUser = JSON.parse(existingUserRaw);
-          if (existingUser?.email !== email) {
-            await logoutUser(existingToken).catch(() => {});
-            clearAuth();
-          }
-        } catch { /* JSON parse error — nettoyer quand même */ clearAuth(); }
+      if (existingToken) {
+        await logoutUser(existingToken).catch(() => {});
+        clearAuth();
       }
 
       // Récupérer ou créer un identifiant d'appareil persistant (localStorage — survit à la fermeture du navigateur).

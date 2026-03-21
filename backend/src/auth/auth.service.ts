@@ -128,8 +128,18 @@ export class AuthService {
       },
     }).catch(() => {});
 
-    // Générer les tokens
+    // Générer les tokens ET sauvegarder currentSessionId + refreshTokenHash en BDD
+    // Sans ça, JwtStrategy rejette toutes les requêtes avec SESSION_INVALIDATED (currentSessionId null)
     const tokens = await this.generateTokens(result.user);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+    await this.prisma.user.update({
+      where: { id: result.user.id },
+      data: {
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: refreshHash,
+        lastLoginAt: new Date(),
+      },
+    });
 
     // Retourner la réponse (sans le password!)
     return {
