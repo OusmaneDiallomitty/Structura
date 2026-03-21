@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +77,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
+import { YearSelector } from "@/components/shared/YearSelector";
+import type { AcademicYear } from "@/lib/api/academic-years.service";
 import { formatClassName } from "@/lib/class-helpers";
 import type { Student } from "@/types";
 
@@ -97,6 +100,10 @@ export default function StudentsPage() {
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [templateClassId, setTemplateClassId] = useState<string>("all");
+
+  // Sélecteur d'année archivée
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("");
+  const [selectedAcademicYearObj, setSelectedAcademicYearObj] = useState<AcademicYear | null>(null);
 
   // Pagination server-side
   const [currentPage, setCurrentPage] = useState(1);
@@ -216,10 +223,11 @@ export default function StudentsPage() {
     try {
       if (isOnline && token) {
         const result = await getStudentsPaginated(token, {
-          search:  debouncedSearch || undefined,
-          classId: classFilter !== 'all' ? classFilter : undefined,
-          limit:   itemsPerPage,
-          skip:    (currentPage - 1) * itemsPerPage,
+          search:       debouncedSearch || undefined,
+          classId:      classFilter !== 'all' ? classFilter : undefined,
+          academicYear: selectedAcademicYear || undefined,
+          limit:        itemsPerPage,
+          skip:         (currentPage - 1) * itemsPerPage,
         });
 
         const mapped = result.data.map(mapStudent);
@@ -255,7 +263,7 @@ export default function StudentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isOnline, debouncedSearch, classFilter, currentPage, itemsPerPage]);
+  }, [isOnline, debouncedSearch, classFilter, selectedAcademicYear, currentPage, itemsPerPage]);
 
   /** Charger les statistiques globales (cartes du haut) */
   const loadStats = useCallback(async () => {
@@ -284,10 +292,10 @@ export default function StudentsPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Reset page 1 quand la recherche ou le filtre classe changent
+  // Reset page 1 quand la recherche, le filtre classe ou l'année changent
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, classFilter]);
+  }, [debouncedSearch, classFilter, selectedAcademicYear]);
 
   // Charger élèves à chaque changement de page ou de filtres
   useEffect(() => {
@@ -997,6 +1005,14 @@ export default function StudentsPage() {
               </span>
             )}
           </CardDescription>
+          {selectedAcademicYearObj?.isArchived && (
+            <div className="mt-2">
+              <Badge variant="outline" className="bg-gray-50 text-gray-500 border-gray-300 text-xs gap-1">
+                <Archive className="h-3 w-3" />
+                Consultation archive — {selectedAcademicYear}
+              </Badge>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4 mb-6">
@@ -1061,6 +1077,14 @@ export default function StudentsPage() {
                   </SelectContent>
                 </Select>
               )}
+              <YearSelector
+                value={selectedAcademicYear}
+                onChange={(yr, yearObj) => {
+                  setSelectedAcademicYear(yr);
+                  setSelectedAcademicYearObj(yearObj);
+                }}
+                className="w-36"
+              />
             </div>
           </div>
 

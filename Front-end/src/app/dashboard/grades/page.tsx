@@ -6,7 +6,7 @@ import {
   BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
   Users, GraduationCap, ChevronRight, AlertTriangle,
   CheckCircle, BarChart3, FileText, X, Settings2, Plus, Trash2,
-  Download, Printer,
+  Download, Printer, Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ import { getStudents } from "@/lib/api/students.service";
 import { offlineDB, STORES } from "@/lib/offline-db";
 import { getTeamMembers } from "@/lib/api/users.service";
 import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
+import { YearSelector } from "@/components/shared/YearSelector";
+import type { AcademicYear } from "@/lib/api/academic-years.service";
 import { getFeesConfig } from "@/lib/api/fees.service";
 import {
   getEvaluations, bulkSaveEvaluations,
@@ -211,10 +213,15 @@ function GradesPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Academic year
+  // Academic year (courante, chargée depuis le backend)
   const [academicYear, setAcademicYear] = useState<string>("");
   const [startMonth, setStartMonth] = useState<string>("Septembre");
   const [durationMonths, setDurationMonths] = useState<number>(9);
+  // Année sélectionnée via le sélecteur archive (vide = année courante)
+  const [selectedYear, setSelectedYear] = useState<string>("");
+  const [selectedYearObj, setSelectedYearObj] = useState<AcademicYear | null>(null);
+  // Année effective pour les appels API
+  const effectiveYear = selectedYear || academicYear;
 
   // Classes
   const [classes, setClasses] = useState<BackendClass[]>([]);
@@ -557,7 +564,7 @@ function GradesPageInner() {
           classId: selectedClassId,
           subject: evalSubject,
           term: selectedTerm,
-          academicYear: academicYear || undefined,
+          academicYear: effectiveYear || undefined,
         }),
       ]);
 
@@ -675,13 +682,13 @@ function GradesPageInner() {
           classId: selectedClassId,
           subject: compSubject,
           term: selectedTerm,
-          academicYear: academicYear || undefined,
+          academicYear: effectiveYear || undefined,
         }),
         getEvaluations(token, {
           classId: selectedClassId,
           subject: compSubject,
           term: selectedTerm,
-          academicYear: academicYear || undefined,
+          academicYear: effectiveYear || undefined,
         }),
       ]);
 
@@ -791,7 +798,7 @@ function GradesPageInner() {
             classId: selectedClassId,
             subject: sub,
             term: selectedTerm,
-            academicYear: academicYear || undefined,
+            academicYear: effectiveYear || undefined,
           }),
         ),
       ]);
@@ -881,7 +888,7 @@ function GradesPageInner() {
     try {
       const [students, allEvals] = await Promise.all([
         getStudents(token, { classId: selectedClassId }),
-        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: academicYear || undefined }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
       ]);
       setEvalGridStudents(students);
       setEvalGridAllEvals(allEvals);
@@ -1023,9 +1030,9 @@ function GradesPageInner() {
     try {
       const [students, allEvals, ...compsPerSubject] = await Promise.all([
         getStudents(token, { classId: selectedClassId }),
-        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: academicYear || undefined }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
         ...subjects.map((sub) =>
-          getCompositions(token, { classId: selectedClassId, subject: sub, term: selectedTerm, academicYear: academicYear || undefined }),
+          getCompositions(token, { classId: selectedClassId, subject: sub, term: selectedTerm, academicYear: effectiveYear || undefined }),
         ),
       ]);
 
@@ -1495,8 +1502,8 @@ function GradesPageInner() {
     setSheetLoading(true);
     try {
       const [evals, comps, students] = await Promise.all([
-        getEvaluations(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear }),
-        getCompositions(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear }),
+        getEvaluations(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear: effectiveYear }),
+        getCompositions(token, { classId: selectedClassId, subject, term: selectedTerm, academicYear: effectiveYear }),
         getStudents(token, { classId: selectedClassId }),
       ]);
 
@@ -1682,6 +1689,26 @@ function GradesPageInner() {
         {/* ── Shared filters ──────────────────────────────────────────────── */}
         <Card>
           <CardContent className="pt-4 pb-4">
+            {/* Sélecteur d'année archivée */}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Filtres</span>
+              <div className="flex items-center gap-2">
+                {selectedYearObj?.isArchived && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500 border border-gray-200">
+                    <Archive className="h-3 w-3" />
+                    Archive — {selectedYear}
+                  </span>
+                )}
+                <YearSelector
+                  value={selectedYear || academicYear}
+                  onChange={(yr, yearObj) => {
+                    setSelectedYear(yr === academicYear ? "" : yr);
+                    setSelectedYearObj(yr === academicYear ? null : yearObj);
+                  }}
+                  className="w-36"
+                />
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {/* Classe */}
               <div className="space-y-1">

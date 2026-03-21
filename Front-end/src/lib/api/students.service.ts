@@ -51,6 +51,7 @@ export interface StudentFilters {
   status?: string;
   paymentStatus?: string;
   search?: string;
+  academicYear?: string;
   limit?: number;  // Max résultats (défaut backend: 500, max: 5000 pour export)
   skip?: number;
 }
@@ -65,6 +66,7 @@ export async function getStudents(token: string, filters?: StudentFilters): Prom
   if (filters?.status)        queryParams.append('status', filters.status);
   if (filters?.paymentStatus) queryParams.append('paymentStatus', filters.paymentStatus);
   if (filters?.search)        queryParams.append('search', filters.search);
+  if (filters?.academicYear)  queryParams.append('academicYear', filters.academicYear);
   if (filters?.limit != null) queryParams.append('limit', String(filters.limit));
   if (filters?.skip  != null) queryParams.append('skip',  String(filters.skip));
 
@@ -180,6 +182,7 @@ export interface PaginatedStudents {
 export interface PaginatedFilters {
   search?: string;
   classId?: string;
+  academicYear?: string;
   limit?: number;
   skip?: number;
 }
@@ -194,10 +197,11 @@ export async function getStudentsPaginated(
   filters?: PaginatedFilters,
 ): Promise<PaginatedStudents> {
   const params = new URLSearchParams();
-  if (filters?.search)        params.append('search',  filters.search);
-  if (filters?.classId)       params.append('classId', filters.classId);
-  if (filters?.limit != null) params.append('limit',   String(filters.limit));
-  if (filters?.skip  != null) params.append('skip',    String(filters.skip));
+  if (filters?.search)        params.append('search',       filters.search);
+  if (filters?.classId)       params.append('classId',      filters.classId);
+  if (filters?.academicYear)  params.append('academicYear', filters.academicYear);
+  if (filters?.limit != null) params.append('limit',        String(filters.limit));
+  if (filters?.skip  != null) params.append('skip',         String(filters.skip));
 
   const url = `${API_BASE_URL}/students${params.toString() ? `?${params}` : ''}`;
   const response = await fetch(url, {

@@ -48,7 +48,7 @@ export interface PaymentFilters {
   method?: string;
   startDate?: string;
   endDate?: string;
-  academicPeriod?: string;
+  academicYear?: string;
   limit?: number;  // Max résultats (défaut backend: 500, max: 5000 pour export)
   skip?: number;
 }
@@ -64,7 +64,7 @@ export async function getPayments(token: string, filters?: PaymentFilters): Prom
   if (filters?.method)        queryParams.append('method',        filters.method);
   if (filters?.startDate)     queryParams.append('startDate',     filters.startDate);
   if (filters?.endDate)       queryParams.append('endDate',       filters.endDate);
-  if (filters?.academicPeriod) queryParams.append('academicPeriod', filters.academicPeriod);
+  if (filters?.academicYear) queryParams.append('academicYear', filters.academicYear);
   if (filters?.limit != null) queryParams.append('limit',         String(filters.limit));
   if (filters?.skip  != null) queryParams.append('skip',          String(filters.skip));
 
