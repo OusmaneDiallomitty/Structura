@@ -75,6 +75,8 @@ export class AuthService {
     // Créer le tenant et l'utilisateur dans une transaction
     const result = await this.prisma.$transaction(async (tx) => {
       // Créer le tenant (organisation)
+      // schoolType dérivé de organizationType : "public" → "public", tout le reste → "private"
+      const schoolType = registerDto.organizationType?.toLowerCase() === 'public' ? 'public' : 'private';
       const tenant = await tx.tenant.create({
         data: {
           name: registerDto.organizationName,
@@ -83,6 +85,7 @@ export class AuthService {
           city: registerDto.city,
           phone: registerDto.phone,
           isActive: true,
+          schoolType,
         },
       });
 
@@ -941,14 +944,23 @@ export class AuthService {
   async getFeesConfig(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true, schoolDays: true },
+      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true, schoolDays: true, type: true },
     });
     if (!tenant) throw new NotFoundException('Organisation non trouvée');
+
+    // Auto-correction : si tenant.type est PUBLIC mais schoolType est encore "private",
+    // c'est un compte créé avant le fix → corriger silencieusement en BDD
+    const expectedSchoolType = tenant.type?.toLowerCase() === 'public' ? 'public' : 'private';
+    const actualSchoolType   = tenant.schoolType ?? expectedSchoolType;
+    if (actualSchoolType !== expectedSchoolType) {
+      await this.prisma.tenant.update({ where: { id: tenantId }, data: { schoolType: expectedSchoolType } });
+    }
+
     return {
       feeConfig:        tenant.feeConfig        ?? null,
       paymentFrequency: tenant.paymentFrequency  ?? 'monthly',
       schoolCalendar:   tenant.schoolCalendar    ?? null,
-      schoolType:       tenant.schoolType        ?? 'private',
+      schoolType:       expectedSchoolType,
       feeItems:         tenant.feeItems          ?? null,
       schoolDays:       tenant.schoolDays        ?? null,
     };
