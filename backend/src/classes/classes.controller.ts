@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Request,
+  Query,
 } from '@nestjs/common';
 import { ClassesService } from './classes.service';
 import { CreateClassDto } from './dto/create-class.dto';
@@ -51,8 +52,14 @@ export class ClassesController {
   @SkipThrottle()
   @Get()
   @RequirePermission('classes', 'view')
-  findAll(@Request() req) {
-    return this.classesService.findAll(req.user.tenantId, req.user.id, req.user.role, req.user.classAssignments);
+  findAll(@Request() req, @Query('academicYearId') academicYearId?: string) {
+    return this.classesService.findAll(
+      req.user.tenantId,
+      req.user.id,
+      req.user.role,
+      req.user.classAssignments,
+      academicYearId,
+    );
   }
 
   @SkipThrottle()

@@ -46,8 +46,19 @@ export class ClassesService {
    * Production: Tri par ordre logique (CP1, CP2, ..., 12ème) + stats de genre
    * Si role === TEACHER : filtre sur classAssignments (source de vérité unique)
    */
-  async findAll(tenantId: string, userId?: string, role?: string, classAssignments?: any[]) {
+  async findAll(
+    tenantId: string,
+    userId?: string,
+    role?: string,
+    classAssignments?: any[],
+    academicYearId?: string,
+  ) {
     const where: any = { tenantId };
+
+    // Filtre par année scolaire (toujours actif en production)
+    if (academicYearId) {
+      where.academicYearId = academicYearId;
+    }
 
     // Un professeur ne voit que ses classes assignées (via classAssignments — toujours à jour)
     if (role === 'TEACHER' && userId) {

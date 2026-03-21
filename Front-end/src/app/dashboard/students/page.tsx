@@ -78,7 +78,7 @@ import * as storage from "@/lib/storage";
 import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
 import { YearSelector } from "@/components/shared/YearSelector";
-import type { AcademicYear } from "@/lib/api/academic-years.service";
+import { getCurrentAcademicYear, type AcademicYear } from "@/lib/api/academic-years.service";
 import { formatClassName } from "@/lib/class-helpers";
 import type { Student } from "@/types";
 
@@ -190,13 +190,14 @@ export default function StudentsPage() {
   /**
    * Charger les classes depuis l'API backend.
    * Pour les profs : filtrer aux seules classes assignées via classAssignments.
+   * Filtre par academicYearId si disponible (évite les classes d'autres années).
    */
   const loadClasses = useCallback(async () => {
     try {
       const token = storage.getAuthItem('structura_token');
       if (!token) return;
 
-      const classesData = await getClasses(token);
+      const classesData = await getClasses(token, selectedAcademicYearObj?.id);
 
       // Restriction TEACHER : n'afficher que les classes assignées dans le dropdown
       if (user?.role === 'teacher') {
@@ -210,7 +211,7 @@ export default function StudentsPage() {
       console.error('Erreur chargement classes:', error);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role, JSON.stringify(user?.classAssignments)]);
+  }, [user?.role, JSON.stringify(user?.classAssignments), selectedAcademicYearObj?.id]);
 
   /**
    * Charger une page d'élèves depuis le backend (pagination server-side).
@@ -280,9 +281,19 @@ export default function StudentsPage() {
     } catch { /* silencieux */ }
   }, [isOnline]);
 
-  // Refresh du profil au montage
+  // Refresh du profil + année courante au montage
   useEffect(() => {
     refreshUserProfile();
+    // Initialiser selectedAcademicYear avec l'année courante
+    const token = storage.getAuthItem('structura_token');
+    if (token) {
+      getCurrentAcademicYear(token).then((year) => {
+        if (year) {
+          setSelectedAcademicYear(year.name);
+          setSelectedAcademicYearObj(year);
+        }
+      }).catch(() => {/* silencieux si pas d'année */});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

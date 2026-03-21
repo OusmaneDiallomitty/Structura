@@ -90,9 +90,13 @@ export interface UpdateClassDto {
 
 /**
  * Récupérer toutes les classes
+ * @param academicYearId — si fourni, retourne uniquement les classes de cette année
  */
-export async function getClasses(token: string): Promise<BackendClass[]> {
-  const response = await fetch(`${API_BASE_URL}/classes`, {
+export async function getClasses(token: string, academicYearId?: string): Promise<BackendClass[]> {
+  const url = new URL(`${API_BASE_URL}/classes`);
+  if (academicYearId) url.searchParams.set('academicYearId', academicYearId);
+
+  const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,

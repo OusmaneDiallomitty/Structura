@@ -30,6 +30,17 @@ export class DashboardService {
   }
 
   private async computeDashboardStats(tenantId: string) {
+    // Récupérer l'année courante pour filtrer les stats
+    const currentYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isCurrent: true },
+    });
+    const yearFilter = currentYear
+      ? { academicYearId: currentYear.id }
+      : {};
+    const yearNameFilter = currentYear
+      ? { academicYear: currentYear.name }
+      : {};
+
     const [
       totalStudents,
       totalClasses,
@@ -43,30 +54,30 @@ export class DashboardService {
       lastMonthRevenue,
       lastMonthAttendanceRate,
     ] = await Promise.all([
-      // Total élèves actifs
+      // Total élèves actifs de l'année courante
       this.prisma.student.count({
-        where: { tenantId, status: StudentStatus.ACTIVE },
+        where: { tenantId, status: StudentStatus.ACTIVE, ...yearFilter },
       }),
-      // Total classes
-      this.prisma.class.count({ where: { tenantId } }),
+      // Total classes de l'année courante
+      this.prisma.class.count({ where: { tenantId, ...yearFilter } }),
       // Présences du jour
       this.getTodayAttendance(tenantId),
-      // Paiements en attente
+      // Paiements en attente de l'année courante
       this.prisma.payment.count({
-        where: { tenantId, status: { in: [...PENDING_STATUSES] } },
+        where: { tenantId, status: { in: [...PENDING_STATUSES] }, ...yearNameFilter },
       }),
-      // Revenus du mois en cours
-      this.getMonthRevenue(tenantId),
-      // 5 derniers élèves inscrits
+      // Revenus du mois en cours (année courante)
+      this.getMonthRevenue(tenantId, currentYear?.name),
+      // 5 derniers élèves inscrits (année courante)
       this.prisma.student.findMany({
-        where: { tenantId },
+        where: { tenantId, ...yearFilter },
         take: 5,
         orderBy: { createdAt: 'desc' },
         select: { id: true, firstName: true, lastName: true, matricule: true, createdAt: true },
       }),
-      // 5 derniers paiements
+      // 5 derniers paiements (année courante)
       this.prisma.payment.findMany({
-        where: { tenantId },
+        where: { tenantId, ...yearNameFilter },
         take: 5,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -78,7 +89,7 @@ export class DashboardService {
           },
         },
       }),
-      // Statistiques comparatives (mois dernier) — en parallèle dès le départ
+      // Statistiques comparatives (mois dernier)
       this.getTotalStudentsLastMonth(tenantId),
       this.getTotalClassesLastMonth(tenantId),
       this.getLastMonthRevenue(tenantId),
@@ -149,9 +160,9 @@ export class DashboardService {
   }
 
   /**
-   * Récupérer le revenu du mois en cours
+   * Récupérer le revenu du mois en cours (filtré par année courante si fournie)
    */
-  private async getMonthRevenue(tenantId: string) {
+  private async getMonthRevenue(tenantId: string, academicYear?: string) {
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -161,6 +172,7 @@ export class DashboardService {
         tenantId,
         createdAt: { gte: startOfMonth },
         status: { in: [...PAID_STATUSES] },
+        ...(academicYear ? { academicYear } : {}),
       },
       _sum: { amount: true },
     });
