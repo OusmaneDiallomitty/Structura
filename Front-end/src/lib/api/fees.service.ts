@@ -30,8 +30,40 @@ export interface FeeItem {
 }
 
 export interface SchoolDays {
-  saturday: boolean;    // true = has Saturday classes
-  thursdayOff: boolean; // true = Thursday is a day off
+  monday: boolean;
+  tuesday: boolean;
+  wednesday: boolean;
+  thursday: boolean;
+  friday: boolean;
+  saturday: boolean;
+  // sunday est toujours false, non stocké
+}
+
+/** Valeurs par défaut : Lun→Ven actifs, Sam off */
+export const DEFAULT_SCHOOL_DAYS: SchoolDays = {
+  monday: true,
+  tuesday: true,
+  wednesday: true,
+  thursday: true,
+  friday: true,
+  saturday: false,
+};
+
+/** Migration depuis l'ancien format { saturday, thursdayOff } */
+export function migrateSchoolDays(raw: unknown): SchoolDays {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_SCHOOL_DAYS };
+  const r = raw as Record<string, unknown>;
+  // Nouveau format détecté
+  if ('monday' in r) return { ...DEFAULT_SCHOOL_DAYS, ...r } as SchoolDays;
+  // Ancien format { saturday, thursdayOff }
+  return {
+    monday: true,
+    tuesday: true,
+    wednesday: true,
+    thursday: !(r.thursdayOff ?? false),
+    friday: true,
+    saturday: !!(r.saturday ?? false),
+  };
 }
 
 export interface FeesConfigResponse {

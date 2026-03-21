@@ -32,7 +32,7 @@ import { getSchoolInfo, updateSchoolInfo, uploadSchoolLogo, deleteSchoolLogo, ty
 import { getStudents } from "@/lib/api/students.service";
 import { getPayments } from "@/lib/api/payments.service";
 import { exportToCSV } from "@/lib/csv-handler";
-import { getFeesConfig, updateFeesConfig, type SchoolDays } from "@/lib/api/fees.service";
+import { getFeesConfig, updateFeesConfig, type SchoolDays, migrateSchoolDays } from "@/lib/api/fees.service";
 import { useAuth } from "@/contexts/AuthContext";
 import { COUNTRIES, getCountryData } from "@/lib/constants";
 import * as storage from "@/lib/storage";
@@ -98,7 +98,9 @@ export default function SettingsPage() {
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // ── Jours de cours ──────────────────────────────────────────────────────
-  const [schoolDays, setSchoolDays] = useState<SchoolDays>({ saturday: false, thursdayOff: false });
+  const [schoolDays, setSchoolDays] = useState<SchoolDays>({
+    monday: true, tuesday: true, wednesday: true, thursday: true, friday: true, saturday: false,
+  });
   const [isSavingSchoolDays, setIsSavingSchoolDays] = useState(false);
 
   // ── Export données ──────────────────────────────────────────────────────
@@ -227,7 +229,7 @@ export default function SettingsPage() {
       });
 
       if (feesData?.schoolDays) {
-        setSchoolDays(feesData.schoolDays as SchoolDays);
+        setSchoolDays(migrateSchoolDays(feesData.schoolDays));
       }
 
       // Auto-sélectionner la devise du pays de l'école si aucune préférence sauvegardée
@@ -733,45 +735,58 @@ export default function SettingsPage() {
             Jours de cours
           </CardTitle>
           <CardDescription>
-            Configurez les jours où l&apos;école est en session. Dimanche est toujours un jour de congé.
+            Cochez les jours où l&apos;école est en session. Dimanche est toujours congé.
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-5 space-y-0">
-
-          {/* Cours le samedi */}
-          <div className="flex items-start justify-between gap-4 py-4">
-            <div className="space-y-0.5">
-              <p className="font-medium text-sm">Cours le samedi</p>
-              <p className="text-sm text-muted-foreground">
-                Activez si votre établissement organise des cours le samedi.
-              </p>
-            </div>
-            <Switch
-              checked={schoolDays.saturday}
-              disabled={isSavingSchoolDays}
-              onCheckedChange={(v) => handleSaveSchoolDays({ ...schoolDays, saturday: v })}
-              className="shrink-0 mt-0.5"
-            />
+        <CardContent className="pt-5">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {([
+              { key: 'monday',    label: 'Lun' },
+              { key: 'tuesday',   label: 'Mar' },
+              { key: 'wednesday', label: 'Mer' },
+              { key: 'thursday',  label: 'Jeu' },
+              { key: 'friday',    label: 'Ven' },
+              { key: 'saturday',  label: 'Sam' },
+            ] as { key: keyof SchoolDays; label: string }[]).map(({ key, label }) => {
+              const active = schoolDays[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={isSavingSchoolDays}
+                  onClick={() => handleSaveSchoolDays({ ...schoolDays, [key]: !active })}
+                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-colors font-medium text-sm ${
+                    active
+                      ? 'border-amber-500 bg-amber-50 text-amber-700'
+                      : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                  <span className={`text-xs ${active ? 'text-amber-600' : 'text-gray-300'}`}>
+                    {active ? 'Cours' : 'Congé'}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-
-          <Separator />
-
-          {/* Congé le jeudi */}
-          <div className="flex items-start justify-between gap-4 py-4">
-            <div className="space-y-0.5">
-              <p className="font-medium text-sm">Congé le jeudi</p>
-              <p className="text-sm text-muted-foreground">
-                Activez pour les écoles publiques qui n&apos;ont pas cours le jeudi.
-              </p>
-            </div>
-            <Switch
-              checked={schoolDays.thursdayOff}
-              disabled={isSavingSchoolDays}
-              onCheckedChange={(v) => handleSaveSchoolDays({ ...schoolDays, thursdayOff: v })}
-              className="shrink-0 mt-0.5"
-            />
+          {/* Dimanche — toujours congé */}
+          <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-100">
+            <span className="text-sm text-gray-400 font-medium">Dim</span>
+            <span className="text-xs text-gray-300">— toujours congé</span>
           </div>
-
+          <p className="mt-3 text-xs text-muted-foreground">
+            Jours actifs :{' '}
+            <span className="font-medium text-gray-700">
+              {[
+                schoolDays.monday    && 'Lundi',
+                schoolDays.tuesday   && 'Mardi',
+                schoolDays.wednesday && 'Mercredi',
+                schoolDays.thursday  && 'Jeudi',
+                schoolDays.friday    && 'Vendredi',
+                schoolDays.saturday  && 'Samedi',
+              ].filter(Boolean).join(', ') || 'Aucun'}
+            </span>
+          </p>
         </CardContent>
       </Card>
 

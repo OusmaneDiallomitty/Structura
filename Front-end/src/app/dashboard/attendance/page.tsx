@@ -30,7 +30,7 @@ import {
   updateAttendance,
   type BackendAttendance,
 } from "@/lib/api/attendance.service";
-import { getFeesConfig, type SchoolDays } from "@/lib/api/fees.service";
+import { getFeesConfig, type SchoolDays, migrateSchoolDays, DEFAULT_SCHOOL_DAYS } from "@/lib/api/fees.service";
 import type { BackendStudent } from "@/types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -179,8 +179,12 @@ function sortLevels(levels: string[]): string[] {
 function isSchoolDay(date: Date, schoolDays: SchoolDays): boolean {
   const day = date.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   if (day === 0) return false; // Dimanche toujours congé
-  if (day === 6 && !schoolDays.saturday) return false; // Samedi congé sauf config
-  if (day === 4 && schoolDays.thursdayOff) return false; // Jeudi congé si configuré
+  if (day === 1) return schoolDays.monday;
+  if (day === 2) return schoolDays.tuesday;
+  if (day === 3) return schoolDays.wednesday;
+  if (day === 4) return schoolDays.thursday;
+  if (day === 5) return schoolDays.friday;
+  if (day === 6) return schoolDays.saturday;
   return true;
 }
 
@@ -218,7 +222,7 @@ export default function AttendancePage() {
 
   // ── Jours de cours ───────────────────────────────────────────────────────────
 
-  const [schoolDays, setSchoolDays] = useState<SchoolDays>({ saturday: false, thursdayOff: false });
+  const [schoolDays, setSchoolDays] = useState<SchoolDays>({ ...DEFAULT_SCHOOL_DAYS });
 
   // ── État partagé ─────────────────────────────────────────────────────────────
 
@@ -463,7 +467,7 @@ export default function AttendancePage() {
     const token = storage.getAuthItem("structura_token");
     if (token) {
       getFeesConfig(token)
-        .then((cfg) => { if (cfg.schoolDays) setSchoolDays(cfg.schoolDays as SchoolDays); })
+        .then((cfg) => { if (cfg.schoolDays) setSchoolDays(migrateSchoolDays(cfg.schoolDays)); })
         .catch(() => { /* silencieux — valeurs par défaut utilisées */ });
     }
   }, [loadClasses]);
