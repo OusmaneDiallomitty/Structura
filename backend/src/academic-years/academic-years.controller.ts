@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AcademicYearsService } from './academic-years.service';
 import { CreateAcademicYearDto } from './dto/create-academic-year.dto';
@@ -40,6 +41,17 @@ export class AcademicYearsController {
   @Get('current')
   findCurrent(@Request() req) {
     return this.academicYearsService.findCurrent(req.user.tenantId);
+  }
+
+  /**
+   * GET /academic-years/promotion-preview
+   * Aperçu de promotion : moyennes et décisions suggérées par élève
+   */
+  @SkipThrottle()
+  @Get('promotion-preview')
+  @Roles('DIRECTOR')
+  getPromotionPreview(@CurrentUser() user: any) {
+    return this.academicYearsService.getPromotionPreview(user.tenantId);
   }
 
   /**

@@ -52,6 +52,7 @@ export class StudentsService {
       status?: string;
       classId?: string;
       search?: string;
+      academicYear?: string;
       // Pagination — limit: max résultats (défaut 500, max 5000 pour export)
       limit?: string | number;
       skip?: string | number;
@@ -92,6 +93,10 @@ export class StudentsService {
       if (filters?.classId) {
         where.classId = filters.classId;
       }
+    }
+
+    if (filters?.academicYear) {
+      where.class = { academicYear: filters.academicYear };
     }
 
     if (filters?.search) {

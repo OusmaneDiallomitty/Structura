@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { CreateAcademicYearDto } from './dto/create-academic-year.dto';
@@ -80,6 +81,69 @@ export class AcademicYearsService {
 
     await this.cache.set(cacheKey, currentYear, CACHE_TTL);
     return currentYear;
+  }
+
+  /**
+   * Retourne un aperçu de promotion pour l'année courante.
+   * Pour chaque classe : liste des élèves avec leur moyenne annuelle
+   * calculée à partir des compositions, et la décision suggérée.
+   */
+  async getPromotionPreview(tenantId: string) {
+    const currentYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isCurrent: true },
+    });
+    if (!currentYear) throw new NotFoundException("Aucune année scolaire courante");
+
+    const classes = await this.prisma.class.findMany({
+      where: { tenantId, academicYearId: currentYear.id },
+      include: { students: { where: { status: { not: StudentStatus.GRADUATED } } } },
+      orderBy: { name: 'asc' },
+    });
+
+    // Compositions pour l'année courante (contiennent les moyennes par matière/trimestre)
+    const compositions = await this.prisma.composition.findMany({
+      where: { tenantId, academicYear: currentYear.name },
+    });
+
+    // Seuil de passage fixé à 10/20 (compositions guinéennes sur 20)
+    const SCORE_MAX = 20;
+    const PASS_THRESHOLD = 10;
+
+    return classes.map((cls) => {
+      const nextGrade = this.getNextGrade(cls.name);
+      const studentsWithAvg = cls.students.map((student) => {
+        const studentComps = compositions.filter((c) => c.studentId === student.id);
+        // Moyenne générale annuelle = moyenne de toutes les compositions
+        const scores = studentComps
+          .map((c) => Number(c.compositionScore))
+          .filter((s) => !isNaN(s) && s >= 0);
+        const finalAverage = scores.length > 0
+          ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
+          : null;
+        const suggestedDecision = finalAverage !== null
+          ? (finalAverage >= PASS_THRESHOLD ? 'promote' : 'repeat')
+          : 'promote'; // Pas de note → promouvoir par défaut
+        return {
+          id: student.id,
+          firstName: student.firstName,
+          lastName: student.lastName,
+          matricule: student.matricule,
+          finalAverage,
+          scoreMax: SCORE_MAX,
+          passed: finalAverage !== null ? finalAverage >= PASS_THRESHOLD : null,
+          suggestedDecision,
+        };
+      });
+      return {
+        classId: cls.id,
+        className: cls.name,
+        nextClassName: nextGrade.name,
+        studentCount: cls.students.length,
+        students: studentsWithAvg.sort((a, b) =>
+          `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, 'fr')
+        ),
+      };
+    });
   }
 
   /**
@@ -255,19 +319,43 @@ export class AcademicYearsService {
         classMapping[oldClass.id] = newClass.id;
       }
 
-      // 4. Transférer les élèves si nécessaire
+      // 4. Transférer les élèves selon les décisions individuelles
       if (studentTransitionMode !== StudentTransitionMode.NONE) {
-        for (const [oldClassId, newClassId] of Object.entries(classMapping)) {
-          await tx.student.updateMany({
-            where: {
-              classId: oldClassId,
-              tenantId,
-            },
-            data: {
-              classId: newClassId,
-              academicYearId: newYear.id,
-            },
-          });
+        for (const oldClass of currentClasses) {
+          const newClassId = classMapping[oldClass.id];
+          if (!newClassId) continue;
+
+          for (const student of oldClass.students) {
+            const decision = createDto.studentDecisions?.find(d => d.studentId === student.id);
+            const effectiveDecision = decision?.decision ??
+              (studentTransitionMode === StudentTransitionMode.PROMOTE ? 'promote' : 'repeat');
+
+            if (effectiveDecision === 'graduate') {
+              // Diplômé : marquer le statut, ne pas déplacer
+              await tx.student.update({
+                where: { id: student.id },
+                data: { status: StudentStatus.GRADUATED },
+              });
+            } else if (effectiveDecision === 'repeat') {
+              // Redoublant : reste dans la même classe niveau mais nouvelle année
+              // Cherche la classe du même nom dans la nouvelle année
+              const sameGradeClass = await tx.class.findFirst({
+                where: { tenantId, academicYearId: newYear.id, name: oldClass.name },
+              });
+              if (sameGradeClass) {
+                await tx.student.update({
+                  where: { id: student.id },
+                  data: { classId: sameGradeClass.id, academicYearId: newYear.id },
+                });
+              }
+            } else {
+              // Promu : va dans la classe supérieure
+              await tx.student.update({
+                where: { id: student.id },
+                data: { classId: newClassId, academicYearId: newYear.id },
+              });
+            }
+          }
         }
       }
 

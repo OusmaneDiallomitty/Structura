@@ -4,14 +4,25 @@ import {
   IsOptional,
   IsEnum,
   IsInt,
+  IsArray,
+  ValidateNested,
   Min,
   Max,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export enum StudentTransitionMode {
   PROMOTE = 'promote', // Passer en classe supérieure
   KEEP = 'keep',       // Garder dans leurs classes actuelles
   NONE = 'none',       // Ne pas transférer
+}
+
+export class StudentDecisionDto {
+  @IsString()
+  studentId: string;
+
+  @IsEnum(['promote', 'repeat', 'graduate'])
+  decision: 'promote' | 'repeat' | 'graduate';
 }
 
 export class CreateNewYearTransitionDto {
@@ -39,4 +50,10 @@ export class CreateNewYearTransitionDto {
   @IsEnum(StudentTransitionMode)
   @IsOptional()
   studentTransitionMode?: StudentTransitionMode;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => StudentDecisionDto)
+  studentDecisions?: StudentDecisionDto[];
 }
