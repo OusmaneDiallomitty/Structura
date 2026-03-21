@@ -1769,9 +1769,15 @@ export default function PaymentsPage() {
           : students.filter((s) => item.classIds.includes(s.classId)).map((s) => s.id)
       )
     );
-    const totalCollectedAll = payments
-      .filter((p) => feeItems.some((fi) => fi.id === p.term) && p.status === "paid")
-      .reduce((sum, p) => sum + p.amount, 0);
+    // Dédupliqué par élève et par poste (comme le calcul par-poste) pour éviter le double-comptage
+    const totalCollectedAll = feeItems.reduce((total, item) => {
+      const itemPaidMap = new Map(
+        payments
+          .filter((p) => p.term === item.id && p.status === "paid")
+          .map((p) => [p.studentId, p])
+      );
+      return total + [...itemPaidMap.values()].reduce((sum, p) => sum + p.amount, 0);
+    }, 0);
     const totalExpectedAll = feeItems.reduce((sum, item) => {
       const count = item.classIds.length === 0
         ? students.length
