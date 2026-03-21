@@ -530,7 +530,13 @@ export default function PaymentsPage() {
   const [selectedTerm,     setSelectedTerm]     = useState<string>(() => getCurrentPeriod("monthly"));
 
   // Type d'école et postes de frais (école publique)
-  const [schoolType, setSchoolType] = useState<"private" | "public">("private");
+  const [schoolType, setSchoolType] = useState<"private" | "public">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(SCHOOL_TYPE_KEY);
+      if (saved === "public" || saved === "private") return saved;
+    }
+    return "private";
+  });
   const [feeItems,   setFeeItems]   = useState<import("@/lib/api/fees.service").FeeItem[]>([]);
 
   // Frais
@@ -1608,10 +1614,10 @@ export default function PaymentsPage() {
         academicYear: item.academicYear,
         paidDate: new Date().toISOString(),
       });
-      await loadData();
       toast.success(`Paiement enregistré pour ${student.firstName} ${student.lastName}`);
-    } catch {
-      toast.error("Impossible d'enregistrer le paiement");
+      loadData().catch(() => {}); // rafraîchir en arrière-plan
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossible d'enregistrer le paiement");
     }
   };
 
@@ -1814,6 +1820,9 @@ export default function PaymentsPage() {
                 </label>
                 {!feeItemForm.allClasses && (
                   <div className="flex flex-wrap gap-2 mt-2">
+                    {classes.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Chargement des classes…</p>
+                    )}
                     {classes.map((cls) => {
                       const selected = feeItemForm.classIds.includes(cls.id);
                       return (
