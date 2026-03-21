@@ -271,31 +271,34 @@ export class AcademicYearsService {
         }
       }
 
-      // 5. Créer aussi les classes pour les nouveaux élèves (CP, 1ère Année, etc.)
+      // 5. Créer les classes d'entrée si elles n'existent pas dans le nouveau mapping
+      // (pour accueillir les nouveaux élèves qui rejoignent l'école cette année)
       if (studentTransitionMode === StudentTransitionMode.PROMOTE) {
+        // Récupérer les noms des classes déjà créées pour la nouvelle année
+        const newClassNames = await tx.class.findMany({
+          where: { tenantId, academicYearId: newYear.id },
+          select: { name: true },
+        });
+        const existingNewNames = new Set(newClassNames.map((c) => c.name));
+
+        // Classes de première inscription (début de cycle)
+        // On crée seulement celles dont le nom correspondant n'existe pas encore
         const entryClasses = [
-          { name: 'CP', level: 'PRIMAIRE' },
-          { name: '1ère Année', level: 'PRIMAIRE' },
-          { name: '7ème', level: 'SECONDAIRE' },
+          { name: 'CP',         level: 'PRIMAIRE'    },
+          { name: '1ère Année', level: 'PRIMAIRE'    },
+          { name: '7ème',       level: 'SECONDAIRE'  },
+          { name: 'Petite Section', level: 'MATERNEL' },
         ];
 
         for (const entryClass of entryClasses) {
-          // Vérifier si la classe n'existe pas déjà
-          const exists = Object.values(classMapping).some(async (newClassId) => {
-            const cls = await tx.class.findUnique({
-              where: { id: newClassId },
-            });
-            return cls?.name === entryClass.name;
-          });
-
-          if (!exists) {
+          if (!existingNewNames.has(entryClass.name)) {
             await tx.class.create({
               data: {
-                name: entryClass.name,
-                level: entryClass.level,
-                section: 'A',
-                capacity: 30,
-                academicYear: createDto.name,
+                name:           entryClass.name,
+                level:          entryClass.level,
+                section:        'A',
+                capacity:       30,
+                academicYear:   createDto.name,
                 academicYearId: newYear.id,
                 tenantId,
               },
