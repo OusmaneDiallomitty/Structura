@@ -914,6 +914,114 @@ export function validateGradeRow(row: any, index: number): { valid: boolean; err
   };
 }
 
+/**
+ * Exporte le tableau récapitulatif des paiements (page Paiements) en Excel natif.
+ * - Trié par classe (ordre naturel), puis Payé → Partiel → Non payé, puis nom
+ * - En-tête de classe avec totaux : attendu / payé / reste
+ * - Ligne vide entre chaque classe
+ */
+export async function exportPaymentSummaryToXLSX(
+  summaries: Array<{
+    student:     { matricule: string; firstName: string; lastName: string; classId?: string };
+    className:   string;
+    expectedFee: number;
+    totalPaid:   number;
+    remaining:   number;
+    status:      string;
+  }>,
+  period: string,
+  academicYear: string,
+  filename: string,
+): Promise<void> {
+  const STATUS_ORDER: Record<string, number> = { unpaid: 0, partial: 1, paid: 2 };
+  const STATUS_LABEL: Record<string, string>  = { paid: "Payé", partial: "Partiel", unpaid: "Non payé" };
+
+  // Trier : classe → statut (impayé d'abord) → nom
+  const sorted = [...summaries].sort((a, b) => {
+    const cc = a.className.localeCompare(b.className, "fr", { numeric: true });
+    if (cc !== 0) return cc;
+    const sc = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
+    if (sc !== 0) return sc;
+    return `${a.student.lastName} ${a.student.firstName}`.localeCompare(
+      `${b.student.lastName} ${b.student.firstName}`, "fr"
+    );
+  });
+
+  // Grouper par classe
+  const groups = new Map<string, typeof sorted>();
+  for (const s of sorted) {
+    if (!groups.has(s.className)) groups.set(s.className, []);
+    groups.get(s.className)!.push(s);
+  }
+
+  const { Workbook } = await import("exceljs");
+  const workbook = new Workbook();
+  workbook.creator = "Structura";
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet("Paiements");
+  const COLS = [
+    { header: "Matricule",    key: "mat",       width: 18 },
+    { header: "Prénom",       key: "prenom",    width: 20 },
+    { header: "Nom",          key: "nom",       width: 20 },
+    { header: "Classe",       key: "classe",    width: 16 },
+    { header: "Période",      key: "periode",   width: 20 },
+    { header: "Année",        key: "annee",     width: 14 },
+    { header: "Attendu",      key: "attendu",   width: 14 },
+    { header: "Payé",         key: "paye",      width: 14 },
+    { header: "Reste",        key: "reste",     width: 14 },
+    { header: "Statut",       key: "statut",    width: 14 },
+  ];
+  ws.columns = COLS;
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+
+  const numFmt = '#,##0';
+
+  for (const [className, rows] of groups) {
+    const totalAttendu = rows.reduce((s, r) => s + (r.expectedFee ?? 0), 0);
+    const totalPaye    = rows.reduce((s, r) => s + (r.totalPaid  ?? 0), 0);
+    const totalReste   = rows.reduce((s, r) => s + (r.remaining  ?? 0), 0);
+    const nbPaids      = rows.filter(r => r.status === "paid").length;
+
+    const groupLabel = `  ${className}  —  ${rows.length} élève${rows.length > 1 ? "s" : ""}  |  Attendu : ${totalAttendu.toLocaleString("fr-FR")} GNF  |  Payé : ${totalPaye.toLocaleString("fr-FR")} GNF  |  Reste : ${totalReste.toLocaleString("fr-FR")} GNF  |  ${nbPaids}/${rows.length} payés`;
+    const groupRow = ws.addRow(Array(COLS.length).fill(""));
+    styleGroupRow(groupRow, groupLabel, COLS.length);
+    ws.mergeCells(`A${groupRow.number}:J${groupRow.number}`);
+
+    for (const s of rows) {
+      const row = ws.addRow({
+        mat:     s.student.matricule,
+        prenom:  s.student.firstName,
+        nom:     s.student.lastName,
+        classe:  s.className,
+        periode: period,
+        annee:   academicYear,
+        attendu: s.expectedFee ?? 0,
+        paye:    s.totalPaid   ?? 0,
+        reste:   s.remaining   ?? 0,
+        statut:  STATUS_LABEL[s.status] ?? s.status,
+      });
+      styleDataRow(row);
+      // Format numérique pour Attendu / Payé / Reste
+      (["attendu", "paye", "reste"] as const).forEach(k => {
+        row.getCell(k).numFmt = numFmt;
+      });
+      // Couleur statut
+      const statusColor = s.status === "paid" ? "FF16A34A" : s.status === "partial" ? "FFB45309" : "FFDC2626";
+      row.getCell("statut").font = { bold: true, color: { argb: statusColor }, size: 10, name: "Calibri" };
+    }
+
+    ws.addRow([]); // séparateur
+  }
+
+  await triggerXLSXDownload(workbook, filename);
+  showSuccess(
+    "Export réussi !",
+    `${filename}.xlsx — ${summaries.length} élève${summaries.length > 1 ? "s" : ""} · ${period} · ${academicYear}`
+  );
+}
+
 // Helper functions
 function isValidEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

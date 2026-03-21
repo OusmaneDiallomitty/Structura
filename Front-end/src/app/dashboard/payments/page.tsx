@@ -83,7 +83,7 @@ import type { Payment, BackendStudent } from "@/types";
 import { useAuth, usePermission } from "@/contexts/AuthContext";
 import { formatClassName } from "@/lib/class-helpers";
 import { cn } from "@/lib/utils";
-import { exportToCSV } from "@/lib/csv-handler";
+import { exportPaymentSummaryToXLSX } from "@/lib/csv-handler";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -982,29 +982,14 @@ export default function PaymentsPage() {
       );
   }, [studentSummaries, activeClass, searchQuery, statusFilter]);
 
-  // ── Export CSV ────────────────────────────────────────────────────────────
-  const handleExportPayments = () => {
+  // ── Export Excel ──────────────────────────────────────────────────────────
+  const handleExportPayments = async () => {
     if (filteredSummaries.length === 0) {
       toast.error("Aucun paiement à exporter. Ajustez vos filtres.");
       return;
     }
-    const statusLabel: Record<string, string> = { paid: "Payé", partial: "Partiel", unpaid: "Non payé" };
-    exportToCSV({
-      filename: `paiements-${selectedTerm.replace(/\s+/g, "-")}-${selectedYear}`,
-      headers: ["Matricule", "Prénom", "Nom", "Classe", "Période", "Attendu", "Payé", "Reste", "Statut"],
-      data: filteredSummaries.map((s) => ({
-        Matricule:  s.student.matricule,
-        Prénom:     s.student.firstName,
-        Nom:        s.student.lastName,
-        Classe:     s.className,
-        Période:    selectedTerm,
-        Attendu:    s.expectedFee,
-        Payé:       s.totalPaid,
-        Reste:      s.remaining,
-        Statut:     statusLabel[s.status] ?? s.status,
-      })),
-    });
-    toast.success(`${filteredSummaries.length} paiement(s) exporté(s)`);
+    const filename = `paiements-${selectedTerm.replace(/\s+/g, "-")}-${selectedYear}`;
+    await exportPaymentSummaryToXLSX(filteredSummaries, selectedTerm, selectedYear, filename);
   };
 
   // ── Stats ─────────────────────────────────────────────────────────────────
