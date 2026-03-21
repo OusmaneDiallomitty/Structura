@@ -1592,7 +1592,7 @@ function GradesPageInner() {
     }
     loadSecondaryEvalGrid(subjectOptions);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(',')]);
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(','), evalGridStudents.length]);
 
   // Auto-charger grille compositions secondaire
   useEffect(() => {
@@ -1600,7 +1600,7 @@ function GradesPageInner() {
     if (compGridStudents.length > 0) return; // déjà chargé
     loadSecondaryCompGrid(subjectOptions);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(',')]);
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(','), compGridStudents.length]);
 
   // Auto-charger la grille primaire dès que classe + matières sont prêtes
   useEffect(() => {
@@ -1608,7 +1608,7 @@ function GradesPageInner() {
     if (gridStudents.length > 0) return; // déjà chargé
     loadPrimaryGrid(subjectOptions);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(",")]);
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(","), gridStudents.length]);
 
   // ── Polling toutes les 60s — synchronisation en temps réel directeur ↔ prof ──
   // Recharge silencieusement la grille active si aucune sauvegarde n'est en cours.
