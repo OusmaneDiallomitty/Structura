@@ -44,7 +44,7 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ── Offline Cache ─────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'structura-v4';
+const CACHE_VERSION = 'structura-v5';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
@@ -53,6 +53,7 @@ const APP_SHELL = [
   '/offline.html',
   '/dashboard',
   '/login',
+  '/logo.png',
 ];
 
 // ── Install ──────────────────────────────────────────────────────────────────
