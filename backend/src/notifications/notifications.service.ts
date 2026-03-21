@@ -193,6 +193,16 @@ export class NotificationsService {
     }
   }
 
+  // ─── Helper : vérifie si aujourd'hui est un jour de cours pour un tenant ──
+
+  private isTodaySchoolDay(schoolDays: { saturday?: boolean; thursdayOff?: boolean } | null): boolean {
+    const day = new Date().getDay(); // 0=Dim, 1=Lun, 2=Mar, 3=Mer, 4=Jeu, 5=Ven, 6=Sam
+    if (day === 0) return false; // Dimanche toujours congé
+    if (day === 6 && !schoolDays?.saturday) return false; // Samedi congé sauf config
+    if (day === 4 && schoolDays?.thursdayOff) return false; // Jeudi congé si configuré
+    return true;
+  }
+
   // ─── Cron : Rappel présences non saisies (Lun–Sam à 9h) ──────────────────
 
   @Cron('0 9 * * 1-6')
@@ -207,9 +217,26 @@ export class NotificationsService {
       select: { id: true, tenantId: true, classAssignments: true },
     });
 
+    // Regrouper les profs par tenant pour éviter de charger le tenant plusieurs fois
+    const tenantCache = new Map<string, { saturday?: boolean; thursdayOff?: boolean } | null>();
+
     for (const teacher of teachers) {
       const assignments = teacher.classAssignments as Array<{ classId: string }> | null;
       if (!assignments?.length) continue;
+
+      // Vérifier si aujourd'hui est un jour de cours pour ce tenant
+      if (!tenantCache.has(teacher.tenantId)) {
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: teacher.tenantId },
+          select: { schoolDays: true },
+        });
+        tenantCache.set(
+          teacher.tenantId,
+          (tenant?.schoolDays as { saturday?: boolean; thursdayOff?: boolean } | null) ?? null,
+        );
+      }
+      const schoolDays = tenantCache.get(teacher.tenantId) ?? null;
+      if (!this.isTodaySchoolDay(schoolDays)) continue;
 
       const classIds = assignments.map((a) => a.classId);
 

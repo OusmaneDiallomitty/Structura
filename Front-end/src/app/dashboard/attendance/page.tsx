@@ -30,6 +30,7 @@ import {
   updateAttendance,
   type BackendAttendance,
 } from "@/lib/api/attendance.service";
+import { getFeesConfig, type SchoolDays } from "@/lib/api/fees.service";
 import type { BackendStudent } from "@/types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -173,6 +174,16 @@ function sortLevels(levels: string[]): string[] {
   });
 }
 
+// ─── Helpers jours de cours ────────────────────────────────────────────────────
+
+function isSchoolDay(date: Date, schoolDays: SchoolDays): boolean {
+  const day = date.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  if (day === 0) return false; // Dimanche toujours congé
+  if (day === 6 && !schoolDays.saturday) return false; // Samedi congé sauf config
+  if (day === 4 && schoolDays.thursdayOff) return false; // Jeudi congé si configuré
+  return true;
+}
+
 // ─── Composant principal ───────────────────────────────────────────────────────
 
 export default function AttendancePage() {
@@ -204,6 +215,10 @@ export default function AttendancePage() {
       }
     }
   }, [user]);
+
+  // ── Jours de cours ───────────────────────────────────────────────────────────
+
+  const [schoolDays, setSchoolDays] = useState<SchoolDays>({ saturday: false, thursdayOff: false });
 
   // ── État partagé ─────────────────────────────────────────────────────────────
 
@@ -442,7 +457,16 @@ export default function AttendancePage() {
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
-  useEffect(() => { loadClasses(); }, [loadClasses]);
+  useEffect(() => {
+    loadClasses();
+    // Charger la config jours de cours au montage
+    const token = storage.getAuthItem("structura_token");
+    if (token) {
+      getFeesConfig(token)
+        .then((cfg) => { if (cfg.schoolDays) setSchoolDays(cfg.schoolDays as SchoolDays); })
+        .catch(() => { /* silencieux — valeurs par défaut utilisées */ });
+    }
+  }, [loadClasses]);
 
   useEffect(() => {
     if (activeTab === "overview") {
@@ -630,7 +654,8 @@ export default function AttendancePage() {
   const progress     = total > 0 ? Math.round((markedCount / total) * 100) : 0;
   const attendanceRate = total > 0 ? Math.round(((presentCount + lateCount) / total) * 100) : 0;
   const hasChanges   = rows.some((r) => r.status !== r.originalStatus || r.notes !== r.originalNotes);
-  const saveDisabled = isSaving || unmarkedCount > 0 || (!hasChanges && alreadySaved);
+  const nonSchoolDay = !isSchoolDay(new Date(selectedDate + "T00:00:00"), schoolDays);
+  const saveDisabled = isSaving || unmarkedCount > 0 || (!hasChanges && alreadySaved) || nonSchoolDay;
 
   // ── Données vue d'ensemble ───────────────────────────────────────────────────
 
@@ -1495,6 +1520,16 @@ export default function AttendancePage() {
                         );
                       })}
                     </div>
+
+                    {/* ── Avertissement jour non scolaire ── */}
+                    {nonSchoolDay && (
+                      <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-sm text-amber-800">
+                          Ce jour n&apos;est pas un jour de cours (dimanche / congé). Aucune présence à saisir.
+                        </p>
+                      </div>
+                    )}
 
                     {/* ── Bouton Enregistrer ── */}
                     <div className="mt-5 flex items-center justify-between gap-3 pt-4 border-t">

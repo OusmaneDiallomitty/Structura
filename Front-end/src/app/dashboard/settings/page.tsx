@@ -5,7 +5,7 @@ import {
   Save, Building2, Bell, Globe, Loader2,
   Mail, Phone, MapPin, AlertCircle,
   Download, Shield, CheckCircle2,
-  Upload, Trash2, ImageIcon,
+  Upload, Trash2, ImageIcon, CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { getSchoolInfo, updateSchoolInfo, uploadSchoolLogo, deleteSchoolLogo, ty
 import { getStudents } from "@/lib/api/students.service";
 import { getPayments } from "@/lib/api/payments.service";
 import { exportToCSV } from "@/lib/csv-handler";
+import { getFeesConfig, updateFeesConfig, type SchoolDays } from "@/lib/api/fees.service";
 import { useAuth } from "@/contexts/AuthContext";
 import { COUNTRIES, getCountryData } from "@/lib/constants";
 import * as storage from "@/lib/storage";
@@ -95,6 +96,10 @@ export default function SettingsPage() {
   const [logoFile,       setLogoFile]       = useState<File | null>(null);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Jours de cours ──────────────────────────────────────────────────────
+  const [schoolDays, setSchoolDays] = useState<SchoolDays>({ saturday: false, thursdayOff: false });
+  const [isSavingSchoolDays, setIsSavingSchoolDays] = useState(false);
 
   // ── Export données ──────────────────────────────────────────────────────
   const [isExportingStudents, setIsExportingStudents] = useState(false);
@@ -206,7 +211,10 @@ export default function SettingsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const data = await getSchoolInfo(token);
+      const [data, feesData] = await Promise.all([
+        getSchoolInfo(token),
+        getFeesConfig(token).catch(() => null),
+      ]);
       setSchool(data);
       setSchoolForm({
         name:               data.name            ?? "",
@@ -217,6 +225,10 @@ export default function SettingsPage() {
         notifMonthlyReport: data.notifMonthlyReport,
         notifOverdueAlert:  data.notifOverdueAlert,
       });
+
+      if (feesData?.schoolDays) {
+        setSchoolDays(feesData.schoolDays as SchoolDays);
+      }
 
       // Auto-sélectionner la devise du pays de l'école si aucune préférence sauvegardée
       const savedPrefs = localStorage.getItem(PREFS_KEY);
@@ -289,6 +301,22 @@ export default function SettingsPage() {
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ── Sauvegarde jours de cours ──────────────────────────────────────────
+  const handleSaveSchoolDays = async (updated: SchoolDays) => {
+    const token = storage.getAuthItem(TOKEN_KEY);
+    if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
+    setIsSavingSchoolDays(true);
+    try {
+      await updateFeesConfig(token, { schoolDays: updated });
+      setSchoolDays(updated);
+      toast.success("Jours de cours mis à jour");
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la sauvegarde des jours de cours");
+    } finally {
+      setIsSavingSchoolDays(false);
     }
   };
 
@@ -690,6 +718,56 @@ export default function SettingsPage() {
             <Switch
               checked={schoolForm.notifOverdueAlert}
               onCheckedChange={(v) => setSchoolForm({ ...schoolForm, notifOverdueAlert: v })}
+              className="shrink-0 mt-0.5"
+            />
+          </div>
+
+        </CardContent>
+      </Card>
+
+      {/* ── Jours de cours ───────────────────────────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-amber-50 to-orange-50 border-b rounded-t-xl pb-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarDays className="h-4 w-4 text-amber-600" />
+            Jours de cours
+          </CardTitle>
+          <CardDescription>
+            Configurez les jours où l&apos;école est en session. Dimanche est toujours un jour de congé.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-5 space-y-0">
+
+          {/* Cours le samedi */}
+          <div className="flex items-start justify-between gap-4 py-4">
+            <div className="space-y-0.5">
+              <p className="font-medium text-sm">Cours le samedi</p>
+              <p className="text-sm text-muted-foreground">
+                Activez si votre établissement organise des cours le samedi.
+              </p>
+            </div>
+            <Switch
+              checked={schoolDays.saturday}
+              disabled={isSavingSchoolDays}
+              onCheckedChange={(v) => handleSaveSchoolDays({ ...schoolDays, saturday: v })}
+              className="shrink-0 mt-0.5"
+            />
+          </div>
+
+          <Separator />
+
+          {/* Congé le jeudi */}
+          <div className="flex items-start justify-between gap-4 py-4">
+            <div className="space-y-0.5">
+              <p className="font-medium text-sm">Congé le jeudi</p>
+              <p className="text-sm text-muted-foreground">
+                Activez pour les écoles publiques qui n&apos;ont pas cours le jeudi.
+              </p>
+            </div>
+            <Switch
+              checked={schoolDays.thursdayOff}
+              disabled={isSavingSchoolDays}
+              onCheckedChange={(v) => handleSaveSchoolDays({ ...schoolDays, thursdayOff: v })}
               className="shrink-0 mt-0.5"
             />
           </div>

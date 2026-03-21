@@ -29,12 +29,18 @@ export interface FeeItem {
   createdAt: string;
 }
 
+export interface SchoolDays {
+  saturday: boolean;    // true = has Saturday classes
+  thursdayOff: boolean; // true = Thursday is a day off
+}
+
 export interface FeesConfigResponse {
   feeConfig: FeeConfig | null;
   paymentFrequency: string;          // "monthly" | "quarterly" | "annual"
   schoolCalendar: SchoolCalendar | null;
   schoolType?: string;               // "private" | "public"
   feeItems?: FeeItem[] | null;
+  schoolDays?: SchoolDays | null;
 }
 
 export interface UpdateFeesPayload {
@@ -43,6 +49,7 @@ export interface UpdateFeesPayload {
   schoolCalendar?: SchoolCalendar;
   schoolType?: string;
   feeItems?: FeeItem[];
+  schoolDays?: SchoolDays;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

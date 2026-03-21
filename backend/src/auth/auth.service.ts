@@ -931,7 +931,7 @@ export class AuthService {
   async getFeesConfig(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true },
+      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true, schoolDays: true },
     });
     if (!tenant) throw new NotFoundException('Organisation non trouvée');
     return {
@@ -940,6 +940,7 @@ export class AuthService {
       schoolCalendar:   tenant.schoolCalendar    ?? null,
       schoolType:       tenant.schoolType        ?? 'private',
       feeItems:         tenant.feeItems          ?? null,
+      schoolDays:       tenant.schoolDays        ?? null,
     };
   }
 
@@ -967,8 +968,11 @@ export class AuthService {
         ...(dto.feeItems         !== undefined && {
           feeItems: JSON.parse(JSON.stringify(dto.feeItems)) as Prisma.InputJsonArray,
         }),
+        ...(dto.schoolDays       !== undefined && {
+          schoolDays: JSON.parse(JSON.stringify(dto.schoolDays)) as Prisma.InputJsonObject,
+        }),
       },
-      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true },
+      select: { feeConfig: true, paymentFrequency: true, schoolCalendar: true, schoolType: true, feeItems: true, schoolDays: true },
     });
   }
 

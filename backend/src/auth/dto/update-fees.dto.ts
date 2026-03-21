@@ -27,4 +27,9 @@ export class UpdateFeesDto {
   @IsOptional()
   @IsArray()
   feeItems?: Record<string, unknown>[];
+
+  /** Jours de cours : samedi et jeudi */
+  @IsOptional()
+  @IsObject()
+  schoolDays?: Record<string, unknown>;
 }
