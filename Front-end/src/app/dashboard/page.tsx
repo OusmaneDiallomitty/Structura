@@ -119,23 +119,25 @@ export default function DashboardPage() {
   const loadIdRef = useRef(0);
 
   // Handlers pour l'onboarding
-  const handleOnboardingComplete = async () => {
+  const handleOnboardingComplete = async (yearConfig?: { startMonth: string; durationMonths: number }) => {
     setShowOnboardingModal(false);
-    // Auto-créer l'année scolaire courante si aucune n'existe
+    // Auto-créer l'année scolaire avec la config choisie par l'utilisateur
     try {
       const token = storage.getAuthItem('structura_token');
       if (token) {
         const existing = await getCurrentAcademicYear(token).catch(() => null);
         if (!existing) {
-          const yearName = guessCurrentSchoolYearName();
+          const startMonth     = yearConfig?.startMonth     ?? 'Septembre';
+          const durationMonths = yearConfig?.durationMonths ?? 9;
+          const yearName       = guessCurrentSchoolYearName();
           await createAcademicYear(token, {
             name: yearName,
-            startMonth: 'Septembre',
-            durationMonths: 9,
+            startMonth,
+            durationMonths,
             isCurrent: true,
           });
-          toast.success(`Année scolaire ${yearName} créée automatiquement`, {
-            description: 'Vous pouvez maintenant créer vos classes.',
+          toast.success(`Année scolaire ${yearName} créée`, {
+            description: `Rentrée en ${startMonth} · ${durationMonths} mois de cours`,
           });
         } else {
           toast.success('C\'est parti ! Créez vos classes pour commencer.');

@@ -2,29 +2,52 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sparkles, Calendar, GraduationCap, Users } from 'lucide-react';
+import { X, Sparkles, Calendar, GraduationCap, Users, ChevronDown } from 'lucide-react';
 import { useOnboarding } from '@/hooks/use-onboarding';
 
 interface OnboardingModalProps {
-  onComplete: () => void;
+  onComplete: (yearConfig?: { startMonth: string; durationMonths: number }) => void;
   onSkip: () => void;
 }
 
+const MONTHS = [
+  "Janvier","Février","Mars","Avril","Mai","Juin",
+  "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
+];
+
+/** Calcule le nom de l'année scolaire depuis le mois de rentrée et la date actuelle */
+function computeYearName(startMonth: string): string {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const startIdx = MONTHS.indexOf(startMonth) + 1; // 1-12
+  const currentYear = now.getFullYear();
+  // Si le mois de rentrée est déjà passé dans l'année civile en cours → ex: rentrée Sept 2025 → "2025-2026"
+  // Si on est avant le mois de rentrée → ex: rentrée Sept, on est en Juin 2025 → "2024-2025"
+  if (startIdx <= currentMonth) {
+    return `${currentYear}-${currentYear + 1}`;
+  } else {
+    return `${currentYear - 1}-${currentYear}`;
+  }
+}
+
 /**
- * Onboarding simplifié - Mode production
- * Guide l'utilisateur vers le bon workflow : Année → Classes → Élèves
- * Ne crée plus de classes automatiquement pour éviter les doublons
+ * Onboarding simplifié — guide l'utilisateur + configure l'année scolaire
+ * Champ mois de rentrée + durée → transmis à handleOnboardingComplete dans dashboard/page.tsx
  */
 export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalProps) {
   const { markOnboardingComplete } = useOnboarding();
+  const [startMonth, setStartMonth] = useState('Septembre');
+  const [durationMonths, setDurationMonths] = useState(9);
+
+  const yearName = computeYearName(startMonth);
 
   async function handleStart() {
     try {
       await markOnboardingComplete();
-      onComplete(); // handleOnboardingComplete dans dashboard/page.tsx → /dashboard/classes
+      onComplete({ startMonth, durationMonths });
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
-      onComplete();
+      onComplete({ startMonth, durationMonths });
     }
   }
 
@@ -55,7 +78,7 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
           <X className="w-5 h-5" />
         </button>
 
-        <div className="text-center mb-4 sm:mb-6">
+        <div className="text-center mb-4 sm:mb-5">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
@@ -69,71 +92,87 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
             Bienvenue sur Structura ! 🎉
           </h2>
           <p className="text-gray-600 text-sm sm:text-base">
-            Votre plateforme de gestion scolaire est prête
+            Configurez votre année scolaire pour commencer
           </p>
         </div>
 
-        <div className="space-y-3 mb-4 sm:mb-6">
-          {/* Étape 1 : Créer année académique */}
-          <div className="flex items-start gap-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
-            <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold">
-              1
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-gray-900">Créez votre année académique</h3>
+        {/* ── Configuration de l'année scolaire ── */}
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4 space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar className="w-5 h-5 text-blue-600 shrink-0" />
+            <h3 className="font-bold text-gray-900">Votre année scolaire</h3>
+            <span className="ml-auto text-sm font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+              {yearName}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Mois de rentrée */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Mois de rentrée
+              </label>
+              <div className="relative">
+                <select
+                  value={startMonth}
+                  onChange={(e) => setStartMonth(e.target.value)}
+                  className="w-full appearance-none bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-8"
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
-              <p className="text-sm text-gray-700">
-                Commencez par créer l'année scolaire (ex: 2025-2026)
-              </p>
-              <p className="text-xs text-blue-700 mt-1 font-medium">
-                📍 Dashboard → "Créer l'année scolaire"
-              </p>
+            </div>
+
+            {/* Durée */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Durée (mois de cours)
+              </label>
+              <div className="relative">
+                <select
+                  value={durationMonths}
+                  onChange={(e) => setDurationMonths(Number(e.target.value))}
+                  className="w-full appearance-none bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-8"
+                >
+                  {[6,7,8,9,10,11,12].map((n) => (
+                    <option key={n} value={n}>{n} mois</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
           </div>
 
-          {/* Étape 2 : Créer classes */}
-          <div className="flex items-start gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="flex-shrink-0 w-10 h-10 bg-gray-400 rounded-full flex items-center justify-center text-white text-lg font-bold">
-              2
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <GraduationCap className="w-5 h-5 text-gray-600" />
-                <h3 className="font-bold text-gray-900">Créez vos classes</h3>
-              </div>
-              <p className="text-sm text-gray-600">
-                Utilisez le système de classes prédéfinies (CP1, CP2, 7ème, etc.)
-              </p>
-              <p className="text-xs text-gray-500 mt-1 font-medium">
-                📍 Classes → "Créer classes prédéfinies"
-              </p>
-            </div>
-          </div>
-
-          {/* Étape 3 : Ajouter élèves */}
-          <div className="flex items-start gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="flex-shrink-0 w-10 h-10 bg-gray-400 rounded-full flex items-center justify-center text-white text-lg font-bold">
-              3
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Users className="w-5 h-5 text-gray-600" />
-                <h3 className="font-bold text-gray-900">Ajoutez vos élèves</h3>
-              </div>
-              <p className="text-sm text-gray-600">
-                Importez ou ajoutez vos élèves manuellement
-              </p>
-              <p className="text-xs text-gray-500 mt-1 font-medium">
-                📍 Élèves → "Ajouter" ou "Importer CSV"
-              </p>
-            </div>
-          </div>
+          <p className="text-xs text-blue-700">
+            📅 Année <strong>{yearName}</strong> · de <strong>{startMonth}</strong> · {durationMonths} mois de cours
+          </p>
         </div>
 
-        {/* Note importante */}
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4 sm:mb-5">
+        {/* ── Étapes suivantes ── */}
+        <div className="space-y-2 mb-4">
+          {[
+            { icon: GraduationCap, label: 'Créez vos classes', sub: 'Classes → "Créer classes prédéfinies"' },
+            { icon: Users, label: 'Ajoutez vos élèves', sub: 'Élèves → "Ajouter" ou "Importer CSV"' },
+          ].map(({ icon: Icon, label, sub }, i) => (
+            <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="shrink-0 w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-bold">
+                {i + 2}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <Icon className="w-4 h-4 text-gray-500" />
+                  <p className="font-semibold text-sm text-gray-900">{label}</p>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">📍 {sub}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4">
           <p className="text-xs sm:text-sm text-amber-900">
             💡 <span className="font-semibold">Important :</span> Suivez ces étapes dans l'ordre pour éviter les erreurs.
           </p>
@@ -145,7 +184,7 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
             className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 text-sm sm:text-base"
           >
             <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            Créer mon année académique
+            Créer l'année {yearName}
           </button>
           <button
             onClick={handleSkip}
