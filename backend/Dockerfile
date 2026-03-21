@@ -49,8 +49,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Utiliser dumb-init pour lancer l'app
 ENTRYPOINT ["dumb-init", "--"]
 
-# Démarrer sans prisma db push (les migrations sont appliquées manuellement)
-CMD ["node", "dist/main.js"]
+# Synchroniser le schéma Prisma avec la BDD production au démarrage
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate --accept-data-loss && node dist/main.js"]
 
 # Expose le port
 EXPOSE 3001
