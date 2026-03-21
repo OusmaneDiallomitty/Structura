@@ -109,6 +109,7 @@ export default function DashboardPage() {
 
   // États pour les données
   const [stats, setStats] = useState<any>(null);
+  const [hasActiveYear, setHasActiveYear] = useState<boolean | null>(null);
   const [activities, setActivities] = useState<any[]>([]);
   const [paymentsData, setPaymentsData] = useState<any[]>([]);
   const [attendanceData, setAttendanceData] = useState<any[]>([]);
@@ -176,18 +177,21 @@ export default function DashboardPage() {
         paymentsChart,
         attendanceChart,
         distributionData,
+        activeYear,
       ] = await Promise.all([
         getDashboardStats(token),
         getRecentActivities(token, 4),
         getPaymentsChartData(token),
         getAttendanceChartData(token),
         getStudentsDistribution(token),
+        getCurrentAcademicYear(token).catch(() => null),
       ]);
 
       // Ignorer si un appel plus récent a déjà démarré (évite les setState sur état périmé)
       if (loadId !== loadIdRef.current) return;
 
       setStats(statsData.stats);
+      setHasActiveYear(!!activeYear);
       setActivities(activitiesData);
       setPaymentsData(paymentsChart);
       setAttendanceData(attendanceChart);
@@ -464,7 +468,7 @@ export default function DashboardPage() {
 
         const alerts: { type: 'warning' | 'info' | 'error'; message: string; description: string; href?: string }[] = [];
 
-        if (!stats.currentAcademicYear) {
+        if (hasActiveYear === false) {
           alerts.push({ type: 'error', message: 'Aucune année scolaire active', description: 'Créez une année scolaire pour commencer à gérer votre école.', href: '/dashboard/settings' });
         }
         if (stats.totalClasses === 0) {
