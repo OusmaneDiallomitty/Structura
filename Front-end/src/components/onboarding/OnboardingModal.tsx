@@ -6,7 +6,7 @@ import { X, Sparkles, Calendar, GraduationCap, Users, ChevronDown } from 'lucide
 import { useOnboarding } from '@/hooks/use-onboarding';
 
 interface OnboardingModalProps {
-  onComplete: (yearConfig?: { startMonth: string; durationMonths: number }) => void;
+  onComplete: (yearConfig?: { startMonth: string; durationMonths: number; schoolType: string }) => void;
   onSkip: () => void;
 }
 
@@ -38,16 +38,17 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
   const { markOnboardingComplete } = useOnboarding();
   const [startMonth, setStartMonth] = useState('Septembre');
   const [durationMonths, setDurationMonths] = useState(9);
+  const [schoolType, setSchoolType] = useState<'private' | 'public'>('private');
 
   const yearName = computeYearName(startMonth);
 
   async function handleStart() {
     try {
       await markOnboardingComplete();
-      onComplete({ startMonth, durationMonths });
+      onComplete({ startMonth, durationMonths, schoolType });
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
-      onComplete({ startMonth, durationMonths });
+      onComplete({ startMonth, durationMonths, schoolType });
     }
   }
 
@@ -94,6 +95,40 @@ export default function OnboardingModal({ onComplete, onSkip }: OnboardingModalP
           <p className="text-gray-600 text-sm sm:text-base">
             Configurez votre année scolaire pour commencer
           </p>
+        </div>
+
+        {/* ── Type d'école ── */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <button
+            type="button"
+            onClick={() => setSchoolType('private')}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors text-left ${
+              schoolType === 'private'
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:bg-gray-50'
+            }`}
+          >
+            <span className="text-2xl">🏫</span>
+            <div>
+              <p className="font-semibold text-sm text-gray-900">École privée</p>
+              <p className="text-xs text-gray-500 mt-0.5">Frais mensuels / trimestriels</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSchoolType('public')}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors text-left ${
+              schoolType === 'public'
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:bg-gray-50'
+            }`}
+          >
+            <span className="text-2xl">🏛️</span>
+            <div>
+              <p className="font-semibold text-sm text-gray-900">École publique</p>
+              <p className="text-xs text-gray-500 mt-0.5">Frais ponctuels configurables</p>
+            </div>
+          </button>
         </div>
 
         {/* ── Configuration de l'année scolaire ── */}

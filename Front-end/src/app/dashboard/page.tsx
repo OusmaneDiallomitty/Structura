@@ -41,6 +41,7 @@ import {
   getStudentsDistribution,
 } from "@/lib/api/dashboard.service";
 import { getCurrentAcademicYear, createAcademicYear } from "@/lib/api/academic-years.service";
+import { updateFeesConfig } from "@/lib/api/fees.service";
 
 /** Calcule le nom de l'année scolaire courante selon la date du jour.
  *  En Guinée l'année commence en Septembre.
@@ -119,7 +120,7 @@ export default function DashboardPage() {
   const loadIdRef = useRef(0);
 
   // Handlers pour l'onboarding
-  const handleOnboardingComplete = async (yearConfig?: { startMonth: string; durationMonths: number }) => {
+  const handleOnboardingComplete = async (yearConfig?: { startMonth: string; durationMonths: number; schoolType: string }) => {
     setShowOnboardingModal(false);
     // Auto-créer l'année scolaire avec la config choisie par l'utilisateur
     try {
@@ -136,6 +137,11 @@ export default function DashboardPage() {
             durationMonths,
             isCurrent: true,
           });
+          // Persist school type and school calendar from onboarding
+          await updateFeesConfig(token, {
+            schoolType: yearConfig?.schoolType ?? 'private',
+            schoolCalendar: { startMonth, durationMonths },
+          }).catch(() => {/* non-blocking */});
           toast.success(`Année scolaire ${yearName} créée`, {
             description: `Rentrée en ${startMonth} · ${durationMonths} mois de cours`,
           });

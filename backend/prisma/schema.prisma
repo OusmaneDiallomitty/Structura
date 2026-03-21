@@ -63,6 +63,8 @@ model Tenant {
   feeConfig        Json?   // { mode, globalFee, byLevel: {level: amount}, byClass: {classId: amount} }
   paymentFrequency String? // "monthly" | "quarterly" | "annual"
   schoolCalendar   Json?   // { startMonth: string, durationMonths: number }
+  schoolType       String? @default("private") // "private" | "public"
+  feeItems         Json?   // [{ id, name, amount, classIds, academicYear, createdAt }]
 
   // Préférences de notifications (email via Resend)
   notifMonthlyReport    Boolean            @default(true)  // Rapport mensuel des paiements

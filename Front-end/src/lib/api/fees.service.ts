@@ -20,16 +20,29 @@ export interface SchoolCalendar {
   durationMonths: number; // ex: 9
 }
 
+export interface FeeItem {
+  id: string;
+  name: string;
+  amount: number;
+  classIds: string[]; // empty = all classes
+  academicYear: string;
+  createdAt: string;
+}
+
 export interface FeesConfigResponse {
   feeConfig: FeeConfig | null;
   paymentFrequency: string;          // "monthly" | "quarterly" | "annual"
   schoolCalendar: SchoolCalendar | null;
+  schoolType?: string;               // "private" | "public"
+  feeItems?: FeeItem[] | null;
 }
 
 export interface UpdateFeesPayload {
   feeConfig?: FeeConfig;
   paymentFrequency?: string;
   schoolCalendar?: SchoolCalendar;
+  schoolType?: string;
+  feeItems?: FeeItem[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

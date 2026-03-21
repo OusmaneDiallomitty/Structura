@@ -497,6 +497,10 @@ export default function PaymentsPage() {
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("monthly");
   const [selectedTerm,     setSelectedTerm]     = useState<string>(() => getCurrentPeriod("monthly"));
 
+  // Type d'école et postes de frais (école publique)
+  const [schoolType, setSchoolType] = useState<"private" | "public">("private");
+  const [feeItems,   setFeeItems]   = useState<import("@/lib/api/fees.service").FeeItem[]>([]);
+
   // Frais
   const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
@@ -529,6 +533,17 @@ export default function PaymentsPage() {
   const [schoolCalendar,      setSchoolCalendar]      = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
   const [draftSchoolCalendar, setDraftSchoolCalendar] = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
 
+  // ── Dialog "Ajouter un poste de frais" (école publique) ──────────────────
+  const [isFeeItemDialogOpen,  setIsFeeItemDialogOpen]  = useState(false);
+  const [feeItemSaving,        setFeeItemSaving]        = useState(false);
+  const [feeItemForm, setFeeItemForm] = useState({
+    name: "",
+    amount: "",
+    academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+    classIds: [] as string[],
+    allClasses: true,
+  });
+
   // ── Saisie en masse des paiements ─────────────────────────────────────────
   const [bulkOpen,           setBulkOpen]           = useState(false);
   const [bulkClassId,        setBulkClassId]        = useState<string>("");
@@ -556,12 +571,16 @@ export default function PaymentsPage() {
       fee: FeeConfig | null,
       freq: string,
       cal: SchoolCalendar | null,
+      sType?: string | null,
+      items?: import("@/lib/api/fees.service").FeeItem[] | null,
     ) => {
       if (fee?.mode && typeof fee.globalFee === "number") setFeeConfig(fee);
       if (cal?.startMonth && typeof cal.durationMonths === "number") setSchoolCalendar(cal);
       const f = (freq as PaymentFrequency) || "monthly";
       setPaymentFrequency(f);
       setSelectedTerm(getCurrentPeriod(f));
+      if (sType === "public" || sType === "private") setSchoolType(sType);
+      if (Array.isArray(items)) setFeeItems(items);
     };
 
     if (token && isOnline) {
@@ -593,6 +612,8 @@ export default function PaymentsPage() {
             config.feeConfig as FeeConfig | null,
             config.paymentFrequency,
             config.schoolCalendar as SchoolCalendar | null,
+            config.schoolType,
+            config.feeItems as import("@/lib/api/fees.service").FeeItem[] | null,
           );
           // Mettre en cache pour le mode hors ligne
           if (config.feeConfig)      localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
@@ -1510,7 +1531,307 @@ export default function PaymentsPage() {
     return formatCurrency(feeConfig.globalFee);
   })();
 
+  // ── Handler ajout poste de frais (école publique) ────────────────────────
+
+  const handleAddFeeItem = async () => {
+    if (!feeItemForm.name.trim() || !feeItemForm.amount) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    setFeeItemSaving(true);
+    try {
+      const newItem: import("@/lib/api/fees.service").FeeItem = {
+        id: crypto.randomUUID(),
+        name: feeItemForm.name.trim(),
+        amount: Number(feeItemForm.amount),
+        classIds: feeItemForm.allClasses ? [] : feeItemForm.classIds,
+        academicYear: feeItemForm.academicYear,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [...feeItems, newItem];
+      await updateFeesConfig(token, { feeItems: updated });
+      setFeeItems(updated);
+      setIsFeeItemDialogOpen(false);
+      setFeeItemForm({
+        name: "",
+        amount: "",
+        academicYear: feeItemForm.academicYear,
+        classIds: [],
+        allClasses: true,
+      });
+      toast.success("Poste de frais ajouté");
+    } catch {
+      toast.error("Impossible d'enregistrer le poste de frais");
+    } finally {
+      setFeeItemSaving(false);
+    }
+  };
+
+  const handleMarkPublicPaid = async (student: BackendStudent, item: import("@/lib/api/fees.service").FeeItem) => {
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    try {
+      await createPayment(token, {
+        studentId: student.id,
+        amount: item.amount,
+        method: "CASH",
+        currency: getActiveCurrency(),
+        status: "paid",
+        description: item.name,
+        term: item.id,
+        academicYear: item.academicYear,
+        paidDate: new Date().toISOString(),
+      });
+      await loadData();
+      toast.success(`Paiement enregistré pour ${student.firstName} ${student.lastName}`);
+    } catch {
+      toast.error("Impossible d'enregistrer le paiement");
+    }
+  };
+
   // ─── Rendu ──────────────────────────────────────────────────────────────
+
+  // ── Vue école publique ────────────────────────────────────────────────────
+  if (schoolType === "public") {
+    return (
+      <div className="space-y-5">
+        {/* En-tête */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Frais &amp; Paiements</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Frais ponctuels — école publique
+              {user?.schoolName && <span className="font-medium text-foreground"> · {user.schoolName}</span>}
+            </p>
+          </div>
+          {canConfigureFees && (
+            <Button onClick={() => setIsFeeItemDialogOpen(true)} className="gap-2 self-start">
+              <Plus className="h-4 w-4" />
+              Ajouter un poste de frais
+            </Button>
+          )}
+        </div>
+
+        {/* État vide */}
+        {feeItems.length === 0 && (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <DollarSign className="h-12 w-12 text-muted-foreground/40 mb-4" />
+              <h3 className="font-semibold text-lg mb-1">Aucun frais configuré</h3>
+              <p className="text-muted-foreground text-sm max-w-sm">
+                Ajoutez des postes de frais (uniforme, examens...) quand nécessaire.
+              </p>
+              {canConfigureFees && (
+                <Button onClick={() => setIsFeeItemDialogOpen(true)} className="mt-4 gap-2">
+                  <Plus className="h-4 w-4" />
+                  Ajouter un poste
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Liste des postes de frais */}
+        {feeItems.map((item) => {
+          // Students concerned by this fee item
+          const concernedStudents = item.classIds.length === 0
+            ? students
+            : students.filter((s) => item.classIds.includes(s.classId));
+
+          const paidStudentIds = new Set(
+            payments
+              .filter((p) => p.term === item.id && p.status === "paid")
+              .map((p) => p.studentId)
+          );
+
+          const paidCount = concernedStudents.filter((s) => paidStudentIds.has(s.id)).length;
+          const totalCollected = payments
+            .filter((p) => p.term === item.id && p.status === "paid")
+            .reduce((sum, p) => sum + p.amount, 0);
+
+          return (
+            <Card key={item.id}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="text-base">{item.name}</CardTitle>
+                    <Badge variant="secondary">{formatCurrency(item.amount)}</Badge>
+                    <Badge variant="outline" className="text-xs">{item.academicYear}</Badge>
+                  </div>
+                  <div className="text-sm text-muted-foreground whitespace-nowrap">
+                    {paidCount}/{concernedStudents.length} payés · {formatCurrency(totalCollected)} collectés
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {concernedStudents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">Aucun élève concerné.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Élève</TableHead>
+                        <TableHead>Classe</TableHead>
+                        <TableHead>Statut</TableHead>
+                        <TableHead>Montant</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="w-[120px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {concernedStudents.map((student) => {
+                        const paid = paidStudentIds.has(student.id);
+                        const paymentRecord = payments.find(
+                          (p) => p.term === item.id && p.studentId === student.id && p.status === "paid"
+                        );
+                        const cls = classes.find((c) => c.id === student.classId);
+                        return (
+                          <TableRow key={student.id}>
+                            <TableCell className="font-medium">
+                              {student.firstName} {student.lastName}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {cls?.displayName ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              {paid ? (
+                                <Badge className="bg-green-100 text-green-800 border-green-200 gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Payé
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  En attente
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{paid ? formatCurrency(paymentRecord?.amount ?? item.amount) : "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {paymentRecord?.paidDate
+                                ? new Date(paymentRecord.paidDate).toLocaleDateString("fr-FR")
+                                : "—"}
+                            </TableCell>
+                            <TableCell>
+                              {!paid && canCreatePayment && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs gap-1"
+                                  onClick={() => handleMarkPublicPaid(student, item)}
+                                >
+                                  <Check className="h-3 w-3" />
+                                  Marquer payé
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+
+        {/* Dialog ajout poste de frais */}
+        <Dialog open={isFeeItemDialogOpen} onOpenChange={setIsFeeItemDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Ajouter un poste de frais</DialogTitle>
+              <DialogDescription>
+                Ce poste sera appliqué aux élèves sélectionnés.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="fi-name">Nom du poste</Label>
+                <Input
+                  id="fi-name"
+                  placeholder="ex: Uniforme scolaire, Frais d'examen…"
+                  value={feeItemForm.name}
+                  onChange={(e) => setFeeItemForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fi-amount">Montant ({getActiveCurrency()})</Label>
+                <Input
+                  id="fi-amount"
+                  type="number"
+                  min={0}
+                  placeholder="ex: 50000"
+                  value={feeItemForm.amount}
+                  onChange={(e) => setFeeItemForm((f) => ({ ...f, amount: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fi-year">Année scolaire</Label>
+                <Input
+                  id="fi-year"
+                  placeholder="ex: 2025-2026"
+                  value={feeItemForm.academicYear}
+                  onChange={(e) => setFeeItemForm((f) => ({ ...f, academicYear: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Classes concernées</Label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={feeItemForm.allClasses}
+                    onChange={(e) => setFeeItemForm((f) => ({ ...f, allClasses: e.target.checked, classIds: [] }))}
+                    className="rounded"
+                  />
+                  Toutes les classes
+                </label>
+                {!feeItemForm.allClasses && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {classes.map((cls) => {
+                      const selected = feeItemForm.classIds.includes(cls.id);
+                      return (
+                        <button
+                          key={cls.id}
+                          type="button"
+                          onClick={() =>
+                            setFeeItemForm((f) => ({
+                              ...f,
+                              classIds: selected
+                                ? f.classIds.filter((id) => id !== cls.id)
+                                : [...f.classIds, cls.id],
+                            }))
+                          }
+                          className={`px-2 py-1 rounded text-xs border transition-colors ${
+                            selected
+                              ? "bg-blue-600 text-white border-blue-600"
+                              : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                          }`}
+                        >
+                          {cls.displayName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsFeeItemDialogOpen(false)}>
+                Annuler
+              </Button>
+              <Button
+                onClick={handleAddFeeItem}
+                disabled={feeItemSaving || !feeItemForm.name.trim() || !feeItemForm.amount}
+              >
+                {feeItemSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Enregistrer
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
