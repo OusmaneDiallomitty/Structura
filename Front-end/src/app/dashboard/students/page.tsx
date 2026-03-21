@@ -78,6 +78,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
+import { getFeesConfig } from "@/lib/api/fees.service";
 import { YearSelector } from "@/components/shared/YearSelector";
 import { getCurrentAcademicYear, type AcademicYear } from "@/lib/api/academic-years.service";
 import { formatClassName } from "@/lib/class-helpers";
@@ -285,10 +286,9 @@ export default function StudentsPage() {
   // Rafraîchir les données quand l'utilisateur revient sur l'onglet
   useRefreshOnFocus(loadStudents);
 
-  // Refresh du profil + année courante au montage
+  // Refresh du profil + année courante + type d'école au montage
   useEffect(() => {
     refreshUserProfile();
-    // Initialiser selectedAcademicYear avec l'année courante
     const token = storage.getAuthItem('structura_token');
     if (token) {
       getCurrentAcademicYear(token).then((year) => {
@@ -297,6 +297,15 @@ export default function StudentsPage() {
           setSelectedAcademicYearObj(year);
         }
       }).catch(() => {/* silencieux si pas d'année */});
+
+      // Charger le type d'école depuis l'API (confirme ou corrige le cache localStorage)
+      getFeesConfig(token).then((config) => {
+        const st = (config as any).schoolType as "private" | "public" | undefined;
+        if (st) {
+          setSchoolType(st);
+          localStorage.setItem('structura_school_type', st);
+        }
+      }).catch(() => {/* silencieux — on garde la valeur localStorage */});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -364,7 +373,11 @@ export default function StudentsPage() {
   const paginatedStudents = sortedStudents;
 
   // Droits paiement : directeur, comptable, secrétaire uniquement
-  const canViewPayments = user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary';
+  const [schoolType, setSchoolType] = useState<"private" | "public">(
+    () => (typeof window !== 'undefined' && localStorage.getItem('structura_school_type') as "private" | "public") || "private"
+  );
+  const isPublicSchool = schoolType === "public";
+  const canViewPayments = !isPublicSchool && (user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary');
 
   // Stats globales depuis le serveur (toute l'école, pas juste la page)
   const totalStudents  = stats.total;
