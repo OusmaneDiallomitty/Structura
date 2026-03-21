@@ -71,6 +71,7 @@ import { toast } from "sonner";
 import { offlineDB, STORES } from "@/lib/offline-db";
 import { syncQueue } from "@/lib/sync-queue";
 import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { useSubscription } from "@/hooks/use-subscription";
 import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
@@ -827,6 +828,9 @@ export default function PaymentsPage() {
   }, [isOnline]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Rafraîchir les données quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(loadData);
 
   const handleBulkSave = async () => {
     const validRows = bulkRows.filter((r) => !r.skip && r.amount && Number(r.amount) > 0);

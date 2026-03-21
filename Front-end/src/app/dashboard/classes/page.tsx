@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import * as storage from "@/lib/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { getClasses, createClass, updateClass, deleteClass, transferStudents } from "@/lib/api/classes.service";
@@ -236,6 +237,9 @@ export default function ClassesPage() {
       setIsLoading(false);
     }
   }
+
+  // Rafraîchir les classes quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(loadClasses);
 
   function openAddDialog() {
     setFormData({

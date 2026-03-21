@@ -31,6 +31,7 @@ import { useOnboarding } from "@/hooks/use-onboarding";
 import * as storage from "@/lib/storage";
 import { offlineDB } from "@/lib/offline-db";
 import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import {
@@ -225,6 +226,9 @@ export default function DashboardPage() {
       if (loadId === loadIdRef.current) setIsLoading(false);
     }
   }, [isOnline, logout]);
+
+  // Recharger quand l'utilisateur revient sur l'onglet (min 30s entre deux refreshes)
+  useRefreshOnFocus(loadDashboardData);
 
   // Détecter un plan en attente depuis /tarifs (flow: tarifs → register → check-email → dashboard → billing)
   useEffect(() => {

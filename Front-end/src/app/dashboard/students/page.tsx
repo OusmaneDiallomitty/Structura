@@ -73,6 +73,7 @@ import { exportToCSV, downloadTemplate, validateStudentRow } from "@/lib/csv-han
 import { offlineDB, STORES } from "@/lib/offline-db";
 import { syncQueue } from "@/lib/sync-queue";
 import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
@@ -280,6 +281,9 @@ export default function StudentsPage() {
       });
     } catch { /* silencieux */ }
   }, [isOnline]);
+
+  // Rafraîchir les données quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(loadStudents);
 
   // Refresh du profil + année courante au montage
   useEffect(() => {

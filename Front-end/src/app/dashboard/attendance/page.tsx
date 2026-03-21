@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import {
   Calendar, Check, X, Save, Loader2, WifiOff, Clock, ShieldCheck,
   Users, RotateCcw, FileCheck, GraduationCap, MessageSquare, Timer,
@@ -458,6 +459,9 @@ export default function AttendancePage() {
       setIsLoadingStudents(false);
     }
   }, [isOnline]);
+
+  // Rafraîchir les classes quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(loadClasses);
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
