@@ -149,11 +149,11 @@ export async function checkApproval(pendingToken: string): Promise<ApprovalStatu
  * Le code est détruit côté serveur immédiatement après l'échange.
  * POST /auth/exchange
  */
-export async function exchangeCode(code: string): Promise<ExchangeResponse> {
+export async function exchangeCode(code: string, deviceId?: string): Promise<ExchangeResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, deviceId }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));

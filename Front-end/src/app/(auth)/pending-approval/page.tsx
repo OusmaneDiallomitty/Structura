@@ -61,7 +61,9 @@ export default function PendingApprovalPage() {
             const rememberMe = sessionStorage.getItem("structura_pending_remember") === "true";
             sessionStorage.removeItem("structura_pending_remember");
 
-            const session = await exchangeCode(result.code);
+            // Passer le deviceId pour que le backend mémorise cet appareil comme approuvé
+            const deviceId = localStorage.getItem('structura_device_id') || undefined;
+            const session = await exchangeCode(result.code, deviceId);
 
             storage.setAuthItem(TOKEN_KEY, session.token, rememberMe);
             storage.setAuthItem(REFRESH_TOKEN_KEY, session.refreshToken, rememberMe);

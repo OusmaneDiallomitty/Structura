@@ -96,8 +96,8 @@ export class AuthController {
   @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   @Post('exchange')
   @HttpCode(HttpStatus.OK)
-  async exchange(@Body('code') code: string) {
-    return this.authService.exchangeCode(code);
+  async exchange(@Body('code') code: string, @Body('deviceId') deviceId?: string) {
+    return this.authService.exchangeCode(code, deviceId);
   }
 
   // Lien "Refuser" dans l'email — page de confirmation HTML (pas de redirect vers /login)

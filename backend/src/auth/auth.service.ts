@@ -449,7 +449,7 @@ export class AuthService {
    * Le code est détruit immédiatement après l'échange (usage unique).
    * C'est ici que la session est créée — jamais dans approveLogin().
    */
-  async exchangeCode(code: string) {
+  async exchangeCode(code: string, deviceId?: string) {
     if (!code || code.length < 10) {
       throw new BadRequestException('Code invalide');
     }
@@ -489,7 +489,13 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: user.id },
-      data:  { lastLoginAt: new Date(), currentSessionId: tokens.sessionId, refreshTokenHash: refreshHash },
+      data:  {
+        lastLoginAt:      new Date(),
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: refreshHash,
+        // Mémoriser l'appareil approuvé → skip approbation pour toutes les prochaines connexions
+        ...(deviceId ? { lastTrustedDeviceId: deviceId } : {}),
+      },
     });
 
     this.logSecurityEvent('LOGIN_EXCHANGED', user.email, user.tenantId, 'Code échangé — session créée').catch(() => {});

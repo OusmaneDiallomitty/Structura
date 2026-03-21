@@ -173,8 +173,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (navigator.onLine) {
             const refreshed = await tryRefreshToken();
             if (!refreshed) {
-              clearAuth();
-              return;
+              // Ne pas déconnecter sur erreur réseau (ex : Render cold start ~30s)
+              // SESSION_INVALIDATED est déjà géré dans tryRefreshToken (logout + redirect login).
+              // On laisse l'app charger — un 401 sur un appel API provoquera un logout propre.
             }
           }
           // Offline + token expiré : on garde la session active (travail hors ligne)
