@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +20,8 @@ const CACHE_TTL = 300;
 
 @Injectable()
 export class AcademicYearsService {
+  private readonly logger = new Logger(AcademicYearsService.name);
+
   constructor(
     private prisma: PrismaService,
     private cache: CacheService,
@@ -255,8 +259,9 @@ export class AcademicYearsService {
       );
     }
 
-    // Transaction atomique pour tout faire d'un coup
+    // Transaction atomique — timeout 30s (Neon + Render free tier peuvent être lents au cold start)
     const result = await this.prisma.$transaction(async (tx) => {
+
       // 1. Créer la nouvelle année académique
       const newYear = await tx.academicYear.create({
         data: {
@@ -270,112 +275,150 @@ export class AcademicYearsService {
         },
       });
 
-      // 2. Récupérer toutes les classes de l'année courante
+      // 2. Récupérer toutes les classes de l'année courante avec leurs élèves
       const currentClasses = await tx.class.findMany({
-        where: {
-          tenantId,
-          academicYearId: currentYear.id,
-        },
-        include: {
-          students: true,
-        },
+        where: { tenantId, academicYearId: currentYear.id },
+        include: { students: true },
       });
 
       const classMapping: Record<string, string> = {}; // oldClassId -> newClassId
+      // 'TERMINAL' = classe terminale (Terminale/12ème) → élèves auto-diplômés
+      const terminalClassIds = new Set<string>();
       const studentTransitionMode =
         createDto.studentTransitionMode || StudentTransitionMode.PROMOTE;
 
-      // 3. Créer les nouvelles classes selon le mode de transition
+      // 3. Créer les nouvelles classes (niveau suivant en mode PROMOTE, même nom sinon)
       for (const oldClass of currentClasses) {
-        let newClassName: string;
-        let newLevel: string;
-
         if (studentTransitionMode === StudentTransitionMode.PROMOTE) {
-          // Calculer la classe supérieure
           const nextGrade = this.getNextGrade(oldClass.name);
-          newClassName = nextGrade.name;
-          newLevel = nextGrade.level;
+          // Classe terminale (Terminale/12ème) : les élèves seront diplômés, pas de classe créée
+          if (nextGrade.level === 'GRADUATED') {
+            terminalClassIds.add(oldClass.id);
+            continue;
+          }
+          const newClass = await tx.class.create({
+            data: {
+              name: nextGrade.name,
+              level: nextGrade.level,
+              section: oldClass.section,
+              capacity: oldClass.capacity,
+              teacherId: oldClass.teacherId,
+              teacherName: oldClass.teacherName,
+              room: oldClass.room,
+              gradeMode: oldClass.gradeMode,
+              academicYear: createDto.name,
+              academicYearId: newYear.id,
+              tenantId,
+            },
+          });
+          classMapping[oldClass.id] = newClass.id;
         } else {
-          // Garder le même nom de classe
-          newClassName = oldClass.name;
-          newLevel = oldClass.level;
+          const newClass = await tx.class.create({
+            data: {
+              name: oldClass.name,
+              level: oldClass.level,
+              section: oldClass.section,
+              capacity: oldClass.capacity,
+              teacherId: oldClass.teacherId,
+              teacherName: oldClass.teacherName,
+              room: oldClass.room,
+              gradeMode: oldClass.gradeMode,
+              academicYear: createDto.name,
+              academicYearId: newYear.id,
+              tenantId,
+            },
+          });
+          classMapping[oldClass.id] = newClass.id;
         }
-
-        const newClass = await tx.class.create({
-          data: {
-            name: newClassName,
-            level: newLevel,
-            section: oldClass.section,
-            capacity: oldClass.capacity,
-            teacherId: oldClass.teacherId,
-            teacherName: oldClass.teacherName,
-            room: oldClass.room,
-            academicYear: createDto.name,
-            academicYearId: newYear.id,
-            tenantId,
-          },
-        });
-
-        classMapping[oldClass.id] = newClass.id;
       }
+
+      // Cache des classes "même niveau" créées à la demande pour les redoublants
+      const repeatClassCache: Record<string, string> = {}; // className -> newClassId
 
       // 4. Transférer les élèves selon les décisions individuelles
       if (studentTransitionMode !== StudentTransitionMode.NONE) {
         for (const oldClass of currentClasses) {
           const newClassId = classMapping[oldClass.id];
-          if (!newClassId) continue;
+          const isTerminal = terminalClassIds.has(oldClass.id);
 
           for (const student of oldClass.students) {
-            const decision = createDto.studentDecisions?.find(d => d.studentId === student.id);
-            const effectiveDecision = decision?.decision ??
-              (studentTransitionMode === StudentTransitionMode.PROMOTE ? 'promote' : 'repeat');
+            const decision = createDto.studentDecisions?.find(
+              (d) => d.studentId === student.id,
+            );
+            // Décision par défaut : promote (sauf mode KEEP → repeat)
+            let effectiveDecision =
+              decision?.decision ??
+              (studentTransitionMode === StudentTransitionMode.PROMOTE
+                ? 'promote'
+                : 'repeat');
+
+            // Classe terminale sans décision explicite → auto-diplômé
+            if (isTerminal && !decision) effectiveDecision = 'graduate';
 
             if (effectiveDecision === 'graduate') {
-              // Diplômé : marquer le statut, ne pas déplacer
+              // Diplômé : changer le statut, laisser l'élève dans son ancienne classe
               await tx.student.update({
                 where: { id: student.id },
                 data: { status: StudentStatus.GRADUATED },
               });
+
             } else if (effectiveDecision === 'repeat') {
-              // Redoublant : reste dans la même classe niveau mais nouvelle année
-              // Cherche la classe du même nom dans la nouvelle année
-              const sameGradeClass = await tx.class.findFirst({
-                where: { tenantId, academicYearId: newYear.id, name: oldClass.name },
-              });
-              if (sameGradeClass) {
-                await tx.student.update({
-                  where: { id: student.id },
-                  data: { classId: sameGradeClass.id, academicYearId: newYear.id },
+              // Redoublant : reste dans la MÊME classe (niveau identique) dans la nouvelle année
+              // Chercher ou créer la classe correspondante dans la nouvelle année
+              let repeatClassId = repeatClassCache[oldClass.name];
+              if (!repeatClassId) {
+                let sameGradeClass = await tx.class.findFirst({
+                  where: { tenantId, academicYearId: newYear.id, name: oldClass.name },
                 });
+                if (!sameGradeClass) {
+                  // Créer la classe du même niveau (n'existait pas encore dans la nouvelle année)
+                  sameGradeClass = await tx.class.create({
+                    data: {
+                      name: oldClass.name,
+                      level: oldClass.level,
+                      section: oldClass.section,
+                      capacity: oldClass.capacity,
+                      gradeMode: oldClass.gradeMode,
+                      academicYear: createDto.name,
+                      academicYearId: newYear.id,
+                      tenantId,
+                    },
+                  });
+                }
+                repeatClassId = sameGradeClass.id;
+                repeatClassCache[oldClass.name] = repeatClassId;
               }
-            } else {
-              // Promu : va dans la classe supérieure
               await tx.student.update({
                 where: { id: student.id },
-                data: { classId: newClassId, academicYearId: newYear.id },
+                data: { classId: repeatClassId, academicYearId: newYear.id },
               });
+
+            } else {
+              // Promu : va dans la classe supérieure
+              if (newClassId) {
+                await tx.student.update({
+                  where: { id: student.id },
+                  data: { classId: newClassId, academicYearId: newYear.id },
+                });
+              }
             }
           }
         }
       }
 
-      // 5. Créer les classes d'entrée si elles n'existent pas dans le nouveau mapping
-      // (pour accueillir les nouveaux élèves qui rejoignent l'école cette année)
+      // 5. Créer les classes d'entrée manquantes (accueillir les nouveaux élèves)
       if (studentTransitionMode === StudentTransitionMode.PROMOTE) {
-        // Récupérer les noms des classes déjà créées pour la nouvelle année
         const newClassNames = await tx.class.findMany({
           where: { tenantId, academicYearId: newYear.id },
           select: { name: true },
         });
         const existingNewNames = new Set(newClassNames.map((c) => c.name));
 
-        // Classes de première inscription (début de cycle)
-        // On crée seulement celles dont le nom correspondant n'existe pas encore
         const entryClasses = [
-          { name: 'CP',         level: 'PRIMAIRE'    },
-          { name: '1ère Année', level: 'PRIMAIRE'    },
-          { name: '7ème',       level: 'SECONDAIRE'  },
-          { name: 'Petite Section', level: 'MATERNEL' },
+          { name: 'CP',             level: 'PRIMAIRE'   },
+          { name: '1ère Année',     level: 'PRIMAIRE'   },
+          { name: '7ème',           level: 'SECONDAIRE' },
+          { name: 'Petite Section', level: 'MATERNEL'   },
         ];
 
         for (const entryClass of entryClasses) {
@@ -398,22 +441,14 @@ export class AcademicYearsService {
       // 6. Marquer l'ancienne année comme archivée
       await tx.academicYear.update({
         where: { id: currentYear.id },
-        data: {
-          isCurrent: false,
-          isArchived: true,
-        },
+        data: { isCurrent: false, isArchived: true },
       });
 
-      // 7. Retourner le résumé de la transition
+      // 7. Résumé
       const newClassesCount = Object.keys(classMapping).length;
       const studentsTransferred =
         studentTransitionMode !== StudentTransitionMode.NONE
-          ? await tx.student.count({
-              where: {
-                academicYearId: newYear.id,
-                tenantId,
-              },
-            })
+          ? await tx.student.count({ where: { academicYearId: newYear.id, tenantId } })
           : 0;
 
       return {
@@ -426,6 +461,14 @@ export class AcademicYearsService {
           transitionMode: studentTransitionMode,
         },
       };
+    }, { timeout: 30000 }).catch((err) => {
+      this.logger.error(
+        `createWithTransition failed for tenant ${tenantId}: ${err?.message ?? err}`,
+        err?.stack,
+      );
+      throw new InternalServerErrorException(
+        err?.message ?? 'Erreur lors de la transition vers la nouvelle année',
+      );
     });
 
     await this.invalidate(tenantId);

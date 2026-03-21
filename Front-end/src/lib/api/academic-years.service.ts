@@ -174,6 +174,7 @@ export async function createNewYearWithTransition(
     startMonth: data.startMonth || undefined,
     durationMonths: data.durationMonths || undefined,
     studentTransitionMode: data.studentTransitionMode,
+    studentDecisions: data.studentDecisions?.length ? data.studentDecisions : undefined,
   };
 
   const response = await fetch(`${API_BASE_URL}/academic-years/transition`, {
