@@ -15,6 +15,27 @@ import {
 import { toast } from "sonner";
 import { updateProfile, getMyProfile } from "@/lib/api/users.service";
 import * as storage from "@/lib/storage";
+import { offlineDB } from "@/lib/offline-db";
+
+/** Clés localStorage liées à un tenant spécifique — à purger si le tenant change */
+const TENANT_SCOPED_KEYS = [
+  "structura_payment_frequency",
+  "structura_class_fees_v2",
+  "structura_school_calendar_v1",
+  "structura_school_type",
+];
+
+/** Purge les données du tenant précédent si l'utilisateur connecté est dans un autre tenant */
+function clearStaleTenanData(newTenantId: string) {
+  try {
+    const last = localStorage.getItem("structura_last_tenant_id");
+    if (last && last !== newTenantId) {
+      TENANT_SCOPED_KEYS.forEach((k) => localStorage.removeItem(k));
+      offlineDB.clearAll().catch(() => {});
+    }
+    localStorage.setItem("structura_last_tenant_id", newTenantId);
+  } catch { /* quota ou SSR */ }
+}
 
 interface AuthContextType {
   user: User | null;
@@ -220,6 +241,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem("structura_remember_me");
       }
 
+      // Purger les données stale si changement de tenant (ex: connexion avec un autre compte)
+      if (authResponse.user.tenantId) clearStaleTenanData(authResponse.user.tenantId);
+
       setUser(authResponse.user);
 
       if (!authResponse.user.emailVerified) {
@@ -240,6 +264,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.setItem(TOKEN_KEY, response.token);
       storage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
       storage.setItem(USER_KEY, JSON.stringify(response.user));
+
+      // Purger les données stale d'un tenant précédent (même navigateur, nouveau compte)
+      if (response.user.tenantId) clearStaleTenanData(response.user.tenantId);
 
       setUser(response.user);
 

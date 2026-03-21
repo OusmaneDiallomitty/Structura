@@ -635,7 +635,9 @@ export default function PaymentsPage() {
                 schoolCalendar:   parsedCal,
               }).catch(console.error);
               // Utiliser les données locales immédiatement en attendant la réponse API
-              applyConfig(parsedFees, localFreq || "monthly", parsedCal ?? null);
+              // Toujours appliquer le schoolType de l'API (source de vérité), pas du cache local
+              applyConfig(parsedFees, localFreq || "monthly", parsedCal ?? null, config.schoolType);
+              if (config.schoolType) localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
               return;
             } catch { /* si JSON invalide, continuer normalement */ }
           }

@@ -153,8 +153,8 @@ export default function DashboardPage() {
     } catch {
       toast.info('Pensez à créer votre année scolaire dans les paramètres.');
     } finally {
-      // Recharger le dashboard pour refléter la nouvelle année scolaire sans actualiser
-      loadDashboardData();
+      // Recharger la page complète pour que CurrentYearBadge prenne en compte la nouvelle année
+      setTimeout(() => window.location.reload(), 800);
     }
   };
 
