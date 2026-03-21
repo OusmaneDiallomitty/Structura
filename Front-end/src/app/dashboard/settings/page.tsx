@@ -147,10 +147,21 @@ export default function SettingsPage() {
   };
 
   const handleExportAll = async () => {
+    const token = storage.getAuthItem(TOKEN_KEY);
+    if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
     setIsExportingAll(true);
     try {
-      await handleExportStudents();
-      await handleExportPayments();
+      const slug = slugDate();
+      const [students, paymentsRaw] = await Promise.all([
+        getStudents(token, { limit: 5000 }),
+        getPayments(token, { limit: 5000 }),
+      ]);
+      const studentList  = Array.isArray(students) ? students : [];
+      const paymentList  = Array.isArray(paymentsRaw) ? paymentsRaw : (paymentsRaw as any).data ?? [];
+      await exportStudentsToXLSX(studentList, `${slug}-eleves`);
+      await exportPaymentsToXLSX(paymentList, `${slug}-paiements`);
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de l'export global");
     } finally {
       setIsExportingAll(false);
     }
@@ -777,7 +788,7 @@ export default function SettingsPage() {
               {isExportingStudents
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <Download className="h-4 w-4" />}
-              Élèves (.csv)
+              Élèves (.xlsx)
             </Button>
 
             <Button
@@ -789,7 +800,7 @@ export default function SettingsPage() {
               {isExportingPayments
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <Download className="h-4 w-4" />}
-              Paiements (.csv)
+              Paiements (.xlsx)
             </Button>
 
             <Button
