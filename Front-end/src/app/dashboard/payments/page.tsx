@@ -265,7 +265,18 @@ function expandTermToMonths(
   return [term]; // mois unique ex: "Octobre 2025"
 }
 
-/** Vérifie si un paiement couvre la période sélectionnée en vue (mensuel/trimestriel/annuel) */
+/**
+ * Vérifie si un paiement couvre la période sélectionnée en vue.
+ *
+ * Règles (dans l'ordre) :
+ * 1. Correspondance exacte
+ * 2. Paiement "Annuel" → couvre toutes les vues
+ * 3. Vue "Annuel" → tous les paiements de l'année comptent
+ * 4. Paiement "Trimestre X" affiché en vue mensuelle → vrai si le mois est dans ce trimestre
+ * 5. Vue "Trimestre X" → un paiement mensuel qui tombe dans ce trimestre compte
+ * 6. Compatibilité nom de mois sans/avec année
+ * 7. Paiement CSV multi-mois
+ */
 function paymentCoversViewTerm(
   paymentTerm: string | undefined,
   selectedTerm: string,
@@ -273,26 +284,45 @@ function paymentCoversViewTerm(
   calendar: SchoolCalendar,
 ): boolean {
   if (!paymentTerm || !selectedTerm) return false;
+
+  // 1. Correspondance exacte
   if (paymentTerm === selectedTerm) return true;
-  // Compatibilité sans année : "Octobre" matche "Octobre 2026"
-  if (paymentTerm === selectedTerm.split(" ")[0]) return true;
-  // "Octobre 2026" matche filtre vue "Octobre" (SCHOOL_MONTHS sans année)
-  if (paymentTerm.split(" ")[0] === selectedTerm.split(" ")[0]) return true;
-  // Annuel couvre tout
+
+  // 2. Un paiement "Annuel" couvre toutes les vues (mensuel, trimestriel, annuel)
   if (paymentTerm.startsWith("Annuel")) return true;
-  // Trimestre couvre un mois spécifique affiché en vue mensuelle
+
+  // 3. Vue "Annuel" → tous les paiements de l'année (mensuel, trimestriel, partiel) comptent
+  if (selectedTerm.startsWith("Annuel")) return true;
+
+  // 4. Paiement "Trimestre X" affiché en vue mensuelle → vrai si ce mois est dans ce trimestre
   if (paymentTerm.startsWith("Trimestre")) {
     const months = getMonthsWithYearForTrimestre(paymentTerm, academicYear, calendar);
     if (months.includes(selectedTerm)) return true;
-    return months.some((m) => m.split(" ")[0] === selectedTerm.split(" ")[0]);
+    if (months.some((m) => m.split(" ")[0] === selectedTerm.split(" ")[0])) return true;
   }
-  // Paiement partiel CSV : "Octobre 2026, Novembre 2026"
+
+  // 5. Vue "Trimestre X" → un paiement mensuel tombant dans ce trimestre compte
+  if (selectedTerm.startsWith("Trimestre")) {
+    const trimMonths = getMonthsWithYearForTrimestre(selectedTerm, academicYear, calendar);
+    if (trimMonths.includes(paymentTerm)) return true;
+    if (trimMonths.some((m) => m.split(" ")[0] === paymentTerm.split(" ")[0])) return true;
+  }
+
+  // 6. Compatibilité nom de mois sans/avec année : "Octobre" matche "Octobre 2026"
+  if (paymentTerm === selectedTerm.split(" ")[0]) return true;
+  if (paymentTerm.split(" ")[0] === selectedTerm.split(" ")[0]) return true;
+
+  // 7. Paiement CSV multi-mois : "Octobre 2026, Novembre 2026"
   if (paymentTerm.includes(",")) {
     const parts = paymentTerm.split(",").map((s) => s.trim());
-    return parts.some(
-      (p) => p === selectedTerm || p.split(" ")[0] === selectedTerm.split(" ")[0]
-    );
+    // Vérifier correspondance directe ou appartenance au trimestre sélectionné
+    if (parts.some((p) => p === selectedTerm || p.split(" ")[0] === selectedTerm.split(" ")[0])) return true;
+    if (selectedTerm.startsWith("Trimestre")) {
+      const trimMonths = getMonthsWithYearForTrimestre(selectedTerm, academicYear, calendar);
+      if (parts.some((p) => trimMonths.includes(p) || trimMonths.some((m) => m.split(" ")[0] === p.split(" ")[0]))) return true;
+    }
   }
+
   return false;
 }
 
