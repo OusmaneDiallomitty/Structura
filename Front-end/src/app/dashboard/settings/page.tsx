@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { getSchoolInfo, updateSchoolInfo, uploadSchoolLogo, deleteSchoolLogo, type SchoolInfo } from "@/lib/api/auth.service";
 import { getStudents } from "@/lib/api/students.service";
 import { getPayments } from "@/lib/api/payments.service";
-import { exportToCSV } from "@/lib/csv-handler";
+import { exportStudentsToXLSX, exportPaymentsToXLSX } from "@/lib/csv-handler";
 import { getFeesConfig, updateFeesConfig, type SchoolDays, migrateSchoolDays } from "@/lib/api/fees.service";
 import { useAuth } from "@/contexts/AuthContext";
 import { COUNTRIES, getCountryData } from "@/lib/constants";
@@ -114,44 +114,16 @@ export default function SettingsPage() {
     return `${(schoolForm.name || "ecole").replace(/\s+/g, "-").toLowerCase()}-${ymd}`;
   };
 
-  const METHOD_LABELS: Record<string, string> = {
-    cash: "Espèces", mobile_money: "Mobile Money", bank_transfer: "Virement bancaire",
-    check: "Chèque", card: "Carte bancaire",
-  };
-  const STATUS_LABELS: Record<string, string> = {
-    paid: "Payé", partial: "Partiel", pending: "En attente", overdue: "En retard",
-  };
+
 
   const handleExportStudents = async () => {
     const token = storage.getAuthItem(TOKEN_KEY);
     if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
     setIsExportingStudents(true);
     try {
-      const students = await getStudents(token, { limit: 5000 }); // Export complet
-      const HEADERS = [
-        "Matricule", "Prénom", "Nom", "Classe", "Statut",
-        "Date de naissance", "Genre",
-        "Parent / Tuteur", "Téléphone parent", "Email parent", "Profession parent",
-        "Adresse",
-      ];
-      exportToCSV({
-        filename: `${slugDate()}-eleves`,
-        headers: HEADERS,
-        data: (Array.isArray(students) ? students : []).map((s: any) => ({
-          "Matricule":          s.matricule ?? "",
-          "Prénom":             s.firstName ?? "",
-          "Nom":                s.lastName ?? "",
-          "Classe":             s.class?.name ?? s.classId ?? "",
-          "Statut":             s.status ?? "",
-          "Date de naissance":  s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString("fr-FR") : "",
-          "Genre":              s.gender === "M" ? "Masculin" : s.gender === "F" ? "Féminin" : "",
-          "Parent / Tuteur":    s.parentName ?? "",
-          "Téléphone parent":   s.parentPhone ?? "",
-          "Email parent":       s.parentEmail ?? "",
-          "Profession parent":  s.parentProfession ?? "",
-          "Adresse":            s.address ?? "",
-        })),
-      });
+      const students = await getStudents(token, { limit: 5000 });
+      const list = Array.isArray(students) ? students : [];
+      await exportStudentsToXLSX(list, `${slugDate()}-eleves`);
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de l'export élèves");
     } finally {
@@ -164,29 +136,9 @@ export default function SettingsPage() {
     if (!token) { toast.error("Votre session a expiré — veuillez vous reconnecter."); return; }
     setIsExportingPayments(true);
     try {
-      const payments = await getPayments(token, { limit: 5000 }); // Export complet
+      const payments = await getPayments(token, { limit: 5000 });
       const list = Array.isArray(payments) ? payments : (payments as any).data ?? [];
-      exportToCSV({
-        filename: `${slugDate()}-paiements`,
-        headers: [
-          "N° Reçu", "Élève", "Montant", "Devise", "Méthode", "Statut",
-          "Terme / Mois", "Année scolaire", "Description", "Date de paiement",
-        ],
-        data: list.map((p: any) => ({
-          "N° Reçu":          p.receiptNumber ?? "",
-          "Élève":            p.student ? `${p.student.firstName} ${p.student.lastName}` : (p.studentId ?? ""),
-          "Montant":          p.amount != null ? String(p.amount) : "",
-          "Devise":           p.currency ?? "GNF",
-          "Méthode":          METHOD_LABELS[p.method] ?? p.method ?? "",
-          "Statut":           STATUS_LABELS[p.status] ?? p.status ?? "",
-          "Terme / Mois":     p.term ?? "",
-          "Année scolaire":   p.academicYear ?? "",
-          "Description":      p.description ?? "",
-          "Date de paiement": p.paidDate
-            ? new Date(p.paidDate).toLocaleString("fr-FR")
-            : p.createdAt ? new Date(p.createdAt).toLocaleString("fr-FR") : "",
-        })),
-      });
+      await exportPaymentsToXLSX(list, `${slugDate()}-paiements`);
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de l'export paiements");
     } finally {

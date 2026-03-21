@@ -424,6 +424,226 @@ export function exportToExcel(options: ExportOptions): void {
   });
 }
 
+// ─── Helpers Excel natif ────────────────────────────────────────────────────
+
+function styleHeaderRow(row: import("exceljs").Row): void {
+  row.height = 26;
+  row.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11, name: "Calibri" };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: false };
+    cell.border = { bottom: { style: "medium", color: { argb: "FF1D4ED8" } } };
+  });
+}
+
+function styleGroupRow(row: import("exceljs").Row, label: string, colCount: number): void {
+  row.height = 22;
+  for (let c = 1; c <= colCount; c++) row.getCell(c).value = c === 1 ? label : "";
+  row.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FF1E3A8A" }, size: 11, name: "Calibri" };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    cell.alignment = { vertical: "middle" };
+  });
+}
+
+function styleDataRow(row: import("exceljs").Row): void {
+  row.height = 18;
+  row.eachCell((cell) => {
+    cell.font = { size: 10, name: "Calibri" };
+    cell.alignment = { vertical: "middle" };
+  });
+}
+
+async function triggerXLSXDownload(workbook: import("exceljs").Workbook, filename: string): Promise<void> {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exporte la liste des élèves en Excel natif (.xlsx)
+ * - Trié par classe (ordre naturel) puis par nom
+ * - Regroupé par classe avec en-tête de groupe + ligne vide entre chaque classe
+ */
+export async function exportStudentsToXLSX(students: any[], filename: string): Promise<void> {
+  const sorted = [...students].sort((a, b) => {
+    const ca = a.class?.name ?? a.classId ?? "";
+    const cb = b.class?.name ?? b.classId ?? "";
+    const cc = ca.localeCompare(cb, "fr", { numeric: true });
+    if (cc !== 0) return cc;
+    return (a.lastName ?? "").localeCompare(b.lastName ?? "", "fr");
+  });
+
+  const groups = new Map<string, any[]>();
+  for (const s of sorted) {
+    const cls = s.class?.name ?? s.classId ?? "Sans classe";
+    if (!groups.has(cls)) groups.set(cls, []);
+    groups.get(cls)!.push(s);
+  }
+
+  const { Workbook } = await import("exceljs");
+  const workbook = new Workbook();
+  workbook.creator = "Structura";
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet("Élèves");
+  const COLS = [
+    { header: "Matricule",         key: "matricule", width: 18 },
+    { header: "Prénom",            key: "prenom",    width: 20 },
+    { header: "Nom",               key: "nom",       width: 20 },
+    { header: "Classe",            key: "classe",    width: 16 },
+    { header: "Statut",            key: "statut",    width: 12 },
+    { header: "Date de naissance", key: "dob",       width: 20 },
+    { header: "Genre",             key: "genre",     width: 12 },
+    { header: "Parent / Tuteur",   key: "parent",    width: 22 },
+    { header: "Téléphone",         key: "tel",       width: 16 },
+    { header: "Email parent",      key: "email",     width: 26 },
+    { header: "Profession parent", key: "profession",width: 22 },
+    { header: "Adresse",           key: "adresse",   width: 24 },
+  ];
+  ws.columns = COLS;
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+
+  for (const [className, classStudents] of groups) {
+    const groupLabel = `  ${className}  —  ${classStudents.length} élève${classStudents.length > 1 ? "s" : ""}`;
+    const groupRow = ws.addRow(Array(COLS.length).fill(""));
+    styleGroupRow(groupRow, groupLabel, COLS.length);
+    ws.mergeCells(`A${groupRow.number}:L${groupRow.number}`);
+
+    for (const s of classStudents) {
+      const row = ws.addRow({
+        matricule:   s.matricule ?? "",
+        prenom:      s.firstName ?? "",
+        nom:         s.lastName ?? "",
+        classe:      s.class?.name ?? "",
+        statut:      s.status === "active" ? "Actif" : s.status === "inactive" ? "Inactif" : (s.status ?? ""),
+        dob:         s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString("fr-FR") : "",
+        genre:       s.gender === "M" ? "Masculin" : s.gender === "F" ? "Féminin" : "",
+        parent:      s.parentName ?? "",
+        tel:         s.parentPhone ?? "",
+        email:       s.parentEmail ?? "",
+        profession:  s.parentProfession ?? "",
+        adresse:     s.address ?? "",
+      });
+      styleDataRow(row);
+    }
+
+    // Ligne vide entre les classes
+    ws.addRow([]);
+  }
+
+  await triggerXLSXDownload(workbook, filename);
+  showSuccess("Export réussi !", `${filename}.xlsx — ${students.length} élève${students.length > 1 ? "s" : ""} exporté${students.length > 1 ? "s" : ""}.`);
+}
+
+/**
+ * Exporte les paiements en Excel natif (.xlsx)
+ * - Trié par classe, puis par nom élève, puis par date
+ * - Regroupé par classe avec en-tête + ligne vide
+ */
+export async function exportPaymentsToXLSX(payments: any[], filename: string): Promise<void> {
+  const sorted = [...payments].sort((a, b) => {
+    const ca = a.student?.class?.name ?? a.student?.classId ?? "";
+    const cb = b.student?.class?.name ?? b.student?.classId ?? "";
+    const cc = ca.localeCompare(cb, "fr", { numeric: true });
+    if (cc !== 0) return cc;
+    const na = `${a.student?.lastName ?? ""} ${a.student?.firstName ?? ""}`;
+    const nb = `${b.student?.lastName ?? ""} ${b.student?.firstName ?? ""}`;
+    const nc = na.localeCompare(nb, "fr");
+    if (nc !== 0) return nc;
+    return new Date(a.paidDate ?? a.createdAt ?? 0).getTime() - new Date(b.paidDate ?? b.createdAt ?? 0).getTime();
+  });
+
+  const groups = new Map<string, any[]>();
+  for (const p of sorted) {
+    const cls = p.student?.class?.name ?? p.student?.classId ?? "Sans classe";
+    if (!groups.has(cls)) groups.set(cls, []);
+    groups.get(cls)!.push(p);
+  }
+
+  const METHOD_LABELS: Record<string, string> = {
+    cash: "Espèces", mobile_money: "Mobile Money", bank_transfer: "Virement",
+    check: "Chèque", card: "Carte bancaire",
+  };
+  const STATUS_LABELS: Record<string, string> = {
+    paid: "Payé", partial: "Partiel", pending: "En attente", overdue: "En retard",
+  };
+
+  const { Workbook } = await import("exceljs");
+  const workbook = new Workbook();
+  workbook.creator = "Structura";
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet("Paiements");
+  const COLS = [
+    { header: "N° Reçu",          key: "receipt",    width: 18 },
+    { header: "Élève",             key: "eleve",      width: 24 },
+    { header: "Classe",            key: "classe",     width: 16 },
+    { header: "Montant",           key: "montant",    width: 14 },
+    { header: "Devise",            key: "devise",     width: 10 },
+    { header: "Méthode",           key: "methode",    width: 18 },
+    { header: "Statut",            key: "statut",     width: 14 },
+    { header: "Période",           key: "terme",      width: 20 },
+    { header: "Année scolaire",    key: "annee",      width: 16 },
+    { header: "Description",       key: "desc",       width: 28 },
+    { header: "Date de paiement",  key: "date",       width: 22 },
+  ];
+  ws.columns = COLS;
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+
+  for (const [className, classPayments] of groups) {
+    const total = classPayments.reduce((s: number, p: any) => s + (p.amount ?? 0), 0);
+    const groupLabel = `  ${className}  —  ${classPayments.length} paiement${classPayments.length > 1 ? "s" : ""}  |  Total : ${total.toLocaleString("fr-FR")} GNF`;
+    const groupRow = ws.addRow(Array(COLS.length).fill(""));
+    styleGroupRow(groupRow, groupLabel, COLS.length);
+    ws.mergeCells(`A${groupRow.number}:K${groupRow.number}`);
+
+    for (const p of classPayments) {
+      const studentName = p.student
+        ? `${p.student.firstName ?? ""} ${p.student.lastName ?? ""}`.trim()
+        : (p.studentId ?? "");
+      const dateStr = p.paidDate
+        ? new Date(p.paidDate).toLocaleDateString("fr-FR")
+        : p.createdAt ? new Date(p.createdAt).toLocaleDateString("fr-FR") : "";
+      const row = ws.addRow({
+        receipt: p.receiptNumber ?? "",
+        eleve:   studentName,
+        classe:  p.student?.class?.name ?? "",
+        montant: p.amount != null ? p.amount : "",
+        devise:  p.currency ?? "GNF",
+        methode: METHOD_LABELS[p.method] ?? (p.method ?? ""),
+        statut:  STATUS_LABELS[p.status] ?? (p.status ?? ""),
+        terme:   p.term ?? "",
+        annee:   p.academicYear ?? "",
+        desc:    p.description ?? "",
+        date:    dateStr,
+      });
+      styleDataRow(row);
+      // Montant en nombre pour pouvoir faire des formules dans Excel
+      if (p.amount != null) {
+        row.getCell("montant").numFmt = '#,##0';
+        row.getCell("montant").value = p.amount;
+      }
+    }
+
+    ws.addRow([]);
+  }
+
+  await triggerXLSXDownload(workbook, filename);
+  showSuccess("Export réussi !", `${filename}.xlsx — ${payments.length} paiement${payments.length > 1 ? "s" : ""} exporté${payments.length > 1 ? "s" : ""}.`);
+}
+
 /**
  * Télécharge un template Excel (.xlsx) prêt à remplir.
  * - En-têtes en gras sur fond bleu, ligne gelée
