@@ -138,11 +138,11 @@ export default function DashboardPage() {
             durationMonths,
             isCurrent: true,
           });
-          // Persist school type and school calendar from onboarding
+          // Sauvegarder le type d'école et le calendrier — ATTENDU avant le rechargement de page
           await updateFeesConfig(token, {
             schoolType: yearConfig?.schoolType ?? 'private',
             schoolCalendar: { startMonth, durationMonths },
-          }).catch(() => {/* non-blocking */});
+          });
           toast.success(`Année scolaire ${yearName} créée`, {
             description: `Rentrée en ${startMonth} · ${durationMonths} mois de cours`,
           });

@@ -948,19 +948,16 @@ export class AuthService {
     });
     if (!tenant) throw new NotFoundException('Organisation non trouvée');
 
-    // Auto-correction : si tenant.type est PUBLIC mais schoolType est encore "private",
-    // c'est un compte créé avant le fix → corriger silencieusement en BDD
-    const expectedSchoolType = tenant.type?.toLowerCase() === 'public' ? 'public' : 'private';
-    const actualSchoolType   = tenant.schoolType ?? expectedSchoolType;
-    if (actualSchoolType !== expectedSchoolType) {
-      await this.prisma.tenant.update({ where: { id: tenantId }, data: { schoolType: expectedSchoolType } });
-    }
+    // schoolType en BDD est la source de vérité (configuré via onboarding ou updateFeesConfig).
+    // Fallback uniquement si jamais défini : dériver de tenant.type (comptes très anciens).
+    const effectiveSchoolType: string =
+      tenant.schoolType ?? (tenant.type?.toLowerCase() === 'public' ? 'public' : 'private');
 
     return {
       feeConfig:        tenant.feeConfig        ?? null,
       paymentFrequency: tenant.paymentFrequency  ?? 'monthly',
       schoolCalendar:   tenant.schoolCalendar    ?? null,
-      schoolType:       expectedSchoolType,
+      schoolType:       effectiveSchoolType,
       feeItems:         tenant.feeItems          ?? null,
       schoolDays:       tenant.schoolDays        ?? null,
     };
