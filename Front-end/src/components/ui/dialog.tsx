@@ -85,7 +85,7 @@ function DialogContent({
         {...props}
       >
         {/* Zone scrollable — ne contient PAS le footer */}
-        <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-6 flex flex-col gap-4">
+        <div data-lenis-prevent className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-6 flex flex-col gap-4">
           {footer ? body : children}
         </div>
         {/* Footer toujours visible en bas */}
