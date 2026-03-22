@@ -16,6 +16,12 @@ import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import * as storage from "@/lib/storage";
 import { updateClass } from "@/lib/api/classes.service";
+import { useOnline } from "@/hooks/use-online";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { offlineDB, STORES } from "@/lib/offline-db";
+import { syncQueue } from "@/lib/sync-queue";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 
 interface EditClassDialogProps {
   classItem: {
@@ -33,6 +39,10 @@ interface EditClassDialogProps {
 export function EditClassDialog({ classItem, onSuccess }: EditClassDialogProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isOnline = useOnline();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const fullName = classItem.section
     ? `${classItem.name} ${classItem.section}`
@@ -55,6 +65,35 @@ export function EditClassDialog({ classItem, onSuccess }: EditClassDialogProps) 
       const token = storage.getAuthItem("structura_token");
       if (!token) {
         toast.error("Session expirée");
+        return;
+      }
+
+      if (!isOnline) {
+        await offlineDB.update(STORES.CLASSES, {
+          ...classItem,
+          capacity,
+          teacherName: teacherName || undefined,
+          needsSync: true,
+        }).catch(() => {});
+        await syncQueue.add({
+          type: "class",
+          action: "update",
+          data: { id: classItem.id, capacity, teacherName: teacherName || undefined },
+        }).catch(() => {});
+        queryClient.setQueryData<any[]>(
+          CLASSES_QUERY_KEY(user?.tenantId),
+          (old = []) =>
+            old.map((c) =>
+              c.id === classItem.id
+                ? { ...c, capacity, teacherName: teacherName || c.teacherName }
+                : c
+            )
+        );
+        toast.info("Classe modifiée hors ligne", {
+          description: "Elle sera envoyée au serveur dès la reconnexion.",
+        });
+        setOpen(false);
+        if (onSuccess) onSuccess();
         return;
       }
 
