@@ -381,8 +381,8 @@ function buildTrimestreBreakdown(
   return groups;
 }
 
-function getPeriodsForFrequency(freq: PaymentFrequency): string[] {
-  if (freq === "monthly")   return SCHOOL_MONTHS;
+function getPeriodsForFrequency(freq: PaymentFrequency, calendar?: SchoolCalendar): string[] {
+  if (freq === "monthly")   return calendar ? getSchoolMonthNames(calendar) : SCHOOL_MONTHS;
   if (freq === "quarterly") return TRIMESTRES;
   return ["Annuel"];
 }
@@ -867,7 +867,7 @@ export default function PaymentsPage() {
 
   const handleBulkClassChange = useCallback((classId: string) => {
     setBulkClassId(classId);
-    const defaultTerm = getPeriodsForFrequency(bulkFrequency)[0] ?? selectedTerm;
+    const defaultTerm = getPeriodsForFrequency(bulkFrequency, schoolCalendar)[0] ?? selectedTerm;
     const term = bulkTerm || defaultTerm;
     setBulkTerm(term);
     buildBulkRows(classId, term);
@@ -880,7 +880,7 @@ export default function PaymentsPage() {
 
   const handleBulkFrequencyChange = useCallback((freq: PaymentFrequency) => {
     setBulkFrequency(freq);
-    const firstTerm = getPeriodsForFrequency(freq)[0] ?? "";
+    const firstTerm = getPeriodsForFrequency(freq, schoolCalendar)[0] ?? "";
     setBulkTerm(firstTerm);
     if (bulkClassId) buildBulkRows(bulkClassId, firstTerm);
   }, [buildBulkRows, bulkClassId]);
@@ -1615,7 +1615,7 @@ export default function PaymentsPage() {
     return <Badge className="bg-red-500/10 text-red-700 border-red-200 border"><AlertCircle className="h-3 w-3 mr-1" /> Non payé</Badge>;
   };
 
-  const periods       = getPeriodsForFrequency(paymentFrequency);
+  const periods       = getPeriodsForFrequency(paymentFrequency, schoolCalendar);
   const currentFeeLabel = (() => {
     const hasLevelFee = Object.values(feeConfig.byLevel).some((v) => v > 0);
     const hasClassFee = Object.values(feeConfig.byClass).some((v) => v > 0);
@@ -2593,10 +2593,10 @@ export default function PaymentsPage() {
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-muted-foreground">Période</label>
-                  <Select value={bulkTerm || getPeriodsForFrequency(bulkFrequency)[0]} onValueChange={handleBulkTermChange}>
+                  <Select value={bulkTerm || getPeriodsForFrequency(bulkFrequency, schoolCalendar)[0]} onValueChange={handleBulkTermChange}>
                     <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {getPeriodsForFrequency(bulkFrequency).map((p) => (
+                      {getPeriodsForFrequency(bulkFrequency, schoolCalendar).map((p) => (
                         <SelectItem key={p} value={p}>{p}</SelectItem>
                       ))}
                     </SelectContent>
