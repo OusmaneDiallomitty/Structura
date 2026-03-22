@@ -714,6 +714,7 @@ export default function PaymentsPage() {
   const [bulkClassId,        setBulkClassId]        = useState<string>("");
   const [bulkRows,           setBulkRows]           = useState<BulkPayRow[]>([]);
   const [bulkTerm,           setBulkTerm]           = useState<string>("");
+  const [bulkFrequency,      setBulkFrequency]      = useState<PaymentFrequency>("monthly");
   const [bulkSaving,         setBulkSaving]         = useState(false);
   const [bulkProgress,       setBulkProgress]       = useState<{ done: number; total: number } | null>(null);
 
@@ -866,14 +867,22 @@ export default function PaymentsPage() {
 
   const handleBulkClassChange = useCallback((classId: string) => {
     setBulkClassId(classId);
-    const term = bulkTerm || selectedTerm;
+    const defaultTerm = getPeriodsForFrequency(bulkFrequency)[0] ?? selectedTerm;
+    const term = bulkTerm || defaultTerm;
     setBulkTerm(term);
     buildBulkRows(classId, term);
-  }, [buildBulkRows, bulkTerm, selectedTerm]);
+  }, [buildBulkRows, bulkTerm, bulkFrequency, selectedTerm]);
 
   const handleBulkTermChange = useCallback((term: string) => {
     setBulkTerm(term);
     if (bulkClassId) buildBulkRows(bulkClassId, term);
+  }, [buildBulkRows, bulkClassId]);
+
+  const handleBulkFrequencyChange = useCallback((freq: PaymentFrequency) => {
+    setBulkFrequency(freq);
+    const firstTerm = getPeriodsForFrequency(freq)[0] ?? "";
+    setBulkTerm(firstTerm);
+    if (bulkClassId) buildBulkRows(bulkClassId, firstTerm);
   }, [buildBulkRows, bulkClassId]);
 
   const updateBulkRow = (studentId: string, field: "amount" | "method", value: string) => {
@@ -2556,7 +2565,7 @@ export default function PaymentsPage() {
 
           {bulkOpen && (
             <CardContent className="px-4 pb-4 space-y-3">
-              {/* Sélecteurs classe + période */}
+              {/* Sélecteurs classe + type + période */}
               <div className="flex flex-wrap gap-3 items-end">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-muted-foreground">Classe</label>
@@ -2572,11 +2581,22 @@ export default function PaymentsPage() {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">Type de paiement</label>
+                  <Select value={bulkFrequency} onValueChange={(v) => handleBulkFrequencyChange(v as PaymentFrequency)}>
+                    <SelectTrigger className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Mensuel</SelectItem>
+                      <SelectItem value="quarterly">Trimestriel</SelectItem>
+                      <SelectItem value="annual">Annuel</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-muted-foreground">Période</label>
-                  <Select value={bulkTerm || selectedTerm} onValueChange={handleBulkTermChange}>
+                  <Select value={bulkTerm || getPeriodsForFrequency(bulkFrequency)[0]} onValueChange={handleBulkTermChange}>
                     <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {getPeriodsForFrequency(paymentFrequency).map((p) => (
+                      {getPeriodsForFrequency(bulkFrequency).map((p) => (
                         <SelectItem key={p} value={p}>{p}</SelectItem>
                       ))}
                     </SelectContent>
@@ -3840,8 +3860,8 @@ export default function PaymentsPage() {
                               <span className="font-semibold text-foreground">{formatCurrency(levelFee * 3)}</span>
                             </span>
                             <span className="text-muted-foreground">
-                              Annuel (10 mois) ={" "}
-                              <span className="font-semibold text-foreground">{formatCurrency(levelFee * 10)}</span>
+                              Annuel ({schoolCalendar.durationMonths} mois) ={" "}
+                              <span className="font-semibold text-foreground">{formatCurrency(levelFee * schoolCalendar.durationMonths)}</span>
                             </span>
                           </div>
                         )}
