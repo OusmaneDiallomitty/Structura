@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { STUDENTS_QUERY_KEY } from "@/hooks/queries/use-students-query";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import Link from "next/link";
 import {
   Plus,
@@ -93,9 +94,10 @@ export default function StudentsPage() {
   const canCreate = hasPermission("students", "create");
   const canEdit   = hasPermission("students", "edit");
   const canDelete = hasPermission("students", "delete");
-  const [students, setStudents] = useState<Student[]>([]);
-  const [classes, setClasses] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [classes, setClasses] = useState<any[]>(
+    () => queryClient.getQueryData<any[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? []
+  );
+  const [offlineStudentsData, setOfflineStudentsData] = useState<{ data: Student[]; total: number }>({ data: [], total: 0 });
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
@@ -113,7 +115,6 @@ export default function StudentsPage() {
   // Pagination server-side
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [serverTotal, setServerTotal] = useState(0);
 
   // Tri (client-side sur la page courante)
   const [sortField, setSortField] = useState<"name" | "matricule" | "class" | "paymentStatus">("name");
@@ -173,7 +174,7 @@ export default function StudentsPage() {
     if (success > 0) {
       toast.success(`${success} élève(s) enregistré(s) avec succès`);
       setQuickRows(Array(5).fill(null).map(newEmptyRow));
-      loadStudents();
+      queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
     }
     if (errors > 0) toast.error(`${errors} élève(s) n'ont pas pu être enregistré(s)`);
   };
@@ -218,62 +219,70 @@ export default function StudentsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role, JSON.stringify(user?.classAssignments), selectedAcademicYearObj?.id]);
 
-  /**
-   * Charger une page d'élèves depuis le backend (pagination server-side).
-   * search + classId filtrés côté serveur — paymentFilter filtré côté client sur la page.
-   */
-  const loadStudents = useCallback(async () => {
-    setIsLoading(true);
-    const token = storage.getAuthItem('structura_token');
+  // ── React Query : élèves (pagination + filtres) ─────────────────────────────
+  const studentsQueryKey = [
+    ...STUDENTS_QUERY_KEY(user?.tenantId),
+    debouncedSearch,
+    classFilter,
+    selectedAcademicYear,
+    currentPage,
+    itemsPerPage,
+  ] as const;
 
-    try {
-      if (isOnline && token) {
-        const result = await getStudentsPaginated(token, {
-          search:       debouncedSearch || undefined,
-          classId:      classFilter !== 'all' ? classFilter : undefined,
-          academicYear: selectedAcademicYear || undefined,
-          limit:        itemsPerPage,
-          skip:         (currentPage - 1) * itemsPerPage,
-        });
-
-        const mapped = result.data.map(mapStudent);
-        setStudents(mapped);
-        setServerTotal(result.total);
-
-        // Alimenter le cache offline + React Query en arrière-plan
-        offlineDB.bulkAdd(STORES.STUDENTS, mapped).catch(() => {});
-        // Cache React Query avec tous les élèves (page 1 complète) pour les autres pages
-        if ((currentPage - 1) * itemsPerPage === 0) {
-          queryClient.setQueryData(STUDENTS_QUERY_KEY(user?.tenantId), mapped);
-        }
-      } else {
-        // Mode offline : paginer le cache local côté client
-        const raw = await offlineDB.getAll<any>(STORES.STUDENTS);
-        // Normaliser : le préchargeur stocke du brut (firstName/lastName), la page attend Student (name)
-        const cached = raw.map((s) => s.name !== undefined ? s as Student : mapStudent(s));
-        const start = (currentPage - 1) * itemsPerPage;
-        setStudents(cached.slice(start, start + itemsPerPage));
-        setServerTotal(cached.length);
-        if (cached.length > 0) toast.info('Vous êtes hors ligne — affichage des dernières données');
-        else toast.info('Aucune donnée disponible. Reconnectez-vous pour charger les élèves.');
+  const { data: studentsData, isLoading, refetch: refetchStudents, error: studentsError } = useQuery({
+    queryKey: studentsQueryKey,
+    queryFn: async (): Promise<{ data: Student[]; total: number }> => {
+      const token = storage.getAuthItem('structura_token');
+      if (!token) throw new Error('Session expirée');
+      const result = await getStudentsPaginated(token, {
+        search:       debouncedSearch || undefined,
+        classId:      classFilter !== 'all' ? classFilter : undefined,
+        academicYear: selectedAcademicYear || undefined,
+        limit:        itemsPerPage,
+        skip:         (currentPage - 1) * itemsPerPage,
+      });
+      const mapped = result.data.map(mapStudent);
+      offlineDB.bulkAdd(STORES.STUDENTS, mapped).catch(() => {});
+      if ((currentPage - 1) * itemsPerPage === 0) {
+        queryClient.setQueryData(STUDENTS_QUERY_KEY(user?.tenantId), mapped);
       }
-    } catch (error: any) {
-      const raw = await offlineDB.getAll<any>(STORES.STUDENTS).catch(() => []);
+      return { data: mapped, total: result.total };
+    },
+    enabled: isOnline && !!user,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
+
+  // Offline fallback
+  useEffect(() => {
+    if (isOnline) return;
+    offlineDB.getAll<any>(STORES.STUDENTS).then((raw) => {
+      const cached = raw.map((s: any) => s.name !== undefined ? s as Student : mapStudent(s));
+      const start = (currentPage - 1) * itemsPerPage;
+      setOfflineStudentsData({ data: cached.slice(start, start + itemsPerPage), total: cached.length });
+      if (cached.length > 0) toast.info('Vous êtes hors ligne — affichage des dernières données');
+      else toast.info('Aucune donnée disponible. Reconnectez-vous pour charger les élèves.');
+    }).catch(() => {});
+  }, [isOnline, currentPage, itemsPerPage]);
+
+  // Erreur réseau → fallback cache
+  useEffect(() => {
+    if (!studentsError) return;
+    offlineDB.getAll<any>(STORES.STUDENTS).then((raw) => {
       const cached = raw.map((s: any) => s.name !== undefined ? s as Student : mapStudent(s));
       if (cached.length > 0) {
         const start = (currentPage - 1) * itemsPerPage;
-        setStudents(cached.slice(start, start + itemsPerPage));
-        setServerTotal(cached.length);
+        setOfflineStudentsData({ data: cached.slice(start, start + itemsPerPage), total: cached.length });
         if (!navigator.onLine) toast.info('Vous êtes hors ligne — affichage des dernières données');
         else toast.warning('Connexion indisponible — affichage des dernières données');
       } else {
-        setStudents([]);
         toast.error('Impossible de charger les élèves. Vérifiez votre connexion.');
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isOnline, debouncedSearch, classFilter, selectedAcademicYear, currentPage, itemsPerPage]);
+    }).catch(() => {});
+  }, [studentsError, currentPage, itemsPerPage]);
+
+  const students = studentsData?.data ?? offlineStudentsData.data;
+  const serverTotal = studentsData?.total ?? offlineStudentsData.total;
 
   /** Charger les statistiques globales (cartes du haut) */
   const loadStats = useCallback(async () => {
@@ -291,7 +300,7 @@ export default function StudentsPage() {
   }, [isOnline]);
 
   // Rafraîchir les données quand l'utilisateur revient sur l'onglet
-  useRefreshOnFocus(loadStudents);
+  useRefreshOnFocus(refetchStudents);
 
   // Refresh du profil + année courante + type d'école au montage
   useEffect(() => {
@@ -327,11 +336,6 @@ export default function StudentsPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, classFilter, selectedAcademicYear]);
-
-  // Charger élèves à chaque changement de page ou de filtres
-  useEffect(() => {
-    loadStudents();
-  }, [loadStudents]);
 
   // Charger classes + stats une fois au montage (et si réseau revient)
   useEffect(() => {
@@ -452,8 +456,8 @@ export default function StudentsPage() {
       } else {
         toast.warning(`${successCount} supprimé(s), ${errorCount} erreur(s)`);
       }
-      // Recharger la page courante + stats
-      await Promise.all([loadStudents(), loadStats()]);
+      queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
+      await loadStats();
     } catch (error: any) {
       toast.error(`Erreur lors de la suppression: ${error.message}`);
     }
@@ -482,10 +486,14 @@ export default function StudentsPage() {
 
         setIsDeleteDialogOpen(false);
         toast.success("Élève supprimé avec succès");
-        await Promise.all([loadStudents(), loadStats()]);
+        queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
+        await loadStats();
       } else {
         await offlineDB.delete(STORES.STUDENTS, selectedStudent.id);
-        setStudents(students.filter((s) => s.id !== selectedStudent.id));
+        setOfflineStudentsData(prev => ({
+          data: prev.data.filter(s => s.id !== selectedStudent.id),
+          total: Math.max(0, prev.total - 1),
+        }));
 
         // Ajouter à la queue de synchronisation
         await syncQueue.add({
@@ -739,7 +747,7 @@ export default function StudentsPage() {
           setClassFilter("all");
           setPaymentFilter("all");
           setSearchQuery("");
-          await loadStudents();
+          queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
         }
 
         if (errorCount === 0) {
@@ -775,7 +783,10 @@ export default function StudentsPage() {
 
         // Sauvegarder localement
         await offlineDB.bulkAdd(STORES.STUDENTS, newStudents);
-        setStudents([...students, ...newStudents]);
+        setOfflineStudentsData(prev => ({
+          data: [...prev.data, ...newStudents],
+          total: prev.total + newStudents.length,
+        }));
 
         // Ajouter à la queue de synchronisation
         for (const student of newStudents) {
