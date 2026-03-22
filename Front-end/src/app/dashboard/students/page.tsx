@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { STUDENTS_QUERY_KEY } from "@/hooks/queries/use-students-query";
 import Link from "next/link";
 import {
   Plus,
@@ -87,6 +89,7 @@ import type { Student } from "@/types";
 export default function StudentsPage() {
   const isOnline = useOnline();
   const { user, refreshUserProfile, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   const canCreate = hasPermission("students", "create");
   const canEdit   = hasPermission("students", "edit");
   const canDelete = hasPermission("students", "delete");
@@ -237,8 +240,12 @@ export default function StudentsPage() {
         setStudents(mapped);
         setServerTotal(result.total);
 
-        // Alimenter le cache offline en arrière-plan (non bloquant)
+        // Alimenter le cache offline + React Query en arrière-plan
         offlineDB.bulkAdd(STORES.STUDENTS, mapped).catch(() => {});
+        // Cache React Query avec tous les élèves (page 1 complète) pour les autres pages
+        if ((currentPage - 1) * itemsPerPage === 0) {
+          queryClient.setQueryData(STUDENTS_QUERY_KEY(user?.tenantId), mapped);
+        }
       } else {
         // Mode offline : paginer le cache local côté client
         const raw = await offlineDB.getAll<any>(STORES.STUDENTS);

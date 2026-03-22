@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import {
   Calendar, Check, X, Save, Loader2, WifiOff, Clock, ShieldCheck,
@@ -194,6 +196,7 @@ function isSchoolDay(date: Date, schoolDays: SchoolDays): boolean {
 export default function AttendancePage() {
   const { user, refreshUserProfile, hasPermission } = useAuth();
   const isOnline = useOnline();
+  const queryClient = useQueryClient();
 
   const role = (user?.role ?? "").toLowerCase();
   const canSeeOverview   = ["director", "admin", "supervisor"].includes(role);
@@ -233,7 +236,10 @@ export default function AttendancePage() {
   );
   const [selectedClassId, setSelectedClassId] = useState<string>("");
 
-  const [classes, setClasses] = useState<BackendClass[]>([]);
+  // Lazy initializer : lit le cache React Query une seule fois au montage
+  const [classes, setClasses] = useState<BackendClass[]>(
+    () => queryClient.getQueryData<BackendClass[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? []
+  );
   const [rows, setRows] = useState<StudentRow[]>([]);
 
   // ── État vue d'ensemble ──────────────────────────────────────────────────────
@@ -245,7 +251,10 @@ export default function AttendancePage() {
 
   // ── État marquage ─────────────────────────────────────────────────────────────
 
-  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
+  // Pas de spinner si le cache est déjà là
+  const [isLoadingClasses, setIsLoadingClasses] = useState(
+    () => queryClient.getQueryData(CLASSES_QUERY_KEY(user?.tenantId)) == null
+  );
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [alreadySaved, setAlreadySaved] = useState(false);
@@ -277,6 +286,8 @@ export default function AttendancePage() {
             return lvl !== 0 ? lvl : a.name.localeCompare(b.name, "fr");
           });
           setClasses(data);
+          // Alimenter le cache React Query (toutes les classes, sans filtre prof)
+          queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), data);
         } catch {
           let cached = await offlineDB.getAll<BackendClass>(STORES.CLASSES);
           if (isTeacher && assignedClassIds.length > 0) {

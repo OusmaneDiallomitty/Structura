@@ -1,6 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
+import { STUDENTS_QUERY_KEY } from "@/hooks/queries/use-students-query";
+import { PAYMENTS_QUERY_KEY } from "@/hooks/queries/use-payments-query";
 import {
   Search,
   Filter,
@@ -504,6 +508,7 @@ interface StudentSummary {
 export default function PaymentsPage() {
   const isOnline = useOnline();
   const { user }  = useAuth();
+  const queryClient = useQueryClient();
   const canConfigureFees  = usePermission("payments", "configure");
   const canCreatePayment  = usePermission("payments", "create");
 
@@ -512,10 +517,18 @@ export default function PaymentsPage() {
   const { hasFeature } = useSubscription();
   const hasBulletins = hasFeature('bulletins');
 
-  const [students, setStudents] = useState<BackendStudent[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  // Lazy initializer : lit le cache React Query une seule fois au montage
+  // → affichage instantané si l'utilisateur revient sur cette page
+  const [students, setStudents] = useState<BackendStudent[]>(
+    () => queryClient.getQueryData<BackendStudent[]>(STUDENTS_QUERY_KEY(user?.tenantId)) ?? []
+  );
+  const [payments, setPayments] = useState<Payment[]>(
+    () => queryClient.getQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId)) ?? []
+  );
   const [classes,  setClasses]  = useState<ClassInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(
+    () => queryClient.getQueryData(STUDENTS_QUERY_KEY(user?.tenantId)) == null
+  );
 
   // Filtres
   const [activeClass,   setActiveClass]   = useState("all");
@@ -823,6 +836,8 @@ export default function PaymentsPage() {
       }
 
       setStudents(backendStudents);
+      queryClient.setQueryData(STUDENTS_QUERY_KEY(user?.tenantId), backendStudents);
+      queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), backendClasses);
 
       // Utiliser exactement les mêmes noms que la page Classes
       const classesList: ClassInfo[] = backendClasses.map((c) => {
@@ -841,6 +856,7 @@ export default function PaymentsPage() {
 
       const mappedPayments = backendPayments.map(mapBackendPayment);
       setPayments(mappedPayments);
+      queryClient.setQueryData(PAYMENTS_QUERY_KEY(user?.tenantId), mappedPayments);
 
       try {
         await offlineDB.clear(STORES.PAYMENTS);

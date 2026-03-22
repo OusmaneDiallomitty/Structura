@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import {
   Plus,
   Search,
@@ -84,10 +86,80 @@ interface Class {
 export default function ClassesPage() {
   const isOnline = useOnline();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const isDirector = user?.role === 'director';
   const isTeacher = user?.role === 'teacher';
-  const [classes, setClasses] = useState<Class[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // ── Fonction de mapping (stable, définie hors queryFn) ────────────────────
+  function mapClass(c: any): Class {
+    return {
+      id: c.id,
+      name: c.name,
+      section: c.section,
+      level: c.level || '',
+      capacity: c.capacity || 30,
+      studentCount: c.studentCount || c._count?.students || 0,
+      maleCount: c.maleCount || 0,
+      femaleCount: c.femaleCount || 0,
+      teacherName: c.teacherName || '',
+    };
+  }
+
+  // ── Fallback offline (IndexedDB) ────────────────────────────────────────────
+  const [offlineClasses, setOfflineClasses] = useState<Class[]>([]);
+  useEffect(() => {
+    if (!isOnline) {
+      offlineDB.getAll<Class>(STORES.CLASSES)
+        .then((data) => {
+          setOfflineClasses(data);
+          if (data.length === 0) toast.info('Vous êtes hors ligne — aucune donnée disponible localement.');
+        })
+        .catch(() => {});
+    }
+  }, [isOnline]);
+
+  // ── useQuery : chargement des classes ──────────────────────────────────────
+  const {
+    data: onlineClasses,
+    isLoading,
+    refetch,
+    error: classesError,
+  } = useQuery({
+    queryKey: CLASSES_QUERY_KEY(user?.tenantId),
+    queryFn: async (): Promise<Class[]> => {
+      const token = storage.getAuthItem('structura_token');
+      if (!token) throw new Error('Session expirée — veuillez vous reconnecter.');
+      const response = await getClasses(token);
+      const mapped = (Array.isArray(response) ? response : []).map(mapClass);
+      // Sync IndexedDB en arrière-plan (non bloquant)
+      offlineDB.clear(STORES.CLASSES)
+        .then(() => offlineDB.bulkAdd(STORES.CLASSES, mapped))
+        .catch(() => {});
+      if (mapped.length === 0) {
+        toast.info('Aucune classe trouvée. Créez votre première classe !', {
+          description: "Ou utilisez le modal d'onboarding pour créer des classes automatiquement.",
+        });
+      }
+      return mapped;
+    },
+    enabled: isOnline && !!user,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
+  // Erreur réseau → fallback IndexedDB
+  useEffect(() => {
+    if (!classesError) return;
+    const err = classesError as any;
+    const isNetworkError = !navigator.onLine
+      || err?.message === 'Failed to fetch'
+      || err?.message?.includes('network');
+    if (!isNetworkError) toast.error(err?.message || 'Impossible de charger les classes');
+    offlineDB.getAll<Class>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
+  }, [classesError]);
+
+  // Données finales : online si disponible, sinon offline
+  const classes = onlineClasses ?? offlineClasses;
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -119,9 +191,8 @@ export default function ClassesPage() {
     studentCount: number;
   } | null>(null);
 
-  // Charger les classes et l'année académique au montage
+  // Charger uniquement l'année académique au montage (classes gérées par useQuery)
   useEffect(() => {
-    loadClasses();
     loadCurrentAcademicYear();
   }, []);
 
@@ -155,91 +226,8 @@ export default function ClassesPage() {
     }
   }
 
-  async function loadClasses(): Promise<Class[]> {
-    setIsLoading(true);
-    const token = storage.getAuthItem('structura_token');
-
-    const mapClass = (c: any): Class => ({
-      id: c.id,
-      name: c.name,
-      section: c.section,
-      level: c.level || '',
-      capacity: c.capacity || 30,
-      studentCount: c.studentCount || c._count?.students || 0,
-      maleCount: c.maleCount || 0,
-      femaleCount: c.femaleCount || 0,
-      teacherName: c.teacherName || '',
-    });
-
-    // Mode hors ligne → lire uniquement depuis IndexedDB
-    if (!isOnline) {
-      try {
-        const cached = await offlineDB.getAll<Class>(STORES.CLASSES);
-        setClasses(cached);
-        if (cached.length === 0) {
-          toast.info('Vous êtes hors ligne — aucune donnée disponible localement.');
-        }
-        return cached;
-      } catch {
-        setClasses([]);
-        return [];
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    try {
-      if (!token) {
-        toast.error('Votre session a expiré — veuillez vous reconnecter.');
-        return [];
-      }
-
-      const response = await getClasses(token);
-      const classesData = Array.isArray(response) ? response : [];
-      const mappedClasses: Class[] = classesData.map(mapClass);
-
-      // Afficher les données immédiatement (indépendant du cache)
-      setClasses(mappedClasses);
-
-      if (mappedClasses.length === 0) {
-        toast.info('Aucune classe trouvée. Créez votre première classe !', {
-          description: 'Ou utilisez le modal d\'onboarding pour créer des classes automatiquement.',
-        });
-      }
-
-      // Mettre à jour le cache IndexedDB (silencieux — n'affecte pas l'affichage)
-      try {
-        await offlineDB.clear(STORES.CLASSES);
-        await offlineDB.bulkAdd(STORES.CLASSES, mappedClasses);
-      } catch {
-        // Échec du cache : pas grave, les données sont déjà affichées
-      }
-
-      return mappedClasses;
-    } catch (error: any) {
-      // Fallback : essayer le cache IndexedDB
-      try {
-        const cached = await offlineDB.getAll<Class>(STORES.CLASSES);
-        if (cached.length > 0) {
-          setClasses(cached);
-          if (!navigator.onLine) toast.info('Vous êtes hors ligne — affichage des dernières données');
-          return cached;
-        }
-      } catch { /* ignore */ }
-
-      const isNetworkError = !navigator.onLine || error.message === 'Failed to fetch' || error.message?.includes('network');
-      if (!isNetworkError) {
-        toast.error(error.message || 'Impossible de charger les classes');
-      }
-      setClasses([]);
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  // Rafraîchir les classes quand l'utilisateur revient sur l'onglet
-  useRefreshOnFocus(loadClasses);
+  // Rafraîchir via React Query quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(refetch);
 
   function openAddDialog() {
     setFormData({
@@ -419,7 +407,11 @@ export default function ClassesPage() {
         await offlineDB.add(STORES.CLASSES, { ...localClass, _tempId: tempId, needsSync: true });
         await syncQueue.add({ type: "class", action: "create", data: { _tempId: tempId, ...classDto } });
 
-        setClasses((prev) => [...prev, localClass]);
+        // Mise à jour optimiste du cache React Query
+        queryClient.setQueryData<Class[]>(
+          CLASSES_QUERY_KEY(user?.tenantId),
+          (old = []) => [...old, localClass]
+        );
         toast.info(`Classe "${formData.name}" sauvegardée hors ligne`, {
           description: "Elle sera envoyée au serveur dès la reconnexion.",
         });
@@ -436,7 +428,7 @@ export default function ClassesPage() {
 
       toast.success(`Classe "${formData.name}" créée avec succès !`);
       setIsAddDialogOpen(false);
-      loadClasses();
+      queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la création');
     } finally {
@@ -474,8 +466,10 @@ export default function ClassesPage() {
           data: { id: selectedClass.id, ...updateDto },
         });
 
-        setClasses((prev) =>
-          prev.map((c) => (c.id === selectedClass.id ? updatedClass : c))
+        // Mise à jour optimiste du cache React Query
+        queryClient.setQueryData<Class[]>(
+          CLASSES_QUERY_KEY(user?.tenantId),
+          (old = []) => old.map((c) => (c.id === selectedClass.id ? updatedClass : c))
         );
         toast.info('Classe modifiée hors ligne', {
           description: "Elle sera envoyée au serveur dès la reconnexion.",
@@ -493,7 +487,7 @@ export default function ClassesPage() {
 
       toast.success('Classe modifiée avec succès !');
       setIsEditDialogOpen(false);
-      loadClasses();
+      queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la modification');
     } finally {
@@ -576,11 +570,12 @@ export default function ClassesPage() {
       setTransferTargetClassId("");
       setDeleteAction("");
 
-      // Recharger les classes
-      const updatedClasses = await loadClasses();
+      // Calcul optimiste de la liste après suppression (sans attendre le re-fetch)
+      const optimisticList = classes.filter((c) => c.id !== selectedClass.id);
+      checkForSingleClassWithSection(selectedClass.name, optimisticList);
 
-      // Vérifier si une classe est maintenant seule avec une section
-      checkForSingleClassWithSection(selectedClass.name, updatedClasses);
+      // Re-fetch serveur en arrière-plan
+      queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la suppression', { id: 'delete-progress' });
     } finally {
@@ -642,7 +637,7 @@ export default function ClassesPage() {
 
       setShowRemoveSectionDialog(false);
       setSingleClassToUpdate(null);
-      loadClasses();
+      queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la modification');
     } finally {
@@ -696,7 +691,7 @@ export default function ClassesPage() {
             </p>
           </div>
           <button
-            onClick={() => loadClasses()}
+            onClick={() => refetch()}
             className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-amber-800 hover:text-amber-900 border border-amber-300 hover:border-amber-400 bg-white hover:bg-amber-50 rounded-md px-2.5 py-1.5 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -724,7 +719,7 @@ export default function ClassesPage() {
         {isDirector && (
           <CreateDefaultClassesDialog
             academicYearId={academicYearId}
-            onSuccess={loadClasses}
+            onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
           />
         )}
       </div>
@@ -986,7 +981,7 @@ export default function ClassesPage() {
                             {isDirector && (
                               <EditClassDialog
                                 classItem={classItem}
-                                onSuccess={loadClasses}
+                                onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
                               />
                             )}
                             {isDirector && (
@@ -1050,7 +1045,7 @@ export default function ClassesPage() {
                               {isDirector && (
                                 <EditClassDialog
                                   classItem={classItem}
-                                  onSuccess={loadClasses}
+                                  onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
                                 />
                               )}
                               {isDirector && (

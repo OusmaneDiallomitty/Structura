@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import { useSearchParams } from "next/navigation";
 import {
   BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
@@ -201,6 +203,7 @@ function GradesPageInner() {
   useSearchParams(); // required for Suspense boundary
 
   const { user, getValidToken, refreshUserProfile, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   const isDirector    = user?.role === "director";
   const isTeacher     = user?.role === "teacher";
   const teacherAssignments = user?.classAssignments ?? [];
@@ -223,9 +226,13 @@ function GradesPageInner() {
   // Année effective pour les appels API
   const effectiveYear = selectedYear || academicYear;
 
-  // Classes
-  const [classes, setClasses] = useState<BackendClass[]>([]);
-  const [classesLoading, setClassesLoading] = useState(true);
+  // Lazy initializer : lit le cache React Query une seule fois au montage
+  const [classes, setClasses] = useState<BackendClass[]>(
+    () => queryClient.getQueryData<BackendClass[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? []
+  );
+  const [classesLoading, setClassesLoading] = useState(
+    () => queryClient.getQueryData(CLASSES_QUERY_KEY(user?.tenantId)) == null
+  );
 
   // Shared filters
   const [selectedClassId, setSelectedClassId] = useState<string>("");
@@ -371,6 +378,9 @@ function GradesPageInner() {
           if (feesConfig?.schoolCalendar?.startMonth) setStartMonth(feesConfig.schoolCalendar.startMonth);
           if (feesConfig?.schoolCalendar?.durationMonths) setDurationMonths(feesConfig.schoolCalendar.durationMonths);
         }
+
+        // Alimenter le cache React Query avec toutes les classes (sans filtre prof)
+        queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), cls);
 
         // Filter classes for teacher only (secretary/supervisor/accountant see all)
         let filteredClasses = cls;
