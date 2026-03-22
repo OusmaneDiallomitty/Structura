@@ -63,14 +63,7 @@ function guessCurrentSchoolYearName(): string {
  */
 function formatMoney(amount: number, currency: string): string {
   if (!amount || amount === 0) return `0 ${currency}`;
-  if (amount >= 1_000_000) {
-    const millions = amount / 1_000_000;
-    const formatted = millions % 1 === 0
-      ? `${millions} M`
-      : `${millions.toFixed(1).replace('.', ',')} M`;
-    return `${formatted} ${currency}`;
-  }
-  // Séparateur de milliers français (espace)
+  // Toujours afficher le montant complet avec séparateur de milliers
   return `${amount.toLocaleString('fr-FR')} ${currency}`;
 }
 

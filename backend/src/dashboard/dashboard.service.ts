@@ -54,12 +54,12 @@ export class DashboardService {
       lastMonthRevenue,
       lastMonthAttendanceRate,
     ] = await Promise.all([
-      // Total élèves actifs de l'année courante
+      // Total élèves actifs (tous, academicYearId optionnel donc on ne filtre pas dessus)
       this.prisma.student.count({
-        where: { tenantId, status: StudentStatus.ACTIVE, ...yearFilter },
+        where: { tenantId, status: StudentStatus.ACTIVE },
       }),
-      // Total classes de l'année courante
-      this.prisma.class.count({ where: { tenantId, ...yearFilter } }),
+      // Total classes du tenant (academicYearId optionnel)
+      this.prisma.class.count({ where: { tenantId } }),
       // Présences du jour
       this.getTodayAttendance(tenantId),
       // Paiements en attente de l'année courante
