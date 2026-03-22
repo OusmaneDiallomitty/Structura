@@ -96,6 +96,7 @@ const PAYMENT_FREQ_KEY    = "structura_payment_frequency";
 const CLASS_FEES_KEY      = "structura_class_fees_v2";
 const SCHOOL_CALENDAR_KEY = "structura_school_calendar_v1";
 const SCHOOL_TYPE_KEY     = "structura_school_type";
+const FEE_ITEMS_KEY       = "structura_fee_items_v1";
 
 type PaymentFrequency = "monthly" | "quarterly" | "annual";
 type FeeMode = "global" | "by-level" | "by-class";
@@ -766,36 +767,41 @@ export default function PaymentsPage() {
             config.feeItems as import("@/lib/api/fees.service").FeeItem[] | null,
           );
           // Mettre en cache pour le mode hors ligne
-          if (config.feeConfig)      localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
-          if (config.schoolCalendar) localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(config.schoolCalendar));
+          if (config.feeConfig)           localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
+          if (config.schoolCalendar)      localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(config.schoolCalendar));
           localStorage.setItem(PAYMENT_FREQ_KEY, config.paymentFrequency || "monthly");
-          if (config.schoolType)     localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
+          if (config.schoolType)          localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
+          if (config.feeItems?.length)    localStorage.setItem(FEE_ITEMS_KEY,   JSON.stringify(config.feeItems));
         })
         .catch(() => {
           // Réseau indisponible malgré isOnline — utiliser le cache local
-          const savedFees = localStorage.getItem(CLASS_FEES_KEY);
-          const savedCal  = localStorage.getItem(SCHOOL_CALENDAR_KEY);
-          const savedFreq = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
-          const savedType = localStorage.getItem(SCHOOL_TYPE_KEY);
+          const savedFees  = localStorage.getItem(CLASS_FEES_KEY);
+          const savedCal   = localStorage.getItem(SCHOOL_CALENDAR_KEY);
+          const savedFreq  = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
+          const savedType  = localStorage.getItem(SCHOOL_TYPE_KEY);
+          const savedItems = localStorage.getItem(FEE_ITEMS_KEY);
           applyConfig(
             savedFees  ? JSON.parse(savedFees)  as FeeConfig      : null,
             savedFreq,
             savedCal   ? JSON.parse(savedCal)   as SchoolCalendar : null,
             savedType,
+            savedItems ? JSON.parse(savedItems) as import("@/lib/api/fees.service").FeeItem[] : null,
           );
         })
         .finally(() => setFeesLoading(false));
     } else {
       // Mode hors ligne : utiliser le cache local
-      const savedFees = localStorage.getItem(CLASS_FEES_KEY);
-      const savedCal  = localStorage.getItem(SCHOOL_CALENDAR_KEY);
-      const savedFreq = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
-      const savedType = localStorage.getItem(SCHOOL_TYPE_KEY);
+      const savedFees  = localStorage.getItem(CLASS_FEES_KEY);
+      const savedCal   = localStorage.getItem(SCHOOL_CALENDAR_KEY);
+      const savedFreq  = localStorage.getItem(PAYMENT_FREQ_KEY) || "monthly";
+      const savedType  = localStorage.getItem(SCHOOL_TYPE_KEY);
+      const savedItems = localStorage.getItem(FEE_ITEMS_KEY);
       applyConfig(
-        savedFees ? JSON.parse(savedFees)  as FeeConfig      : null,
+        savedFees  ? JSON.parse(savedFees)  as FeeConfig      : null,
         savedFreq,
-        savedCal  ? JSON.parse(savedCal)   as SchoolCalendar : null,
+        savedCal   ? JSON.parse(savedCal)   as SchoolCalendar : null,
         savedType,
+        savedItems ? JSON.parse(savedItems) as import("@/lib/api/fees.service").FeeItem[] : null,
       );
       setFeesLoading(false);
     }
