@@ -58,8 +58,6 @@ const COLORS = {
 };
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
-const BREAK_ROW    = 255;
-const BREAK_BOTTOM = 225;
 const PAGE_W  = 210;
 const MARGIN  = 12;
 const CONTENT_W = PAGE_W - 2 * MARGIN;
@@ -124,28 +122,6 @@ function textColor(doc: jsPDF, c: [number,number,number]) {
   doc.setTextColor(c[0], c[1], c[2]);
 }
 
-// ─── En-tête du tableau (réutilisé après saut de page) ────────────────────────
-
-function drawTableHeader(doc: jsPDF, y: number): number {
-  // Fond header
-  fill(doc, COLORS.primary);
-  doc.rect(MARGIN, y, CONTENT_W, 11, 'F');
-
-  // Accent stripe sur la gauche
-  fill(doc, COLORS.accent);
-  doc.rect(MARGIN, y, 3, 11, 'F');
-
-  textColor(doc, COLORS.white);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Matière / Professeur', COL.subject + 5, y + 7.5);
-  doc.text('Coef',                  COL.coef    + 2, y + 7.5);
-  doc.text('Note',                  COL.score   + 2, y + 7.5);
-  doc.text('%',                     COL.pct     + 3, y + 7.5);
-  doc.text('Appréciation',          COL.appre   + 2, y + 7.5);
-  doc.setFont('helvetica', 'normal');
-  return y + 11;
-}
 
 // ─── Pied de page ─────────────────────────────────────────────────────────────
 
@@ -264,302 +240,303 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
   doc.text(`${data.academicYear}   ·   ${data.trimester}`, PAGE_W / 2, 33, { align: 'center' });
 
   // ════════════════════════════════════════
-  // INFORMATIONS ÉLÈVE
+  // MISE EN PAGE DYNAMIQUE — 1 PAGE GARANTIE
   // ════════════════════════════════════════
+  //
+  // Budget vertical (y=54 → y=282, footer à 282) : 228mm
+  //   Sections fixes avant les lignes : 30 (info) + 9 (titre) + 9 (header) = 48mm
+  //   Sections fixes après  les lignes : 3+15+22+11+3+14                   = 68mm
+  //   Disponible pour les lignes       : 228 - 48 - 68                     = 112mm
+  //
+  // rowH = min(11, max(5, 112 / n))  → toujours une seule page.
+
+  const n        = Math.max(1, data.grades.length);
+  const AVAIL    = 112; // mm disponibles pour les lignes de notes
+  const rowH     = Math.min(11, Math.max(5, AVAIL / n));
+
+  // Polices adaptées à la hauteur de ligne
+  const showTeacher = rowH >= 7.5;
+  const subjectF = rowH >= 9.5 ? 9    : rowH >= 7.5 ? 8.5  : rowH >= 6.5 ? 8   : 7;
+  const teacherF = rowH >= 9.5 ? 7.5  : 6.5;
+  const coefF    = rowH >= 9.5 ? 9    : rowH >= 7.5 ? 8.5  : 8;
+  const scoreF   = rowH >= 9.5 ? 10.5 : rowH >= 7.5 ? 9.5  : rowH >= 6.5 ? 9   : 8;
+  const pctF     = rowH >= 9.5 ? 8.5  : rowH >= 7.5 ? 8    : 7.5;
+  const appreF   = rowH >= 9.5 ? 8.5  : rowH >= 7.5 ? 8    : 7.5;
 
   let y = 54;
 
-  // Carte élève avec bordure colorée à gauche
+  // ════════════════════════════════════════
+  // INFORMATIONS ÉLÈVE  (box 26mm + gap 4mm = 30mm)
+  // ════════════════════════════════════════
+
   fill(doc, COLORS.gray50);
-  doc.rect(MARGIN, y, CONTENT_W, 36, 'F');
-
+  doc.rect(MARGIN, y, CONTENT_W, 26, 'F');
   fill(doc, COLORS.primaryMid);
-  doc.rect(MARGIN, y, 4, 36, 'F');
-
+  doc.rect(MARGIN, y, 4, 26, 'F');
   stroke(doc, COLORS.gray200);
-  doc.setLineWidth(0.4);
-  doc.rect(MARGIN, y, CONTENT_W, 36, 'S');
+  doc.setLineWidth(0.3);
+  doc.rect(MARGIN, y, CONTENT_W, 26, 'S');
 
-  // Titre section
   textColor(doc, COLORS.primary);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   doc.text('INFORMATIONS ÉLÈVE', MARGIN + 7, y + 7);
-
-  // Séparateur interne
   stroke(doc, COLORS.gray200);
-  doc.setLineWidth(0.3);
-  doc.line(MARGIN + 7, y + 10, MARGIN + CONTENT_W - 7, y + 10);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN + 7, y + 9.5, MARGIN + CONTENT_W - 7, y + 9.5);
 
-  // Colonne gauche — labels
-  textColor(doc, COLORS.gray400);
+  // Labels gauche
+  textColor(doc, COLORS.gray600);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.text('Nom & Prénom :', MARGIN + 7, y + 20);
-  doc.text('Matricule :',    MARGIN + 7, y + 30);
+  doc.setFontSize(8);
+  doc.text('Nom & Prénom :', MARGIN + 7, y + 17);
+  doc.text('Matricule :', MARGIN + 7, y + 24);
 
-  // Colonne gauche — valeurs
+  // Valeurs gauche
   textColor(doc, COLORS.gray800);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(data.studentName, MARGIN + 40, y + 20);
   doc.setFontSize(9.5);
-  doc.text(data.matricule,   MARGIN + 40, y + 30);
-
-  // Colonne droite — labels
-  textColor(doc, COLORS.gray400);
-  doc.setFont('helvetica', 'normal');
+  doc.text(data.studentName, MARGIN + 38, y + 17);
   doc.setFontSize(8.5);
-  doc.text('Classe :',  MARGIN + 105, y + 20);
-  if (data.level) doc.text('Niveau :', MARGIN + 105, y + 30);
+  doc.text(data.matricule, MARGIN + 38, y + 24);
 
-  // Colonne droite — valeurs
+  // Labels droite
+  textColor(doc, COLORS.gray600);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text('Classe :', MARGIN + 108, y + 17);
+  if (data.level) doc.text('Niveau :', MARGIN + 108, y + 24);
+
+  // Valeurs droite
   textColor(doc, COLORS.gray800);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(data.className, MARGIN + 122, y + 20);
-  if (data.level) { doc.setFontSize(9.5); doc.text(data.level, MARGIN + 122, y + 30); }
+  doc.setFontSize(9.5);
+  doc.text(data.className, MARGIN + 122, y + 17);
+  if (data.level) { doc.setFontSize(8.5); doc.text(data.level, MARGIN + 122, y + 24); }
+
+  y += 30; // box(26) + gap(4)
 
   // ════════════════════════════════════════
-  // TABLEAU DES NOTES
+  // TITRE SECTION  (9mm)
   // ════════════════════════════════════════
 
-  y += 42;
-
-  // Titre section avec barre accent
   fill(doc, COLORS.primaryMid);
-  doc.rect(MARGIN, y - 1, 4, 11, 'F');
+  doc.rect(MARGIN, y, 4, 9, 'F');
   textColor(doc, COLORS.primary);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('RÉSULTATS DU TRIMESTRE', MARGIN + 7, y + 7);
-  y += 13;
+  doc.setFontSize(9);
+  doc.text('RÉSULTATS DU TRIMESTRE', MARGIN + 7, y + 6.5);
+  y += 9;
 
-  y = drawTableHeader(doc, y);
-  doc.setFont('helvetica', 'normal');
+  // ════════════════════════════════════════
+  // EN-TÊTE TABLEAU  (9mm)
+  // ════════════════════════════════════════
+
+  fill(doc, COLORS.primary);
+  doc.rect(MARGIN, y, CONTENT_W, 9, 'F');
+  fill(doc, COLORS.accent);
+  doc.rect(MARGIN, y, 3, 9, 'F');
+  textColor(doc, COLORS.white);
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Matière / Professeur', COL.subject + 5, y + 6.5);
+  doc.text('Coef',                  COL.coef    + 2, y + 6.5);
+  doc.text('Note',                  COL.score   + 2, y + 6.5);
+  doc.text('%',                     COL.pct     + 3, y + 6.5);
+  doc.text('Appréciation',          COL.appre   + 2, y + 6.5);
+  y += 9;
+
+  // ════════════════════════════════════════
+  // LIGNES DE NOTES  (rowH × n mm, calculé dynamiquement)
+  // ════════════════════════════════════════
 
   for (let i = 0; i < data.grades.length; i++) {
-    const g = data.grades[i];
-    const hasTeacher = !!g.teacherName;
-    const rowH = hasTeacher ? 14 : 11;
+    const g    = data.grades[i];
+    const hasT = showTeacher && !!g.teacherName;
 
-    // Saut de page si débordement
-    if (y + rowH > BREAK_ROW) {
-      drawFooter(doc);
-      doc.addPage();
-      y = 15;
-      y = drawTableHeader(doc, y);
-    }
-
-    // Fond alternance
+    // Fond alterné
     if (i % 2 === 0) {
       fill(doc, COLORS.gray50);
       doc.rect(MARGIN, y, CONTENT_W, rowH, 'F');
     }
 
-    // Accent stripe gauche colorée selon la note
-    const [sr, sg, sb] = scoreColor(g.score, g.maxScore);
-    doc.setFillColor(sr, sg, sb);
-    doc.setGState(doc.GState({ opacity: 0.5 }));
+    // Stripe gauche colorée selon la note
+    const sc = scoreColor(g.score, g.maxScore);
+    doc.setFillColor(sc[0], sc[1], sc[2]);
+    doc.setGState(doc.GState({ opacity: 0.45 }));
     doc.rect(MARGIN, y, 3, rowH, 'F');
     doc.setGState(doc.GState({ opacity: 1 }));
 
-    // Score — fond coloré dans la cellule (plus large)
-    const [br, bg2, bb] = scoreBg(g.score, g.maxScore);
-    doc.setFillColor(br, bg2, bb);
-    doc.rect(COL.score, y + 0.5, 23, rowH - 1, 'F');
+    // Fond cellule score
+    const sbg = scoreBg(g.score, g.maxScore);
+    doc.setFillColor(sbg[0], sbg[1], sbg[2]);
+    doc.rect(COL.score, y + 0.5, 22, rowH - 1, 'F');
 
-    // Séparateurs verticaux
+    // Séparateurs verticaux + bordure basse
     stroke(doc, COLORS.gray200);
     doc.setLineWidth(0.2);
     doc.line(COL.coef,  y, COL.coef,  y + rowH);
     doc.line(COL.score, y, COL.score, y + rowH);
     doc.line(COL.pct,   y, COL.pct,   y + rowH);
     doc.line(COL.appre, y, COL.appre, y + rowH);
-
-    // Bordure basse
-    stroke(doc, COLORS.gray200);
-    doc.setLineWidth(0.25);
     doc.line(MARGIN, y + rowH, MARGIN + CONTENT_W, y + rowH);
 
-    const midY = hasTeacher ? y + 6.5 : y + rowH / 2 + 2.5;
+    // Positions texte verticales
+    const mainY  = hasT ? y + rowH * 0.38 : y + rowH * 0.5 + 1.5;
+    const midY   = y + rowH * 0.5 + 1.5;
+    const teachY = y + rowH * 0.75;
 
-    // Matière — plus grande, plus lisible
+    // Matière
     textColor(doc, COLORS.gray800);
-    doc.setFontSize(9.5);
+    doc.setFontSize(subjectF);
     doc.setFont('helvetica', 'bold');
-    const label = g.subject.length > 38 ? g.subject.substring(0, 36) + '..' : g.subject;
-    doc.text(label, COL.subject + 5, midY);
+    const lbl = g.subject.length > 38 ? g.subject.substring(0, 36) + '..' : g.subject;
+    doc.text(lbl, COL.subject + 5, mainY);
 
-    // Nom du professeur
-    if (hasTeacher) {
+    // Professeur (seulement si rowH suffisant)
+    if (hasT) {
       textColor(doc, COLORS.gray600);
-      doc.setFontSize(7.5);
+      doc.setFontSize(teacherF);
       doc.setFont('helvetica', 'italic');
-      const tLabel = `Prof. ${g.teacherName}`;
-      doc.text(tLabel.length > 44 ? tLabel.substring(0, 42) + '..' : tLabel, COL.subject + 5, y + 11);
+      const tl = `Prof. ${g.teacherName!}`;
+      doc.text(tl.length > 44 ? tl.substring(0, 42) + '..' : tl, COL.subject + 5, teachY);
     }
 
-    // Coefficient — foncé et lisible
+    // Coefficient
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(coefF);
     textColor(doc, COLORS.gray800);
-    doc.text(String(g.coefficient), COL.coef + 3, midY);
+    doc.text(String(g.coefficient), COL.coef + 3, mainY);
 
-    // Score — grand, gras, coloré
-    const midYScore = y + rowH / 2 + 2.5;
+    // Score
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(scoreF);
     textColor(doc, scoreColor(g.score, g.maxScore));
-    doc.text(`${g.score.toFixed(1)}/${g.maxScore}`, COL.score + 2, midYScore);
+    doc.text(`${g.score.toFixed(1)}/${g.maxScore}`, COL.score + 2, midY);
 
     // Pourcentage
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
+    doc.setFontSize(pctF);
     textColor(doc, COLORS.gray600);
-    const pct = g.score / g.maxScore;
-    doc.text(`${(pct * 100).toFixed(0)}%`, COL.pct + 3, midY);
+    doc.text(`${((g.score / g.maxScore) * 100).toFixed(0)}%`, COL.pct + 3, mainY);
 
-    // Appréciation — plus grande
+    // Appréciation
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
+    doc.setFontSize(appreF);
     textColor(doc, COLORS.gray800);
-    doc.text(appre(g.score, g.maxScore), COL.appre + 3, midY);
+    doc.text(appre(g.score, g.maxScore), COL.appre + 3, mainY);
 
     y += rowH;
   }
 
-  // Saut de page si sections basses ne tiennent plus
-  if (y > BREAK_BOTTOM) {
-    drawFooter(doc);
-    doc.addPage();
-    y = 15;
-  }
-
   // ════════════════════════════════════════
-  // MOYENNE GÉNÉRALE
+  // MOYENNE GÉNÉRALE  (y+=3 gap + box 12mm + y+=15 total)
   // ════════════════════════════════════════
 
-  y += 4;
+  y += 3;
   const avg = data.weightedAvg;
 
   if (avg !== null && avg !== undefined) {
     const [r, g2, b] = scoreColor(avg, data.maxScore);
-
-    // Fond coloré de la moyenne
     doc.setFillColor(r, g2, b);
-    doc.rect(MARGIN, y, CONTENT_W, 16, 'F');
+    doc.rect(MARGIN, y, CONTENT_W, 12, 'F');
 
-    // Motif décoratif
+    // Décoration
     doc.setFillColor(255, 255, 255);
-    doc.setGState(doc.GState({ opacity: 0.08 }));
-    for (let k = 0; k < 6; k++) {
-      doc.rect(MARGIN + CONTENT_W - 30 + k * 6, y, 5, 16, 'F');
-    }
+    doc.setGState(doc.GState({ opacity: 0.07 }));
+    for (let k = 0; k < 6; k++) doc.rect(MARGIN + CONTENT_W - 36 + k * 6, y, 5, 12, 'F');
     doc.setGState(doc.GState({ opacity: 1 }));
 
     textColor(doc, COLORS.white);
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('helvetica', 'bold');
-    doc.text('MOYENNE GÉNÉRALE', MARGIN + 7, y + 10);
-
-    doc.setFontSize(16);
-    doc.text(`${avg.toFixed(2)} / ${data.maxScore}`, MARGIN + 92, y + 11);
-
-    doc.setFontSize(10);
-    doc.text(appre(avg, data.maxScore), MARGIN + 144, y + 10);
-
-    y += 20;
+    doc.text('MOYENNE GÉNÉRALE', MARGIN + 6, y + 8.5);
+    doc.setFontSize(14);
+    doc.text(`${avg.toFixed(2)} / ${data.maxScore}`, MARGIN + 90, y + 9);
+    doc.setFontSize(9);
+    doc.text(appre(avg, data.maxScore), MARGIN + 143, y + 8.5);
+    y += 15;
   }
 
   // ════════════════════════════════════════
-  // STATISTIQUES DE CLASSE
+  // STATISTIQUES DE CLASSE  (box 18mm, y+=22 total)
   // ════════════════════════════════════════
 
   fill(doc, COLORS.gray50);
-  doc.rect(MARGIN, y, CONTENT_W, 26, 'F');
-  stroke(doc, COLORS.gray200);
-  doc.setLineWidth(0.4);
-  doc.rect(MARGIN, y, CONTENT_W, 26, 'S');
-
-  // Titre section
-  fill(doc, COLORS.primaryMid);
-  doc.rect(MARGIN, y, 4, 26, 'F');
-
-  textColor(doc, COLORS.primary);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text('STATISTIQUES DE CLASSE', MARGIN + 7, y + 8);
-
-  // Ligne de séparation interne
+  doc.rect(MARGIN, y, CONTENT_W, 18, 'F');
   stroke(doc, COLORS.gray200);
   doc.setLineWidth(0.3);
-  doc.line(MARGIN + 7, y + 11, MARGIN + CONTENT_W - 7, y + 11);
+  doc.rect(MARGIN, y, CONTENT_W, 18, 'S');
+  fill(doc, COLORS.primaryMid);
+  doc.rect(MARGIN, y, 4, 18, 'F');
 
-  const statsY = y + 20;
+  textColor(doc, COLORS.primary);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text('STATISTIQUES DE CLASSE', MARGIN + 7, y + 7);
+  stroke(doc, COLORS.gray200);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN + 7, y + 9.5, MARGIN + CONTENT_W - 7, y + 9.5);
+
+  const sY = y + 15;
 
   if (data.classAvg !== null && data.classAvg !== undefined) {
     textColor(doc, COLORS.gray600);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Moyenne de classe :', MARGIN + 7, statsY);
+    doc.setFontSize(8.5);
+    doc.text('Moyenne de classe :', MARGIN + 7, sY);
     textColor(doc, COLORS.gray800);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`${data.classAvg.toFixed(2)} / ${data.maxScore}`, MARGIN + 44, statsY);
+    doc.setFontSize(9);
+    doc.text(`${data.classAvg.toFixed(2)} / ${data.maxScore}`, MARGIN + 44, sY);
   }
 
   if (data.classRank !== null && data.classRank !== undefined && data.totalStudents) {
     textColor(doc, COLORS.gray600);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Rang :', MARGIN + 100, statsY);
+    doc.setFontSize(8.5);
+    doc.text('Rang :', MARGIN + 103, sY);
     textColor(doc, COLORS.primary);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text(`${data.classRank}${ordinal(data.classRank, data.gender)} / ${data.totalStudents} élèves`, MARGIN + 115, statsY);
+    doc.setFontSize(10);
+    doc.text(`${data.classRank}${ordinal(data.classRank, data.gender)} / ${data.totalStudents} élèves`, MARGIN + 117, sY);
   }
 
   if (avg !== null && avg !== undefined) {
-    y += 30;
-    // Appréciation générale sur fond léger + texte lisible
-    const [ar, ag, ab] = scoreBg(avg, data.maxScore);
-    doc.setFillColor(ar, ag, ab);
-    doc.rect(MARGIN, y, CONTENT_W, 13, 'F');
+    y += 22; // stats box(18) + gap(4)
+    // Appréciation générale  (box 8mm + y+=11)
+    const [ar, ag2, ab] = scoreBg(avg, data.maxScore);
+    doc.setFillColor(ar, ag2, ab);
+    doc.rect(MARGIN, y, CONTENT_W, 8, 'F');
     stroke(doc, COLORS.gray200);
-    doc.setLineWidth(0.3);
-    doc.rect(MARGIN, y, CONTENT_W, 13, 'S');
-
-    // Barre couleur gauche
+    doc.setLineWidth(0.2);
+    doc.rect(MARGIN, y, CONTENT_W, 8, 'S');
     const [cr, cg, cb] = scoreColor(avg, data.maxScore);
     doc.setFillColor(cr, cg, cb);
-    doc.rect(MARGIN, y, 4, 13, 'F');
-
+    doc.rect(MARGIN, y, 4, 8, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     textColor(doc, COLORS.gray800);
-    const appreStr = appreText(avg, data.maxScore);
-    doc.text(appreStr, MARGIN + 7, y + 8.5);
-    y += 17;
+    doc.text(appreText(avg, data.maxScore), MARGIN + 7, y + 5.5);
+    y += 11;
   } else {
-    y += 30;
+    y += 22;
   }
 
   // ════════════════════════════════════════
-  // SIGNATURE
+  // SIGNATURE  (y+=3 + lignes à y+14)
   // ════════════════════════════════════════
 
-  y += 4;
+  y += 3;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   textColor(doc, COLORS.gray600);
-  doc.text('Lu et approuvé par le parent / tuteur :', MARGIN + 3, y + 6);
-  doc.text('Signature du Directeur :', MARGIN + 105, y + 6);
-
+  doc.text('Lu et approuvé par le parent / tuteur :', MARGIN + 3, y + 5);
+  doc.text('Signature du Directeur :', MARGIN + 108, y + 5);
   stroke(doc, COLORS.gray400);
-  doc.setLineWidth(0.5);
-  doc.line(MARGIN + 3, y + 22, MARGIN + 72, y + 22);
-  doc.line(MARGIN + 105, y + 22, MARGIN + 175, y + 22);
+  doc.setLineWidth(0.4);
+  doc.line(MARGIN + 3, y + 14, MARGIN + 72, y + 14);
+  doc.line(MARGIN + 108, y + 14, MARGIN + 175, y + 14);
 
   // ─── Pied de page ────────────────────────────────────────────────────────────
   drawFooter(doc);
