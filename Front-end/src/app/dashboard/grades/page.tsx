@@ -710,7 +710,11 @@ function GradesPageInner() {
     compGridScoresRef.current = {};
     setCompGridCourseAvgs({});
     setCompGridSavedSubjects(new Set());
-  }, [selectedClassId, selectedTerm]);
+    // Vider le cache des grilles pour forcer un vrai refetch quand on revient sur la même classe
+    queryClient.removeQueries({ queryKey: ["comp-grid", user?.tenantId] });
+    queryClient.removeQueries({ queryKey: ["primary-grid", user?.tenantId] });
+    queryClient.removeQueries({ queryKey: ["eval-grid", user?.tenantId] });
+  }, [selectedClassId, selectedTerm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Evaluations / Compositions (mode ligne) — remplacés par les grilles ────
   // Ces fonctions étaient utilisées en mode ligne (un élève, une matière, un mois à la fois).
@@ -2060,7 +2064,15 @@ function GradesPageInner() {
                         onClick={() => {
                           Object.values(autoSaveTimers.current).forEach(clearTimeout);
                           autoSaveTimers.current = {};
-                          refetchPrimaryGrid();
+                          queryClient.removeQueries({ queryKey: ["primary-grid", user?.tenantId] });
+                          refetchPrimaryGrid().then((result) => {
+                            if (result.data) {
+                              setGridStudents(result.data.students);
+                              setGridScores(result.data.scores);
+                              gridScoresRef.current = result.data.scores;
+                              setGridSavedSubjects(new Set());
+                            }
+                          });
                         }}
                         disabled={gridLoading || !selectedClassId}
                       >
@@ -2377,7 +2389,16 @@ function GradesPageInner() {
                         <Button variant="outline" size="sm" onClick={() => {
                           Object.values(compGridAutoSaveTimers.current).forEach(clearTimeout);
                           compGridAutoSaveTimers.current = {};
-                          refetchCompGrid();
+                          queryClient.removeQueries({ queryKey: ["comp-grid", user?.tenantId] });
+                          refetchCompGrid().then((result) => {
+                            if (result.data) {
+                              setCompGridStudents(result.data.students);
+                              setCompGridCourseAvgs(result.data.courseAvgs);
+                              setCompGridScores(result.data.scores);
+                              compGridScoresRef.current = result.data.scores;
+                              setCompGridSavedSubjects(new Set());
+                            }
+                          });
                         }} disabled={compGridLoading || !selectedClassId}>
                           {compGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
                           Recharger
