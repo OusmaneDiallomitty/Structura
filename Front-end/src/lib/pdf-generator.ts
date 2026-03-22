@@ -274,10 +274,21 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   ].filter(Boolean).join("     ");
   doc.text(meta, ML + 5, 88);
 
-  // Mode de paiement (coin droit)
+  // Mode de paiement + type (coin droit)
+  const payType = data.term?.startsWith("Annuel")
+    ? "Annuel"
+    : data.term?.startsWith("Trimestre")
+    ? "Trimestriel"
+    : data.months && data.months.length > 1
+    ? "Plurimensuel"
+    : "Mensuel";
   doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
   doc.setTextColor(100, 116, 139);
   doc.text(`Mode : ${data.paymentMethod}`, MR - 2, 73, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(59, 130, 246);
+  doc.text(`Type : ${payType}`, MR - 2, 80, { align: "right" });
 
   // Badge SCOLARITÉ COMPLÈTE
   if (isAnnuel) {
@@ -315,7 +326,9 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
     doc.setFontSize(9);
     doc.setTextColor(31, 41, 55);
     doc.text(month, indented ? C1 + 10 : C1 + 4, yPos + 5.5);
-    doc.setTextColor(107, 114, 128);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(31, 41, 55);
     doc.text(fmt(perMonth), C3 - 4, yPos + 5.5, { align: "right" });
     doc.setFillColor(209, 250, 229);
     doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
@@ -370,8 +383,15 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
+  const col2Label = data.isContribution
+    ? "Montant"
+    : payType === "Annuel"
+    ? "Frais / mois"
+    : payType === "Trimestriel"
+    ? "Frais / mois"
+    : "Frais mensuel";
   doc.text(data.isContribution ? "Libelle" : "Mois / Periode", C1 + 4, yPos + 5.5);
-  doc.text(data.isContribution ? "Montant" : "Frais mensuel", C2 + (C3 - C2) / 2, yPos + 5.5, { align: "center" });
+  doc.text(col2Label, C2 + (C3 - C2) / 2, yPos + 5.5, { align: "center" });
   doc.text("Statut", MR - 3, yPos + 5.5, { align: "right" });
   yPos += ROW_H + 1;
 
@@ -412,7 +432,8 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
     doc.setFontSize(9);
     doc.setTextColor(31, 41, 55);
     doc.text(termLabel, C1 + 4, yPos + 5.5);
-    doc.setTextColor(107, 114, 128);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(31, 41, 55);
     doc.text(fmt(data.amount), C3 - 4, yPos + 5.5, { align: "right" });
     doc.setFillColor(209, 250, 229);
     doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
@@ -460,38 +481,62 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
       yPos += 26;
     } else {
       // Récapitulatif annuel standard (école privée)
-      const recapH = data.remaining && data.remaining > 0 ? 34 : 28;
+      const hasRemainder = !!(data.remaining && data.remaining > 0);
+      const recapH = hasRemainder ? 42 : 36;
       doc.setFillColor(248, 250, 252);
       doc.roundedRect(ML, yPos, TW, recapH, 2, 2, "F");
 
+      // Barre titre recap
+      doc.setFillColor(59, 130, 246);
+      doc.roundedRect(ML, yPos, TW, 10, 2, 2, "F");
+      doc.rect(ML, yPos + 5, TW, 5, "F"); // carré bas pour arrondi top seulement
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(255, 255, 255);
       doc.text("RECAPITULATIF ANNUEL", ML + 5, yPos + 7);
 
+      // Séparateur interne
+      doc.setDrawColor(229, 231, 235);
+      doc.setLineWidth(0.3);
+
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Total attendu :", ML + 5, yPos + 20);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
       doc.setTextColor(31, 41, 55);
-      doc.text("Total attendu :", ML + 5, yPos + 15);
-      doc.setFont("helvetica", "bold");
-      doc.text(fmt(data.expectedFee), MR - 5, yPos + 15, { align: "right" });
+      doc.text(fmt(data.expectedFee), MR - 5, yPos + 20, { align: "right" });
+
+      doc.line(ML + 5, yPos + 23, MR - 5, yPos + 23);
 
       doc.setFont("helvetica", "normal");
-      doc.text("Total verse :", ML + 5, yPos + 22);
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Total verse :", ML + 5, yPos + 30);
       doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
       doc.setTextColor(16, 185, 129);
-      doc.text(fmt(data.totalPaid), MR - 5, yPos + 22, { align: "right" });
+      doc.text(fmt(data.totalPaid), MR - 5, yPos + 30, { align: "right" });
 
-      if (data.remaining && data.remaining > 0) {
+      if (hasRemainder) {
+        doc.line(ML + 5, yPos + 33, MR - 5, yPos + 33);
         doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139);
+        doc.text("Reste a payer :", ML + 5, yPos + 40);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
         doc.setTextColor(239, 68, 68);
-        doc.text("Reste a payer :", ML + 5, yPos + 29);
-        doc.setFont("helvetica", "bold");
-        doc.text(fmt(data.remaining), MR - 5, yPos + 29, { align: "right" });
+        doc.text(fmt(data.remaining!), MR - 5, yPos + 40, { align: "right" });
       } else {
+        doc.line(ML + 5, yPos + 33, MR - 5, yPos + 33);
+        doc.setFillColor(209, 250, 229);
+        doc.roundedRect(ML + 5, yPos + 35, TW - 10, 8, 1, 1, "F");
         doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
         doc.setTextColor(16, 185, 129);
-        doc.text("Scolarite integralement reglee", ML + 5, yPos + 29);
+        doc.text("Scolarite integralement reglee", 105, yPos + 40.5, { align: "center" });
       }
 
       yPos += recapH + 6;
