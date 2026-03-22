@@ -632,7 +632,8 @@ export default function PaymentsPage() {
     }
     return "private";
   });
-  const [feeItems,   setFeeItems]   = useState<import("@/lib/api/fees.service").FeeItem[]>([]);
+  const [feeItems,    setFeeItems]    = useState<import("@/lib/api/fees.service").FeeItem[]>([]);
+  const [feesLoading, setFeesLoading] = useState(true);
 
   // Frais
   const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
@@ -782,7 +783,8 @@ export default function PaymentsPage() {
             savedCal   ? JSON.parse(savedCal)   as SchoolCalendar : null,
             savedType,
           );
-        });
+        })
+        .finally(() => setFeesLoading(false));
     } else {
       // Mode hors ligne : utiliser le cache local
       const savedFees = localStorage.getItem(CLASS_FEES_KEY);
@@ -795,6 +797,7 @@ export default function PaymentsPage() {
         savedCal  ? JSON.parse(savedCal)   as SchoolCalendar : null,
         savedType,
       );
+      setFeesLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
@@ -1880,7 +1883,7 @@ export default function PaymentsPage() {
         )}
 
         {/* État vide */}
-        {feeItems.length === 0 && (
+        {!feesLoading && feeItems.length === 0 && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
               <DollarSign className="h-12 w-12 text-muted-foreground/40 mb-4" />
