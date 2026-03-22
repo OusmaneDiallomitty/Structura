@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
+import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { useSearchParams } from "next/navigation";
 import {
   BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
@@ -41,7 +43,7 @@ import {
   getEvaluations, bulkSaveEvaluations,
   getCompositions, bulkSaveCompositions,
   getClassReport, getTrimesterLock, lockTrimester, unlockTrimester,
-  getSubjectCoefficients, getStudentReport, getAnnualReport,
+  getStudentReport, getAnnualReport,
   type ClassReport, type TrimesterLock, type AnnualReport,
   type Evaluation, type Composition,
 } from "@/lib/api/grades.service";
@@ -202,8 +204,9 @@ function getMonthCompletion(
 function GradesPageInner() {
   useSearchParams(); // required for Suspense boundary
 
-  const { user, getValidToken, refreshUserProfile, hasPermission } = useAuth();
+  const { user, refreshUserProfile, hasPermission } = useAuth();
   const queryClient = useQueryClient();
+  const isOnline = useOnline();
   const isDirector    = user?.role === "director";
   const isTeacher     = user?.role === "teacher";
   const teacherAssignments = user?.classAssignments ?? [];
@@ -226,41 +229,50 @@ function GradesPageInner() {
   // Année effective pour les appels API
   const effectiveYear = selectedYear || academicYear;
 
-  // Lazy initializer : lit le cache React Query une seule fois au montage
-  const [classes, setClasses] = useState<BackendClass[]>(
-    () => queryClient.getQueryData<BackendClass[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? []
-  );
-  const [classesLoading, setClassesLoading] = useState(
-    () => queryClient.getQueryData(CLASSES_QUERY_KEY(user?.tenantId)) == null
-  );
+  // ── Classes via useQuery ──────────────────────────────────────────────────
+  const { data: allClassesData, isLoading: classesLoading, refetch: refetchClasses } = useQuery({
+    queryKey: CLASSES_QUERY_KEY(user?.tenantId),
+    queryFn: async (): Promise<BackendClass[]> => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const data = await getClasses(token);
+      for (const cls of data) await offlineDB.update(STORES.CLASSES, cls).catch(() => {});
+      return data;
+    },
+    enabled: isOnline && !!user,
+    staleTime: 60_000,
+  });
+
+  const [offlineClasses, setOfflineClasses] = useState<BackendClass[]>([]);
+  useEffect(() => {
+    if (isOnline) return;
+    offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
+  }, [isOnline]);
+
+  const classes = useMemo<BackendClass[]>(() => {
+    const raw = allClassesData ?? offlineClasses;
+    if (isTeacher && teacherAssignments.length > 0) {
+      const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
+      return raw.filter((c) => assignedIds.has(c.id));
+    }
+    return raw;
+  }, [allClassesData, offlineClasses, isTeacher, teacherAssignments]);
 
   // Shared filters
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [selectedTerm, setSelectedTerm] = useState<Term>("Trimestre 1");
 
   // Evaluations tab
+  // evalSubject / evalMonth : utilisés pour le reset lors du changement de classe/trimestre
   const [evalSubject, setEvalSubject] = useState<string>("");
   const [evalMonth, setEvalMonth] = useState<string>("");
-  const [evalStudents, setEvalStudents] = useState<BackendStudent[]>([]);
   const [evalScores, setEvalScores] = useState<Record<string, string>>({});
-  const [evalLoading, setEvalLoading] = useState(false);
-  const [evalSaving, setEvalSaving] = useState(false);
-  // Noms des profs détectés dans les évaluations chargées (peut être plusieurs si remplacement)
-  const [evalTeacherNames, setEvalTeacherNames] = useState<string[]>([]);
 
   // Compositions tab
   const [compSubject, setCompSubject] = useState<string>("");
-  const [compStudents, setCompStudents] = useState<BackendStudent[]>([]);
-  const [compScores, setCompScores] = useState<Record<string, string>>({});   // compositionScore
-  const [compCourseAvg, setCompCourseAvg] = useState<Record<string, number | null>>({}); // avg cours pre-loaded
-  const [compLoading, setCompLoading] = useState(false);
-  const [compSaving, setCompSaving] = useState(false);
-  // Noms des profs détectés dans les compositions chargées
-  const [compTeacherNames, setCompTeacherNames] = useState<string[]>([]);
 
-  // Bulletin tab
+  // Bulletin tab — le chargement est via useQuery (voir plus bas), lock reste en state
   const [bulletinReport, setBulletinReport] = useState<ClassReport | null>(null);
-  const [bulletinLoading, setBulletinLoading] = useState(false);
   const [trimesterLock, setTrimesterLock] = useState<TrimesterLock | null>(null);
   const [lockLoading, setLockLoading] = useState(false);
   // Trimestre verrouillé → profs bloqués. Le directeur garde l'accès.
@@ -282,16 +294,11 @@ function GradesPageInner() {
   // Configuration tab
   const [configClassId, setConfigClassId] = useState("");
   const [configSubjects, setConfigSubjects] = useState<Array<{name: string; coefficient: number; enabled: boolean}>>([]);
-  const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectCoeff, setNewSubjectCoeff] = useState(1);
 
-  // Teacher map : subject → teacherName (directeur uniquement)
-  const [subjectTeacherMap, setSubjectTeacherMap] = useState<Record<string, string>>({});
-
-  // Coefficient map : subject → coefficient (chargé pour tout rôle)
-  const [subjectCoeffMap, setSubjectCoeffMap] = useState<Record<string, number>>({});
+  // subjectTeacherMap and subjectCoeffMap are derived via useMemo from useQuery data (see below)
 
   // PDF generation
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
@@ -303,10 +310,9 @@ function GradesPageInner() {
   const [annualReport, setAnnualReport] = useState<AnnualReport | null>(null);
   const [annualLoading, setAnnualLoading] = useState(false);
 
-  // Grille unifiée primaire (compositions toutes matières en une vue)
+  // Grille unifiée primaire — scores (saisie utilisateur) ; chargement via useQuery (voir plus bas)
   const [gridStudents, setGridStudents] = useState<BackendStudent[]>([]);
   const [gridScores, setGridScores] = useState<Record<string, Record<string, string>>>({});
-  const [gridLoading, setGridLoading] = useState(false);
   const [gridSaving, setGridSaving] = useState(false);
   const [gridSavedSubjects, setGridSavedSubjects] = useState<Set<string>>(new Set());
   const [gridAutoSavingSubjects, setGridAutoSavingSubjects] = useState<Set<string>>(new Set());
@@ -322,7 +328,6 @@ function GradesPageInner() {
   const [mobileActiveSubComp, setMobileActiveSubComp] = useState<string>("");
   const [evalGridAllEvals, setEvalGridAllEvals] = useState<Evaluation[]>([]);
   const [evalGridScores, setEvalGridScores] = useState<Record<string, Record<string, string>>>({});
-  const [evalGridLoading, setEvalGridLoading] = useState(false);
   const [evalGridSavedSubjects, setEvalGridSavedSubjects] = useState<Set<string>>(new Set());
   const [evalGridAutoSavingSubjects, setEvalGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   const evalGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -333,7 +338,6 @@ function GradesPageInner() {
   const [compGridStudents, setCompGridStudents] = useState<BackendStudent[]>([]);
   const [compGridScores, setCompGridScores] = useState<Record<string, Record<string, string>>>({});
   const [compGridCourseAvgs, setCompGridCourseAvgs] = useState<Record<string, Record<string, number | null>>>({});
-  const [compGridLoading, setCompGridLoading] = useState(false);
   const [compGridSavedSubjects, setCompGridSavedSubjects] = useState<Set<string>>(new Set());
   const [compGridAutoSavingSubjects, setCompGridAutoSavingSubjects] = useState<Set<string>>(new Set());
   const compGridAutoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -357,9 +361,8 @@ function GradesPageInner() {
       if (!token) return;
 
       try {
-        const [yr, cls, feesConfig] = await Promise.all([
+        const [yr, feesConfig] = await Promise.all([
           getCurrentAcademicYear(token),
-          getClasses(token),
           getFeesConfig(token).catch(() => null),
         ]);
 
@@ -378,28 +381,8 @@ function GradesPageInner() {
           if (feesConfig?.schoolCalendar?.startMonth) setStartMonth(feesConfig.schoolCalendar.startMonth);
           if (feesConfig?.schoolCalendar?.durationMonths) setDurationMonths(feesConfig.schoolCalendar.durationMonths);
         }
-
-        // Alimenter le cache React Query avec toutes les classes (sans filtre prof)
-        queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), cls);
-
-        // Filter classes for teacher only (secretary/supervisor/accountant see all)
-        let filteredClasses = cls;
-        if (isTeacher && teacherAssignments.length > 0) {
-          const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
-          filteredClasses = cls.filter((c) => assignedIds.has(c.id));
-        }
-        setClasses(filteredClasses);
       } catch (e) {
         if (!navigator.onLine || (e as any)?.message === 'Failed to fetch') {
-          // Fallback offline : classes depuis IndexedDB + année depuis localStorage
-          try {
-            let cachedClasses = await offlineDB.getAll<any>(STORES.CLASSES);
-            if (isTeacher && teacherAssignments.length > 0) {
-              const assignedIds = new Set(teacherAssignments.map((a) => a.classId));
-              cachedClasses = cachedClasses.filter((c: any) => assignedIds.has(c.id));
-            }
-            setClasses(cachedClasses);
-          } catch { /* ignore */ }
           // Année scolaire depuis le cache localStorage (peuplé par CurrentYearBadge)
           try {
             const token2 = storage.getAuthItem("structura_token");
@@ -420,13 +403,14 @@ function GradesPageInner() {
           toast.error("Impossible de charger les données initiales");
         }
         console.error(e);
-      } finally {
-        setClassesLoading(false);
       }
     }
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(teacherAssignments)]);
+  }, []);
+
+  // Rafraîchir les classes quand la fenêtre reprend le focus
+  useRefreshOnFocus(refetchClasses);
 
   // ── Subjects available for selected class ─────────────────────────────────
 
@@ -441,58 +425,35 @@ function GradesPageInner() {
     return [];
   }, [selectedClassId, isTeacher, teacherAssignments]);
 
-  const [directorSubjects, setDirectorSubjects] = useState<string[]>([]);
+  // ── useQuery: sujets + coefficients de la classe sélectionnée ───────────────
+  const { data: classSubjectsData } = useQuery({
+    queryKey: ["class-subjects", user?.tenantId, selectedClassId],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      return getClassSubjects(token, selectedClassId);
+    },
+    enabled: !!selectedClassId && isOnline && !!user,
+    staleTime: 60_000,
+  });
 
-  // Load subjects for selected class — director: from ClassSubject, teacher: from classAssignments
-  useEffect(() => {
-    if (!selectedClassId) {
-      setDirectorSubjects([]);
-      return;
-    }
-    // Pour les profs, les matières viennent de classAssignments (pas besoin d'API)
-    if (isTeacher) {
-      setDirectorSubjects([]);
-      return;
-    }
-    // Pour le directeur et les autres rôles (secrétaire…) : charger depuis l'API ClassSubject
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
+  // ── useQuery: map prof→matière pour la classe sélectionnée (directeur) ───────
+  const { data: teamMembersData } = useQuery({
+    queryKey: ["teacher-map", user?.tenantId, selectedClassId],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      return getTeamMembers(token);
+    },
+    enabled: isDirector && !!selectedClassId && isOnline && !!user,
+    staleTime: 60_000,
+  });
 
-    getClassSubjects(token, selectedClassId)
-      .then((items) => setDirectorSubjects(items.map((s) => s.name)))
-      .catch((err) => {
-        console.error("[grades] loadSubjects error:", err);
-        toast.error("Impossible de charger les matières: " + (err instanceof Error ? err.message : String(err)));
-        setDirectorSubjects([]);
-      });
-  }, [isTeacher, selectedClassId]);
-
-  // Load teacher names for selected class (directeur seulement)
-  useEffect(() => {
-    if (!isDirector || !selectedClassId) {
-      setSubjectTeacherMap({});
-      return;
-    }
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-    getTeamMembers(token)
-      .then((members) => {
-        const map: Record<string, string> = {};
-        for (const m of members) {
-          if (m.role === "TEACHER" && m.classAssignments) {
-            const assignment = m.classAssignments.find((a) => a.classId === selectedClassId);
-            if (assignment) {
-              const name = `${m.firstName} ${m.lastName}`;
-              for (const subj of assignment.subjects) {
-                map[subj] = name;
-              }
-            }
-          }
-        }
-        setSubjectTeacherMap(map);
-      })
-      .catch(() => setSubjectTeacherMap({}));
-  }, [isDirector, selectedClassId]);
+  // Dériver directorSubjects + subjectCoeffMap depuis les données de la query
+  const directorSubjects = useMemo<string[]>(() => {
+    if (isTeacher || !classSubjectsData) return [];
+    return classSubjectsData.map((s) => s.name);
+  }, [classSubjectsData, isTeacher]);
 
   // Professeur : matières issues de ses affectations de classe
   // Directeur + tous autres rôles (secrétaire, surveillant…) : matières chargées depuis l'API
@@ -500,23 +461,224 @@ function GradesPageInner() {
     ? availableSubjects()
     : directorSubjects;
 
-  // Charger les coefficients dès que la classe change (directeur ET professeur)
-  // Source : ClassSubject (configuré par le directeur dans l'onglet Configuration)
-  useEffect(() => {
-    if (!selectedClassId) { setSubjectCoeffMap({}); return; }
-    const token = storage.getAuthItem('structura_token');
-    if (!token) return;
-    getClassSubjects(token, selectedClassId)
-      .then((items) => {
-        const map: Record<string, number> = {};
-        for (const item of items) {
-          if (item.coefficient != null) map[item.name] = item.coefficient;
+  // Coefficients dérivés de la query (directeur ET professeur)
+  const subjectCoeffMap = useMemo<Record<string, number>>(() => {
+    if (!classSubjectsData) return {};
+    const map: Record<string, number> = {};
+    for (const item of classSubjectsData) {
+      if (item.coefficient != null) map[item.name] = item.coefficient;
+    }
+    return map;
+  }, [classSubjectsData]);
+
+  // subjectTeacherMap dérivé de la query membres (directeur)
+  const subjectTeacherMap = useMemo<Record<string, string>>(() => {
+    if (!isDirector || !teamMembersData || !selectedClassId) return {};
+    const map: Record<string, string> = {};
+    for (const m of teamMembersData) {
+      if (m.role === "TEACHER" && m.classAssignments) {
+        const assignment = m.classAssignments.find((a) => a.classId === selectedClassId);
+        if (assignment) {
+          const name = `${m.firstName} ${m.lastName}`;
+          for (const subj of assignment.subjects) {
+            map[subj] = name;
+          }
         }
-        setSubjectCoeffMap(map);
-      })
-      .catch(() => setSubjectCoeffMap({}));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId]);
+      }
+    }
+    return map;
+  }, [teamMembersData, isDirector, selectedClassId]);
+
+  // ── useQuery: grille évaluations secondaire ────────────────────────────────
+  const {
+    data: evalGridData,
+    isLoading: evalGridLoading,
+    refetch: refetchEvalGrid,
+  } = useQuery({
+    queryKey: ["eval-grid", user?.tenantId, selectedClassId, selectedTerm, effectiveYear],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const [students, allEvals] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
+      ]);
+      return { students, allEvals };
+    },
+    enabled: isOnline && !!user && !!selectedClassId && !isPrimaryClass && activeTab === "evaluations",
+    staleTime: 30_000,
+  });
+
+  // Sync evalGrid state depuis query data
+  useEffect(() => {
+    if (!evalGridData) return;
+    setEvalGridStudents(evalGridData.students);
+    setEvalGridAllEvals(evalGridData.allEvals);
+  }, [evalGridData]);
+
+  // ── useQuery: grille compositions secondaire ───────────────────────────────
+  const subjectOptionsKey = subjectOptions.join(",");
+  const {
+    data: compGridData,
+    isLoading: compGridLoading,
+    refetch: refetchCompGrid,
+  } = useQuery({
+    queryKey: ["comp-grid", user?.tenantId, selectedClassId, selectedTerm, effectiveYear, subjectOptionsKey],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const subjects = subjectOptions;
+      const [students, allEvals, ...compsPerSubject] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
+        ...subjects.map((sub) =>
+          getCompositions(token, { classId: selectedClassId, subject: sub, term: selectedTerm, academicYear: effectiveYear || undefined }),
+        ),
+      ]);
+
+      const evalsByStudentSubject: Record<string, Record<string, number[]>> = {};
+      for (const ev of allEvals) {
+        if (!evalsByStudentSubject[ev.studentId]) evalsByStudentSubject[ev.studentId] = {};
+        if (!evalsByStudentSubject[ev.studentId][ev.subject]) evalsByStudentSubject[ev.studentId][ev.subject] = [];
+        evalsByStudentSubject[ev.studentId][ev.subject].push(ev.score);
+      }
+      const courseAvgs: Record<string, Record<string, number | null>> = {};
+      for (const s of students) {
+        courseAvgs[s.id] = {};
+        for (const sub of subjects) {
+          const sc = evalsByStudentSubject[s.id]?.[sub];
+          courseAvgs[s.id][sub] = sc && sc.length > 0 ? sc.reduce((a, b) => a + b, 0) / sc.length : null;
+        }
+      }
+
+      const scores: Record<string, Record<string, string>> = {};
+      for (const s of students) scores[s.id] = {};
+      for (let i = 0; i < subjects.length; i++) {
+        for (const c of (compsPerSubject[i] as Composition[])) {
+          if (scores[c.studentId]) scores[c.studentId][subjects[i]] = String(c.compositionScore);
+        }
+      }
+
+      const sortedStudents = [...students].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
+      );
+      return { students: sortedStudents, courseAvgs, scores };
+    },
+    enabled: isOnline && !!user && !!selectedClassId && !isPrimaryClass && activeTab === "compositions" && subjectOptions.length > 0,
+    staleTime: 30_000,
+  });
+
+  // Sync compGrid state depuis query data
+  useEffect(() => {
+    if (!compGridData) return;
+    setCompGridStudents(compGridData.students);
+    setCompGridCourseAvgs(compGridData.courseAvgs);
+    setCompGridScores(compGridData.scores);
+    compGridScoresRef.current = compGridData.scores;
+    setCompGridSavedSubjects(new Set());
+  }, [compGridData]);
+
+  // ── useQuery: grille primaire ──────────────────────────────────────────────
+  const {
+    data: primaryGridData,
+    isLoading: gridLoading,
+    refetch: refetchPrimaryGrid,
+  } = useQuery({
+    queryKey: ["primary-grid", user?.tenantId, selectedClassId, selectedTerm, effectiveYear, subjectOptionsKey],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const subjects = subjectOptions;
+      const [students, ...compsPerSubject] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        ...subjects.map((sub) =>
+          getCompositions(token, {
+            classId: selectedClassId,
+            subject: sub,
+            term: selectedTerm,
+            academicYear: effectiveYear || undefined,
+          }),
+        ),
+      ]);
+
+      const scores: Record<string, Record<string, string>> = {};
+      for (const s of students) scores[s.id] = {};
+      for (let i = 0; i < subjects.length; i++) {
+        for (const c of compsPerSubject[i] as Composition[]) {
+          if (scores[c.studentId]) scores[c.studentId][subjects[i]] = String(c.compositionScore);
+        }
+      }
+
+      const sortedStudents = [...students].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
+      );
+      return { students: sortedStudents, scores };
+    },
+    enabled: isOnline && !!user && !!selectedClassId && isPrimaryClass && activeTab === "evaluations",
+    staleTime: 30_000,
+  });
+
+  // Sync primaryGrid state depuis query data
+  useEffect(() => {
+    if (!primaryGridData) return;
+    setGridStudents(primaryGridData.students);
+    setGridScores(primaryGridData.scores);
+    gridScoresRef.current = primaryGridData.scores;
+    setGridSavedSubjects(new Set());
+  }, [primaryGridData]);
+
+  // ── useQuery: bulletin + verrou trimestre ─────────────────────────────────
+  const {
+    data: bulletinData,
+    isLoading: bulletinLoading,
+    refetch: refetchBulletin,
+  } = useQuery({
+    queryKey: ["bulletin", user?.tenantId, selectedClassId, selectedTerm, effectiveYear],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const [report, lock] = await Promise.all([
+        getClassReport(token, selectedClassId, selectedTerm, effectiveYear || undefined),
+        getTrimesterLock(token, selectedClassId, selectedTerm, effectiveYear),
+      ]);
+      return { report, lock };
+    },
+    enabled: isOnline && !!user && !!selectedClassId && !!effectiveYear && activeTab === "bulletin",
+    staleTime: 60_000,
+  });
+
+  // Sync bulletin + lock state depuis query data
+  useEffect(() => {
+    if (!bulletinData) return;
+    setBulletinReport(bulletinData.report);
+    setTrimesterLock(bulletinData.lock);
+  }, [bulletinData]);
+
+  // ── useQuery: config sujets (onglet configuration) ────────────────────────
+  const {
+    data: configSubjectsData,
+    isLoading: configLoading,
+    refetch: refetchConfigSubjects,
+  } = useQuery({
+    queryKey: ["config-subjects", user?.tenantId, configClassId],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      return getClassSubjects(token, configClassId);
+    },
+    enabled: !!configClassId && isOnline && !!user && activeTab === "configuration",
+    staleTime: 60_000,
+  });
+
+  // Sync configSubjects depuis query data (puis éditable localement)
+  useEffect(() => {
+    if (!configSubjectsData) return;
+    setConfigSubjects(configSubjectsData.map((s) => ({
+      name: s.name,
+      coefficient: s.coefficient != null ? s.coefficient : 1,
+      enabled: true,
+    })));
+  }, [configSubjectsData]);
 
   const termMonths = getTermMonths(startMonth, durationMonths, selectedTerm);
 
@@ -532,13 +694,7 @@ function GradesPageInner() {
     setEvalSubject("");
     setCompSubject("");
     setEvalMonth("");
-    setEvalStudents([]);
     setEvalScores({});
-    setEvalTeacherNames([]);
-    setCompStudents([]);
-    setCompScores({});
-    setCompCourseAvg({});
-    setCompTeacherNames([]);
     setGridStudents([]);
     setGridScores({});
     gridScoresRef.current = {};
@@ -556,288 +712,12 @@ function GradesPageInner() {
     setCompGridSavedSubjects(new Set());
   }, [selectedClassId, selectedTerm]);
 
-  // ── Evaluations ───────────────────────────────────────────────────────────
+  // ── Evaluations / Compositions (mode ligne) — remplacés par les grilles ────
+  // Ces fonctions étaient utilisées en mode ligne (un élève, une matière, un mois à la fois).
+  // Elles sont maintenant remplacées par les grilles React Query ci-dessus.
 
-  const loadEvaluations = useCallback(async () => {
-    if (!selectedClassId || !evalSubject || !evalMonth) {
-      toast.error("Sélectionnez une classe, une matière et un mois");
-      return;
-    }
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    setEvalLoading(true);
-    try {
-      const [studentsData, existingEvals] = await Promise.all([
-        getStudents(token, { classId: selectedClassId }),
-        getEvaluations(token, {
-          classId: selectedClassId,
-          subject: evalSubject,
-          term: selectedTerm,
-          academicYear: effectiveYear || undefined,
-        }),
-      ]);
-
-      setEvalStudents(studentsData);
-
-      // Pre-fill scores from existing evaluations (month filter)
-      const scoreMap: Record<string, string> = {};
-      for (const ev of existingEvals) {
-        if (ev.month === evalMonth) {
-          scoreMap[ev.studentId] = String(ev.score);
-        }
-      }
-      setEvalScores(scoreMap);
-
-      // Extraire les noms de profs uniques qui ont saisi des notes ce mois
-      const names = Array.from(
-        new Set(
-          existingEvals
-            .filter((ev) => ev.month === evalMonth && ev.teacherName)
-            .map((ev) => ev.teacherName as string),
-        ),
-      );
-      setEvalTeacherNames(names);
-    } catch (e) {
-      if (!navigator.onLine || (e as any)?.message === 'Failed to fetch') {
-        // Fallback offline : élèves depuis IndexedDB, scores vides (seront saisis)
-        try {
-          const allStudents = await offlineDB.getAll<any>(STORES.STUDENTS);
-          const classStudents = allStudents.filter((s: any) => s.classId === selectedClassId);
-          setEvalStudents(classStudents);
-          if (classStudents.length > 0) {
-            toast.info("Vous êtes hors ligne — élèves disponibles localement.");
-          }
-        } catch { toast.error("Erreur lors du chargement des notes"); }
-      } else {
-        toast.error("Erreur lors du chargement des notes");
-      }
-      console.error(e);
-    } finally {
-      setEvalLoading(false);
-    }
-  }, [selectedClassId, evalSubject, evalMonth, selectedTerm, academicYear]);
-
-  const saveEvaluations = useCallback(async () => {
-    if (!selectedClassId || !evalSubject || !evalMonth) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    const evaluations = evalStudents
-      .map((s) => {
-        const raw = evalScores[s.id];
-        if (raw === undefined || raw === "") return null;
-        const score = parseFloat(raw);
-        if (isNaN(score) || score < 0 || score > 20) return null;
-        return { studentId: s.id, score };
-      })
-      .filter((x): x is { studentId: string; score: number } => x !== null);
-
-    if (evaluations.length === 0) {
-      toast.error("Aucune note valide à enregistrer");
-      return;
-    }
-
-    const evalPayload = {
-      classId: selectedClassId,
-      subject: evalSubject,
-      term: selectedTerm,
-      month: evalMonth,
-      academicYear: academicYear || undefined,
-      teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
-      evaluations,
-    };
-
-    setEvalSaving(true);
-    try {
-      await bulkSaveEvaluations(token, evalPayload);
-      toast.success(`${evaluations.length} note(s) enregistrée(s)`);
-    } catch (e: any) {
-      if (!navigator.onLine || e?.message === 'Failed to fetch') {
-        await syncQueue.add({ type: "evaluation", action: "create", data: evalPayload });
-        toast.info(`${evaluations.length} note(s) enregistrée(s) — envoi automatique dès la reconnexion.`);
-      } else {
-        toast.error("Erreur lors de l'enregistrement");
-        console.error(e);
-      }
-    } finally {
-      setEvalSaving(false);
-    }
-  }, [selectedClassId, evalSubject, evalMonth, selectedTerm, academicYear, evalStudents, evalScores, user]);
-
-  // Eval stats
-  const evalValidScores = evalStudents
-    .map((s) => parseFloat(evalScores[s.id] ?? ""))
-    .filter((n) => !isNaN(n) && n >= 0 && n <= 20);
-  const evalClassAvg =
-    evalValidScores.length > 0
-      ? evalValidScores.reduce((a, b) => a + b, 0) / evalValidScores.length
-      : null;
-
-  // ── Compositions ──────────────────────────────────────────────────────────
-
-  const loadCompositions = useCallback(async () => {
-    if (!selectedClassId || !compSubject) {
-      toast.error("Sélectionnez une classe et une matière");
-      return;
-    }
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    setCompLoading(true);
-    try {
-      const [studentsData, existingComps, existingEvals] = await Promise.all([
-        getStudents(token, { classId: selectedClassId }),
-        getCompositions(token, {
-          classId: selectedClassId,
-          subject: compSubject,
-          term: selectedTerm,
-          academicYear: effectiveYear || undefined,
-        }),
-        getEvaluations(token, {
-          classId: selectedClassId,
-          subject: compSubject,
-          term: selectedTerm,
-          academicYear: effectiveYear || undefined,
-        }),
-      ]);
-
-      setCompStudents(studentsData);
-
-      // Build composition score map
-      const compMap: Record<string, string> = {};
-      for (const c of existingComps) {
-        compMap[c.studentId] = String(c.compositionScore);
-      }
-      setCompScores(compMap);
-
-      // Calculate course average per student (mean of monthly evaluations)
-      const evalsByStudent: Record<string, number[]> = {};
-      for (const ev of existingEvals) {
-        if (!evalsByStudent[ev.studentId]) evalsByStudent[ev.studentId] = [];
-        evalsByStudent[ev.studentId].push(ev.score);
-      }
-      const avgMap: Record<string, number | null> = {};
-      for (const s of studentsData) {
-        const scores = evalsByStudent[s.id];
-        if (scores && scores.length > 0) {
-          avgMap[s.id] = scores.reduce((a, b) => a + b, 0) / scores.length;
-        } else {
-          avgMap[s.id] = null;
-        }
-      }
-      setCompCourseAvg(avgMap);
-
-      // Extraire les noms de profs uniques qui ont saisi des compositions
-      const compNames = Array.from(
-        new Set(
-          existingComps
-            .filter((c) => c.teacherName)
-            .map((c) => c.teacherName as string),
-        ),
-      );
-      setCompTeacherNames(compNames);
-    } catch (e) {
-      toast.error("Erreur lors du chargement des compositions");
-      console.error(e);
-    } finally {
-      setCompLoading(false);
-    }
-  }, [selectedClassId, compSubject, selectedTerm, academicYear]);
-
-  const saveCompositions = useCallback(async () => {
-    if (!selectedClassId || !compSubject) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    const compositions = compStudents
-      .map((s) => {
-        const raw = compScores[s.id];
-        if (raw === undefined || raw === "") return null;
-        const score = parseFloat(raw);
-        if (isNaN(score) || score < 0 || score > scoreMax) return null;
-        return { studentId: s.id, compositionScore: score };
-      })
-      .filter((x): x is { studentId: string; compositionScore: number } => x !== null);
-
-    if (compositions.length === 0) {
-      toast.error("Aucune note valide à enregistrer");
-      return;
-    }
-
-    const compPayload = {
-      classId: selectedClassId,
-      subject: compSubject,
-      term: selectedTerm,
-      academicYear: academicYear || undefined,
-      teacherName: user ? `${user.firstName} ${user.lastName}` : undefined,
-      compositions,
-    };
-
-    setCompSaving(true);
-    try {
-      await bulkSaveCompositions(token, compPayload);
-      toast.success(`${compositions.length} composition(s) enregistrée(s)`);
-    } catch (e: any) {
-      if (!navigator.onLine || e?.message === 'Failed to fetch') {
-        await syncQueue.add({ type: "composition", action: "create", data: compPayload });
-        toast.info(`${compositions.length} composition(s) enregistrée(s) — envoi automatique dès la reconnexion.`);
-      } else {
-        toast.error("Erreur lors de l'enregistrement");
-        console.error(e);
-      }
-    } finally {
-      setCompSaving(false);
-    }
-  // scoreMax est dérivé de selectedClassId (dans les deps) — pas besoin de l'ajouter séparément
-  }, [selectedClassId, compSubject, selectedTerm, academicYear, compStudents, compScores, user]);
-
-  // ── Grille unifiée PRIMAIRE ────────────────────────────────────────────────
-
-  const loadPrimaryGrid = useCallback(async (subjects: string[]) => {
-    if (!selectedClassId || subjects.length === 0) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    setGridLoading(true);
-    try {
-      const [students, ...compsPerSubject] = await Promise.all([
-        getStudents(token, { classId: selectedClassId }),
-        ...subjects.map((sub) =>
-          getCompositions(token, {
-            classId: selectedClassId,
-            subject: sub,
-            term: selectedTerm,
-            academicYear: effectiveYear || undefined,
-          }),
-        ),
-      ]);
-
-      const scores: Record<string, Record<string, string>> = {};
-      for (const s of students) scores[s.id] = {};
-
-      for (let i = 0; i < subjects.length; i++) {
-        for (const c of compsPerSubject[i]) {
-          if (scores[c.studentId]) {
-            scores[c.studentId][subjects[i]] = String(c.compositionScore);
-          }
-        }
-      }
-
-      const sortedGrid = [...students].sort((a, b) =>
-        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
-      );
-      setGridStudents(sortedGrid);
-      setGridScores(scores);
-      gridScoresRef.current = scores;
-      setGridSavedSubjects(new Set());
-    } catch (e) {
-      toast.error("Erreur lors du chargement de la grille");
-      console.error(e);
-    } finally {
-      setGridLoading(false);
-    }
-  }, [selectedClassId, selectedTerm, academicYear]);
+  // ── Grille unifiée PRIMAIRE — rechargement via React Query ───────────────
+  // loadPrimaryGrid est remplacé par refetchPrimaryGrid (useQuery ci-dessus)
 
   const savePrimaryGrid = useCallback(async (subjects: string[]) => {
     if (!selectedClassId || subjects.length === 0 || gridStudents.length === 0) return;
@@ -888,28 +768,8 @@ function GradesPageInner() {
     }
   }, [selectedClassId, selectedTerm, academicYear, gridStudents, gridScores, user]);
 
-  // ── Chargement grille évaluations secondaire ──────────────────────────────
-
-  const loadSecondaryEvalGrid = useCallback(async (subjects: string[]) => {
-    if (!selectedClassId || subjects.length === 0) return;
-    const token = storage.getAuthItem('structura_token');
-    if (!token) return;
-    setEvalGridLoading(true);
-    try {
-      const [students, allEvals] = await Promise.all([
-        getStudents(token, { classId: selectedClassId }),
-        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
-      ]);
-      setEvalGridStudents(students);
-      setEvalGridAllEvals(allEvals);
-      // Le useEffect reactive rebuildera evalGridScores depuis le cache + evalMonth
-    } catch (e) {
-      toast.error('Erreur lors du chargement des évaluations');
-      console.error(e);
-    } finally {
-      setEvalGridLoading(false);
-    }
-  }, [selectedClassId, selectedTerm, academicYear]);
+  // ── Grille évaluations secondaire — rechargement via React Query ─────────
+  // loadSecondaryEvalGrid est remplacé par refetchEvalGrid (useQuery ci-dessus)
 
   const saveEvalGrid = useCallback(async (subjects: string[], month: string, scores: Record<string, Record<string, string>>) => {
     if (!selectedClassId || !month || subjects.length === 0 || evalGridStudents.length === 0) return;
@@ -1030,62 +890,8 @@ function GradesPageInner() {
     }, 1000);
   }, [autoSaveEvalSubject, evalGridStudents]);
 
-  // ── Chargement grille compositions secondaire ─────────────────────────────
-
-  const loadSecondaryCompGrid = useCallback(async (subjects: string[]) => {
-    if (!selectedClassId || subjects.length === 0) return;
-    const token = storage.getAuthItem('structura_token');
-    if (!token) return;
-    setCompGridLoading(true);
-    try {
-      const [students, allEvals, ...compsPerSubject] = await Promise.all([
-        getStudents(token, { classId: selectedClassId }),
-        getEvaluations(token, { classId: selectedClassId, term: selectedTerm, academicYear: effectiveYear || undefined }),
-        ...subjects.map((sub) =>
-          getCompositions(token, { classId: selectedClassId, subject: sub, term: selectedTerm, academicYear: effectiveYear || undefined }),
-        ),
-      ]);
-
-      // Moyennes cours par [studentId][subject]
-      const evalsByStudentSubject: Record<string, Record<string, number[]>> = {};
-      for (const ev of allEvals) {
-        if (!evalsByStudentSubject[ev.studentId]) evalsByStudentSubject[ev.studentId] = {};
-        if (!evalsByStudentSubject[ev.studentId][ev.subject]) evalsByStudentSubject[ev.studentId][ev.subject] = [];
-        evalsByStudentSubject[ev.studentId][ev.subject].push(ev.score);
-      }
-      const courseAvgs: Record<string, Record<string, number | null>> = {};
-      for (const s of students) {
-        courseAvgs[s.id] = {};
-        for (const sub of subjects) {
-          const sc = evalsByStudentSubject[s.id]?.[sub];
-          courseAvgs[s.id][sub] = sc && sc.length > 0 ? sc.reduce((a, b) => a + b, 0) / sc.length : null;
-        }
-      }
-
-      // Scores compositions par [studentId][subject]
-      const compScores: Record<string, Record<string, string>> = {};
-      for (const s of students) compScores[s.id] = {};
-      for (let i = 0; i < subjects.length; i++) {
-        for (const c of (compsPerSubject[i] as Composition[])) {
-          if (compScores[c.studentId]) compScores[c.studentId][subjects[i]] = String(c.compositionScore);
-        }
-      }
-
-      const sortedComp = [...students].sort((a, b) =>
-        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
-      );
-      setCompGridStudents(sortedComp);
-      setCompGridCourseAvgs(courseAvgs);
-      setCompGridScores(compScores);
-      compGridScoresRef.current = compScores;
-      setCompGridSavedSubjects(new Set());
-    } catch (e) {
-      toast.error('Erreur lors du chargement des compositions');
-      console.error(e);
-    } finally {
-      setCompGridLoading(false);
-    }
-  }, [selectedClassId, selectedTerm, academicYear]);
+  // ── Grille compositions secondaire — rechargement via React Query ────────
+  // loadSecondaryCompGrid est remplacé par refetchCompGrid (useQuery ci-dessus)
 
   const saveCompGrid = useCallback(async (subjects: string[]) => {
     if (!selectedClassId || subjects.length === 0 || compGridStudents.length === 0) return;
@@ -1235,58 +1041,10 @@ function GradesPageInner() {
     }, 1000);
   }, [autoSaveSubject, gridStudents]);
 
-  // Comp stats
-  const compValidComps = compStudents
-    .map((s) => parseFloat(compScores[s.id] ?? ""))
-    .filter((n) => !isNaN(n) && n >= 0 && n <= scoreMax);
-  const compAvg =
-    compValidComps.length > 0
-      ? compValidComps.reduce((a, b) => a + b, 0) / compValidComps.length
-      : null;
+  // Comp stats (mode ligne legacy — conservées pour compatibilité si réactivées)
 
-  const compSubjectAvgs = compStudents.map((s) => {
-    const comp = parseFloat(compScores[s.id] ?? "");
-    const course = compCourseAvg[s.id];
-    if (isPrimaryClass) {
-      // Primaire : moy. matière = note de composition
-      return !isNaN(comp) && comp >= 0 && comp <= scoreMax ? comp : null;
-    }
-    if (!isNaN(comp) && comp >= 0 && comp <= scoreMax && course !== null && course !== undefined) {
-      return (course + comp) / 2;
-    }
-    return null;
-  }).filter((n): n is number => n !== null);
-
-  const compSubjectAvgMean =
-    compSubjectAvgs.length > 0
-      ? compSubjectAvgs.reduce((a, b) => a + b, 0) / compSubjectAvgs.length
-      : null;
-
-  // ── Bulletin ──────────────────────────────────────────────────────────────
-
-  const loadBulletin = useCallback(async () => {
-    if (!selectedClassId) {
-      toast.error("Sélectionnez une classe");
-      return;
-    }
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-
-    setBulletinLoading(true);
-    try {
-      const [report, lock] = await Promise.all([
-        getClassReport(token, selectedClassId, selectedTerm, academicYear || undefined),
-        getTrimesterLock(token, selectedClassId, selectedTerm, academicYear),
-      ]);
-      setBulletinReport(report);
-      setTrimesterLock(lock);
-    } catch (e) {
-      toast.error("Erreur lors du chargement du bulletin");
-      console.error(e);
-    } finally {
-      setBulletinLoading(false);
-    }
-  }, [selectedClassId, selectedTerm, academicYear]);
+  // ── Bulletin — rechargement via React Query ───────────────────────────────
+  // loadBulletin est remplacé par refetchBulletin (useQuery ci-dessus)
 
   const handleToggleLock = useCallback(async () => {
     if (!selectedClassId || !academicYear) return;
@@ -1298,6 +1056,7 @@ function GradesPageInner() {
       try {
         await unlockTrimester(token, selectedClassId, selectedTerm, academicYear);
         setTrimesterLock(null);
+        queryClient.invalidateQueries({ queryKey: ["bulletin", user?.tenantId, selectedClassId, selectedTerm, effectiveYear] });
         toast.success("Trimestre déverrouillé — les notes peuvent à nouveau être modifiées.");
       } catch (e) {
         toast.error("Erreur lors du déverrouillage");
@@ -1309,7 +1068,7 @@ function GradesPageInner() {
       // Verrouiller → ouvrir le dialog de confirmation avec les stats
       setLockConfirmOpen(true);
     }
-  }, [selectedClassId, selectedTerm, academicYear, trimesterLock]);
+  }, [selectedClassId, selectedTerm, academicYear, trimesterLock, queryClient, user?.tenantId, effectiveYear]);
 
   const handleConfirmLock = useCallback(async () => {
     if (!selectedClassId || !academicYear) return;
@@ -1319,6 +1078,7 @@ function GradesPageInner() {
     try {
       const lock = await lockTrimester(token, selectedClassId, selectedTerm, academicYear);
       setTrimesterLock(lock);
+      queryClient.invalidateQueries({ queryKey: ["bulletin", user?.tenantId, selectedClassId, selectedTerm, effectiveYear] });
       toast.success("Trimestre verrouillé — vous pouvez maintenant générer les bulletins.");
     } catch (e) {
       toast.error("Erreur lors du verrouillage");
@@ -1326,29 +1086,11 @@ function GradesPageInner() {
     } finally {
       setLockLoading(false);
     }
-  }, [selectedClassId, selectedTerm, academicYear]);
+  }, [selectedClassId, selectedTerm, academicYear, queryClient, user?.tenantId, effectiveYear]);
 
   // ── Configuration tab ─────────────────────────────────────────────────────
-
-  const loadConfigSubjects = useCallback(async (classId: string) => {
-    if (!classId) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-    setConfigLoading(true);
-    try {
-      const items = await getClassSubjects(token, classId);
-      setConfigSubjects(items.map((s) => ({
-        name: s.name,
-        // coefficient null/undefined → 1 par défaut (évite d'afficher "Sans coeff" par erreur)
-        coefficient: s.coefficient != null ? s.coefficient : 1,
-        enabled: true,
-      })));
-    } catch {
-      setConfigSubjects([]);
-    } finally {
-      setConfigLoading(false);
-    }
-  }, []);
+  // loadConfigSubjects est remplacé par refetchConfigSubjects (useQuery ci-dessus)
+  // configSubjects est initialisé via le useEffect de sync sur configSubjectsData
 
   const saveConfig = useCallback(async () => {
     if (!configClassId) return;
@@ -1362,6 +1104,8 @@ function GradesPageInner() {
       await saveClassSubjects(token, configClassId, activeSubjects);
       const cls = classes.find((c) => c.id === configClassId);
       toast.success(`Matières de ${cls?.name ?? "la classe"} enregistrées`);
+      queryClient.invalidateQueries({ queryKey: ["config-subjects", user?.tenantId, configClassId] });
+      queryClient.invalidateQueries({ queryKey: ["class-subjects", user?.tenantId, configClassId] });
       // Fermer le panel après enregistrement
       setConfigClassId("");
       setConfigSubjects([]);
@@ -1374,13 +1118,7 @@ function GradesPageInner() {
     }
   }, [configClassId, configSubjects, classes]);
 
-  // ── Auto-chargement bulletin quand tab actif + classe + trimestre changent ─
-  useEffect(() => {
-    if (activeTab === "bulletin" && isDirector && selectedClassId && academicYear) {
-      loadBulletin();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedClassId, selectedTerm, academicYear]);
+  // Auto-chargement bulletin : géré par le `enabled` de useQuery (activeTab === "bulletin")
 
   // ── PDF generation ────────────────────────────────────────────────────────
 
@@ -1590,38 +1328,19 @@ function GradesPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evalMonth, evalGridStudents.length, subjectOptions.join(','), isPrimaryClass]);
 
-  // Auto-charger grille évaluations secondaire + présélectionner mois actuel
+  // Auto-présélectionner le mois actuel quand la grille eval est chargée
   useEffect(() => {
     if (isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
-    if (evalGridStudents.length > 0) return; // déjà chargé
-    // Présélectionner le mois actuel s'il est dans le trimestre, sinon le premier mois
     if (!evalMonth && termMonths.length > 0) {
       const currentMonthName = MONTHS[new Date().getMonth()];
       const autoMonth = termMonths.includes(currentMonthName) ? currentMonthName : termMonths[0];
       setEvalMonth(autoMonth);
     }
-    loadSecondaryEvalGrid(subjectOptions);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(','), evalGridStudents.length]);
-
-  // Auto-charger grille compositions secondaire
-  useEffect(() => {
-    if (isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
-    if (compGridStudents.length > 0) return; // déjà chargé
-    loadSecondaryCompGrid(subjectOptions);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(','), compGridStudents.length]);
-
-  // Auto-charger la grille primaire dès que classe + matières sont prêtes
-  useEffect(() => {
-    if (!isPrimaryClass || !selectedClassId || subjectOptions.length === 0) return;
-    if (gridStudents.length > 0) return; // déjà chargé
-    loadPrimaryGrid(subjectOptions);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(","), gridStudents.length]);
+  }, [isPrimaryClass, selectedClassId, selectedTerm, subjectOptions.join(',')]);
 
   // ── Polling toutes les 60s — synchronisation en temps réel directeur ↔ prof ──
-  // Recharge silencieusement la grille active si aucune sauvegarde n'est en cours.
+  // React Query gère le refetch via `enabled`, on utilise refetch pour forcer le rechargement périodique.
   useEffect(() => {
     if (!selectedClassId || subjectOptions.length === 0) return;
     const interval = setInterval(() => {
@@ -1629,13 +1348,13 @@ function GradesPageInner() {
         Object.keys(evalGridAutoSaveTimers.current).length > 0 ||
         Object.keys(autoSaveTimers.current).length > 0 ||
         Object.keys(compGridAutoSaveTimers.current).length > 0;
-      if (hasPendingTimers) return; // Ne pas recharger si des sauvegardes sont en attente
+      if (hasPendingTimers) return;
       if (!isPrimaryClass && evalGridStudents.length > 0) {
-        loadSecondaryEvalGrid(subjectOptions);
+        refetchEvalGrid();
       } else if (!isPrimaryClass && compGridStudents.length > 0) {
-        loadSecondaryCompGrid(subjectOptions);
+        refetchCompGrid();
       } else if (isPrimaryClass && gridStudents.length > 0) {
-        loadPrimaryGrid(subjectOptions);
+        refetchPrimaryGrid();
       }
     }, 60_000);
     return () => clearInterval(interval);
@@ -1879,7 +1598,7 @@ function GradesPageInner() {
                         // Annuler les timers avant rechargement
                         Object.values(evalGridAutoSaveTimers.current).forEach(clearTimeout);
                         evalGridAutoSaveTimers.current = {};
-                        loadSecondaryEvalGrid(subjectOptions);
+                        refetchEvalGrid();
                       }}
                       disabled={evalGridLoading || !selectedClassId}
                     >
@@ -2341,7 +2060,7 @@ function GradesPageInner() {
                         onClick={() => {
                           Object.values(autoSaveTimers.current).forEach(clearTimeout);
                           autoSaveTimers.current = {};
-                          loadPrimaryGrid(subjectOptions);
+                          refetchPrimaryGrid();
                         }}
                         disabled={gridLoading || !selectedClassId}
                       >
@@ -2658,7 +2377,7 @@ function GradesPageInner() {
                         <Button variant="outline" size="sm" onClick={() => {
                           Object.values(compGridAutoSaveTimers.current).forEach(clearTimeout);
                           compGridAutoSaveTimers.current = {};
-                          loadSecondaryCompGrid(subjectOptions);
+                          refetchCompGrid();
                         }} disabled={compGridLoading || !selectedClassId}>
                           {compGridLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
                           Recharger
@@ -2931,7 +2650,7 @@ function GradesPageInner() {
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
-                      onClick={loadBulletin}
+                      onClick={() => refetchBulletin()}
                       disabled={bulletinLoading || !selectedClassId}
                     >
                       {bulletinLoading ? (
@@ -3305,7 +3024,7 @@ function GradesPageInner() {
                               onClick={() => {
                                 setConfigClassId(c.id);
                                 setConfigSubjects([]);
-                                loadConfigSubjects(c.id);
+                                // Le chargement est déclenché automatiquement par la query (enabled: !!configClassId)
                               }}
                               className="text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-sm transition-all group"
                             >
