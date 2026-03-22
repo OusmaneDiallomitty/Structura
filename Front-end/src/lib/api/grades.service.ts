@@ -93,7 +93,7 @@ export interface AnnualReport {
 }
 
 export interface ClassReportStudent {
-  student: { id: string; firstName: string; lastName: string; matricule: string };
+  student: { id: string; firstName: string; lastName: string; matricule: string; gender?: string | null };
   generalAverage: number;
   totalSubjects: number;
   rank: number;

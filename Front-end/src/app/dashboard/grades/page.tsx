@@ -1157,6 +1157,7 @@ function GradesPageInner() {
         classAvg: bulletinReport?.classAverage,
         classRank: studentRow.rank,
         totalStudents: bulletinReport?.totalStudents,
+        gender: studentRow.student.gender,
       };
       if (mode === "print") printBulletinPDF(bulletinData);
       else generateBulletinPDF(bulletinData);
@@ -1198,6 +1199,7 @@ function GradesPageInner() {
             classAvg: bulletinReport.classAverage,
             classRank: studentRow.rank,
             totalStudents: bulletinReport.totalStudents,
+            gender: studentRow.student.gender,
           });
         } catch { /* élève sans notes, skip */ }
       }

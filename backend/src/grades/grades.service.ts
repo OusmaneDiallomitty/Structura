@@ -712,7 +712,7 @@ export class GradesService {
 
       if (comps.length === 0) {
         return {
-          student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule },
+          student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule, gender: student.gender },
           generalAverage: 0,
           totalSubjects: 0,
         };
@@ -744,7 +744,7 @@ export class GradesService {
             : 0;
 
       return {
-        student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule },
+        student: { id: student.id, firstName: student.firstName, lastName: student.lastName, matricule: student.matricule, gender: student.gender },
         generalAverage,
         totalSubjects: comps.length,
       };

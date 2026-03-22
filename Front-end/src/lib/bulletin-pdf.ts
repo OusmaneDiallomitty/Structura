@@ -32,6 +32,8 @@ export interface BulletinData {
   classAvg?: number | null;
   classRank?: number | null;
   totalStudents?: number;
+  /** Genre de l'élève — "Masculin" ou "Féminin" — pour accord du rang (1er / 1ère) */
+  gender?: string | null;
 }
 
 // ─── Palette de couleurs ───────────────────────────────────────────────────────
@@ -507,7 +509,7 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
     doc.text('Rang :', MARGIN + 85, statsY);
     textColor(doc, COLORS.gray800);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${data.classRank}${ordinal(data.classRank)} / ${data.totalStudents} élèves`, MARGIN + 98, statsY);
+    doc.text(`${data.classRank}${ordinal(data.classRank, data.gender)} / ${data.totalStudents} élèves`, MARGIN + 98, statsY);
   }
 
   if (avg !== null && avg !== undefined) {
@@ -550,9 +552,10 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
   drawFooter(doc);
 }
 
-/** Suffixe ordinal français (1er, 2e, 3e…) */
-function ordinal(n: number): string {
-  return n === 1 ? 'er' : 'e';
+/** Suffixe ordinal français (1er/1ère, 2e, 3e…) — accordé selon le genre */
+function ordinal(n: number, gender?: string | null): string {
+  if (n === 1) return gender === 'Féminin' ? 'ère' : 'er';
+  return 'e';
 }
 
 // ─── API publique ──────────────────────────────────────────────────────────────
