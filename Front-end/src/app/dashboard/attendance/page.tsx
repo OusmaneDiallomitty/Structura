@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import {
@@ -236,138 +236,90 @@ export default function AttendancePage() {
   );
   const [selectedClassId, setSelectedClassId] = useState<string>("");
 
-  // Lazy initializer : lit le cache React Query une seule fois au montage
-  const [classes, setClasses] = useState<BackendClass[]>(
-    () => queryClient.getQueryData<BackendClass[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? []
-  );
   const [rows, setRows] = useState<StudentRow[]>([]);
-
-  // ── État vue d'ensemble ──────────────────────────────────────────────────────
-
-  const [overviewAttendances, setOverviewAttendances] = useState<BackendAttendance[]>([]);
-  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
-  const [chronicAbsences, setChronicAbsences] = useState<ChronicAbsence[]>([]);
-  const [isLoadingChronic, setIsLoadingChronic] = useState(false);
-
-  // ── État marquage ─────────────────────────────────────────────────────────────
-
-  // Pas de spinner si le cache est déjà là
-  const [isLoadingClasses, setIsLoadingClasses] = useState(
-    () => queryClient.getQueryData(CLASSES_QUERY_KEY(user?.tenantId)) == null
-  );
-  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [alreadySaved, setAlreadySaved] = useState(false);
 
-  const selectedClass = classes.find((c) => c.id === selectedClassId);
+  // ── Classes : useQuery + filtre prof + offline ───────────────────────────────
 
-  // ── Charger les classes (upsert cache) ──────────────────────────────────────
-
-  const loadClasses = useCallback(async () => {
-    setIsLoadingClasses(true);
-    try {
+  const { data: allClassesData, isLoading: isLoadingClasses, refetch: refetchClasses, error: classesError } = useQuery({
+    queryKey: CLASSES_QUERY_KEY(user?.tenantId),
+    queryFn: async (): Promise<BackendClass[]> => {
       const token = storage.getAuthItem("structura_token");
-      // IDs des classes assignées au prof (vide = non-prof ou pas encore chargé)
-      const assignedClassIds = (user?.classAssignments ?? []).map((a: { classId: string }) => a.classId);
-      const isTeacher = role === "teacher";
+      if (!token) throw new Error("Session expirée");
+      const data = await getClasses(token);
+      for (const cls of data) await offlineDB.update(STORES.CLASSES, cls).catch(() => {});
+      return data;
+    },
+    enabled: isOnline && !!user,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
 
-      if (token) {
-        try {
-          let data = await getClasses(token);
-          for (const cls of data) await offlineDB.update(STORES.CLASSES, cls);
-          // Filtrage pour les professeurs : seulement leurs classes assignées
-          if (isTeacher && assignedClassIds.length > 0) {
-            data = data.filter((c) => assignedClassIds.includes(c.id));
-          } else if (isTeacher && assignedClassIds.length === 0) {
-            data = [];  // Aucune classe assignée → ne rien afficher
-          }
-          data.sort((a, b) => {
-            const lvl = (a.level || "").localeCompare(b.level || "", "fr");
-            return lvl !== 0 ? lvl : a.name.localeCompare(b.name, "fr");
-          });
-          setClasses(data);
-          // Alimenter le cache React Query (toutes les classes, sans filtre prof)
-          queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), data);
-        } catch {
-          let cached = await offlineDB.getAll<BackendClass>(STORES.CLASSES);
-          if (isTeacher && assignedClassIds.length > 0) {
-            cached = cached.filter((c) => assignedClassIds.includes(c.id));
-          } else if (isTeacher) {
-            cached = [];
-          }
-          setClasses(cached);
-        }
-      } else {
-        let cached = await offlineDB.getAll<BackendClass>(STORES.CLASSES);
-        if (isTeacher && assignedClassIds.length > 0) {
-          cached = cached.filter((c) => assignedClassIds.includes(c.id));
-        } else if (isTeacher) {
-          cached = [];
-        }
-        setClasses(cached);
-      }
-    } finally {
-      setIsLoadingClasses(false);
+  const [offlineClasses, setOfflineClasses] = useState<BackendClass[]>([]);
+  useEffect(() => {
+    if (isOnline) return;
+    offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
+  }, [isOnline]);
+  useEffect(() => {
+    if (!classesError) return;
+    offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
+  }, [classesError]);
+
+  const classes = useMemo<BackendClass[]>(() => {
+    const assignedClassIds = (user?.classAssignments ?? []).map((a: { classId: string }) => a.classId);
+    const isTeacher = role === "teacher";
+    let data = allClassesData ?? offlineClasses;
+    if (isTeacher && assignedClassIds.length > 0) {
+      data = data.filter((c) => assignedClassIds.includes(c.id));
+    } else if (isTeacher) {
+      data = [];
     }
-  // user?.id : recharge quand l'utilisateur change (pas à chaque re-render de user)
-  // isOnline : recharge depuis l'API au retour de connexion
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, user?.id, isOnline]);
+    return [...data].sort((a, b) => {
+      const lvl = (a.level || "").localeCompare(b.level || "", "fr");
+      return lvl !== 0 ? lvl : a.name.localeCompare(b.name, "fr");
+    });
+  }, [allClassesData, offlineClasses, user?.classAssignments, role]);
+
+  const selectedClass = classes.find((c) => c.id === selectedClassId);
 
   // ── Vue d'ensemble : toutes les présences d'une date ────────────────────────
 
-  const loadOverview = useCallback(async (date: string) => {
-    setIsLoadingOverview(true);
-    try {
+  const { data: overviewAttendances = [], isLoading: isLoadingOverview } = useQuery({
+    queryKey: ["attendance-overview", user?.tenantId, selectedDate],
+    queryFn: async (): Promise<BackendAttendance[]> => {
       const token = storage.getAuthItem("structura_token");
-      if (token && isOnline) {
-        // Sans classId → toutes les classes du tenant pour cette date
-        const data = await getAttendanceByDate(token, date);
-        setOverviewAttendances(data);
-      } else {
-        const all = await offlineDB.getAll<BackendAttendance>(STORES.ATTENDANCE);
-        setOverviewAttendances(all.filter((a) => a.date?.startsWith(date)));
-      }
-    } catch {
-      const all = await offlineDB.getAll<BackendAttendance>(STORES.ATTENDANCE);
-      setOverviewAttendances(all.filter((a) => a.date?.startsWith(date)));
-    } finally {
-      setIsLoadingOverview(false);
-    }
-  }, [isOnline]);
+      if (!token) throw new Error("Session expirée");
+      return getAttendanceByDate(token, selectedDate);
+    },
+    enabled: isOnline && !!user && activeTab === "overview",
+    staleTime: 30_000,
+  });
 
   // ── Absences répétées : 30 jours glissants ──────────────────────────────────
 
-  const loadChronicAbsences = useCallback(async () => {
-    setIsLoadingChronic(true);
-    try {
+  const { data: chronicAbsences = [], isLoading: isLoadingChronic } = useQuery({
+    queryKey: ["attendance-chronic", user?.tenantId],
+    queryFn: async (): Promise<ChronicAbsence[]> => {
       const token = storage.getAuthItem("structura_token");
-      if (!token || !isOnline) return;
-
-      // Fenêtre glissante : 30 derniers jours
+      if (!token) return [];
       const endDate   = new Date();
       const startDate = new Date();
       startDate.setDate(endDate.getDate() - 30);
       const fmt = (d: Date) => d.toISOString().split("T")[0];
+      const records = await getAttendances(token, { startDate: fmt(startDate), endDate: fmt(endDate) });
+      const cachedClasses = queryClient.getQueryData<BackendClass[]>(CLASSES_QUERY_KEY(user?.tenantId)) ?? [];
 
-      const records = await getAttendances(token, {
-        startDate: fmt(startDate),
-        endDate:   fmt(endDate),
-      });
-
-      // Agréger par élève : compter absences et retards
       const byStudent = new Map<string, {
         studentId: string; studentName: string; matricule: string;
         className: string; absenceCount: number; lateCount: number;
         parentPhone?: string; parentName?: string;
       }>();
-
       for (const r of records) {
         if (r.status !== "ABSENT" && r.status !== "LATE") continue;
-        const key = r.studentId;
-        if (!byStudent.has(key)) {
-          const fallbackCls = classes.find((c) => c.id === r.classId);
-          byStudent.set(key, {
+        if (!byStudent.has(r.studentId)) {
+          const fallbackCls = cachedClasses.find((c) => c.id === r.classId);
+          byStudent.set(r.studentId, {
             studentId:   r.studentId,
             studentName: r.student
               ? `${r.student.lastName?.toUpperCase()} ${r.student.firstName}`.trim()
@@ -375,134 +327,104 @@ export default function AttendancePage() {
             matricule:   r.student?.matricule ?? "",
             className:   r.class
               ? formatClassName(r.class.name, r.class.section)
-              : fallbackCls
-                ? formatClassName(fallbackCls.name, fallbackCls.section)
-                : "",
-            absenceCount: 0,
-            lateCount:    0,
-            parentPhone:  r.student?.parentPhone,
-            parentName:   r.student?.parentName,
+              : fallbackCls ? formatClassName(fallbackCls.name, fallbackCls.section) : "",
+            absenceCount: 0, lateCount: 0,
+            parentPhone: r.student?.parentPhone,
+            parentName:  r.student?.parentName,
           });
         }
-        const entry = byStudent.get(key)!;
+        const entry = byStudent.get(r.studentId)!;
         if (r.status === "ABSENT") entry.absenceCount++;
         if (r.status === "LATE")   entry.lateCount++;
       }
-
-      // Seuils : warning ≥ 3 absences, danger ≥ 5
       const alerts: ChronicAbsence[] = [];
       for (const entry of byStudent.values()) {
         if (entry.absenceCount >= 3) {
-          alerts.push({
-            ...entry,
-            riskLevel: entry.absenceCount >= 5 ? "danger" : "warning",
-          });
+          alerts.push({ ...entry, riskLevel: entry.absenceCount >= 5 ? "danger" : "warning" });
         }
       }
-      // Tri : les plus à risque en tête
-      alerts.sort((a, b) => b.absenceCount - a.absenceCount);
-      setChronicAbsences(alerts);
-    } catch {
-      // Silencieux — section optionnelle, ne bloque pas l'UI
-    } finally {
-      setIsLoadingChronic(false);
-    }
-  }, [isOnline, classes]);
+      return alerts.sort((a, b) => b.absenceCount - a.absenceCount);
+    },
+    enabled: isOnline && !!user && activeTab === "overview",
+    staleTime: 5 * 60_000,
+  });
 
   // ── Marquage : élèves + présences existantes d'une classe ───────────────────
 
-  const loadStudentsAndAttendance = useCallback(async (classId: string, date: string) => {
-    if (!classId) return;
-    setIsLoadingStudents(true);
-    setAlreadySaved(false);
-    setRows([]);
-    try {
+  const { data: markingData, isLoading: isLoadingStudents, refetch: refetchMarking } = useQuery({
+    queryKey: ["attendance-marking", user?.tenantId, selectedClassId, selectedDate],
+    queryFn: async (): Promise<{ students: BackendStudent[]; existingAttendances: BackendAttendance[] }> => {
       const token = storage.getAuthItem("structura_token");
-      let students: BackendStudent[] = [];
-      let existingAttendances: BackendAttendance[] = [];
+      if (!token) throw new Error("Session expirée");
+      const [students, existingAttendances] = await Promise.all([
+        getStudents(token, { classId: selectedClassId }),
+        getAttendanceByDate(token, selectedDate, selectedClassId),
+      ]);
+      for (const s of students) await offlineDB.update(STORES.STUDENTS, s).catch(() => {});
+      return { students, existingAttendances };
+    },
+    enabled: isOnline && !!user && !!selectedClassId && activeTab === "marking",
+    staleTime: 30_000,
+  });
 
-      if (isOnline && token) {
-        [students, existingAttendances] = await Promise.all([
-          getStudents(token, { classId }),
-          getAttendanceByDate(token, date, classId),
-        ]);
-        for (const s of students) await offlineDB.update(STORES.STUDENTS, s);
-      } else {
-        const allStudents = await offlineDB.getAll<BackendStudent>(STORES.STUDENTS);
-        students = allStudents.filter((s) => s.classId === classId);
-        const allAtt = await offlineDB.getAll<BackendAttendance>(STORES.ATTENDANCE);
-        existingAttendances = allAtt.filter(
-          (a) => a.classId === classId && a.date?.startsWith(date)
-        );
-      }
+  // Offline fallback pour le marquage
+  const [offlineMarkingData, setOfflineMarkingData] = useState<{ students: BackendStudent[]; existingAttendances: BackendAttendance[] } | null>(null);
+  useEffect(() => {
+    if (isOnline || !selectedClassId) { setOfflineMarkingData(null); return; }
+    const load = async () => {
+      const allStudents = await offlineDB.getAll<BackendStudent>(STORES.STUDENTS);
+      const students = allStudents.filter((s) => s.classId === selectedClassId);
+      const allAtt = await offlineDB.getAll<BackendAttendance>(STORES.ATTENDANCE);
+      const existingAttendances = allAtt.filter(
+        (a) => a.classId === selectedClassId && a.date?.startsWith(selectedDate)
+      );
+      setOfflineMarkingData({ students, existingAttendances });
+    };
+    load().catch(() => {});
+  }, [isOnline, selectedClassId, selectedDate]);
 
-      const attMap = new Map<string, BackendAttendance>();
-      for (const att of existingAttendances) attMap.set(att.studentId, att);
-      if (existingAttendances.length > 0) setAlreadySaved(true);
-
-      const studentRows: StudentRow[] = students
-        .map((s) => {
-          const existing = attMap.get(s.id);
-          const status = (existing?.status as AttendanceStatus) ?? null;
-          const notes  = existing?.notes ?? "";
-          return {
-            studentId: s.id,
-            firstName: s.firstName,
-            lastName:  s.lastName,
-            matricule: s.matricule,
-            status,
-            notes,
-            existingId:     existing?.id,
-            originalStatus: status ?? undefined,
-            originalNotes:  notes,
-            notesOpen:      false,
-          };
-        })
-        .sort((a, b) => {
-          const last = a.lastName.localeCompare(b.lastName, "fr");
-          return last !== 0 ? last : a.firstName.localeCompare(b.firstName, "fr");
-        });
-
-      setRows(studentRows);
-    } catch (err: any) {
-      toast.error(err?.message || "Erreur lors du chargement des élèves");
-    } finally {
-      setIsLoadingStudents(false);
-    }
-  }, [isOnline]);
+  // Sync rows depuis les données (online ou offline)
+  useEffect(() => {
+    const source = markingData ?? offlineMarkingData;
+    if (!source) { setRows([]); setAlreadySaved(false); return; }
+    const { students, existingAttendances } = source;
+    const attMap = new Map<string, BackendAttendance>();
+    for (const att of existingAttendances) attMap.set(att.studentId, att);
+    setAlreadySaved(existingAttendances.length > 0);
+    const studentRows: StudentRow[] = students
+      .map((s) => {
+        const existing = attMap.get(s.id);
+        const status = (existing?.status as AttendanceStatus) ?? null;
+        const notes  = existing?.notes ?? "";
+        return {
+          studentId: s.id, firstName: s.firstName, lastName: s.lastName,
+          matricule: s.matricule, status, notes,
+          existingId: existing?.id, originalStatus: status ?? undefined,
+          originalNotes: notes, notesOpen: false,
+        };
+      })
+      .sort((a, b) => {
+        const last = a.lastName.localeCompare(b.lastName, "fr");
+        return last !== 0 ? last : a.firstName.localeCompare(b.firstName, "fr");
+      });
+    setRows(studentRows);
+  }, [markingData, offlineMarkingData]);
 
   // Rafraîchir les classes quand l'utilisateur revient sur l'onglet
-  useRefreshOnFocus(loadClasses);
+  useRefreshOnFocus(refetchClasses);
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
+  // Charger la config jours de cours au montage
   useEffect(() => {
-    loadClasses();
-    // Charger la config jours de cours au montage
     const token = storage.getAuthItem("structura_token");
     if (token) {
       getFeesConfig(token)
         .then((cfg) => { if (cfg.schoolDays) setSchoolDays(migrateSchoolDays(cfg.schoolDays)); })
         .catch(() => { /* silencieux — valeurs par défaut utilisées */ });
     }
-  }, [loadClasses]);
-
-  useEffect(() => {
-    if (activeTab === "overview") {
-      loadOverview(selectedDate);
-      // Charger les absences répétées une seule fois (pas lié à la date)
-      loadChronicAbsences();
-    }
-  }, [activeTab, selectedDate, loadOverview, loadChronicAbsences]);
-
-  useEffect(() => {
-    if (activeTab === "marking" && selectedClassId) {
-      loadStudentsAndAttendance(selectedClassId, selectedDate);
-    } else if (activeTab === "marking" && !selectedClassId) {
-      setRows([]);
-      setAlreadySaved(false);
-    }
-  }, [activeTab, selectedClassId, selectedDate, loadStudentsAndAttendance]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Actions sur les lignes ───────────────────────────────────────────────────
 
@@ -621,7 +543,7 @@ export default function AttendancePage() {
           `Présences enregistrées — ${pCount} présents · ${aCount} absents · ${lCount} retards · ${eCount} excusés`
         );
 
-        if (newRows.length > 0) await loadStudentsAndAttendance(selectedClassId, selectedDate);
+        if (newRows.length > 0) await refetchMarking();
       } else {
         // Mode hors ligne
         for (const r of rows) {
