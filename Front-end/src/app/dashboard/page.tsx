@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Users,
   GraduationCap,
@@ -29,7 +30,6 @@ import OnboardingModal from "@/components/onboarding/OnboardingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboarding } from "@/hooks/use-onboarding";
 import * as storage from "@/lib/storage";
-import { offlineDB } from "@/lib/offline-db";
 import { useOnline } from "@/hooks/use-online";
 import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "sonner";
@@ -105,20 +105,8 @@ export default function DashboardPage() {
   const router = useRouter();
   const isOnline = useOnline();
   const [showWelcome, setShowWelcome] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const { shouldShowOnboarding, isLoading: onboardingLoading } = useOnboarding();
-  const [showOnboardingModal, setShowOnboardingModal] = useState(true); // Contrôle local du modal
-
-  // États pour les données
-  const [stats, setStats] = useState<any>(null);
-  const [hasActiveYear, setHasActiveYear] = useState<boolean | null>(null);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [paymentsData, setPaymentsData] = useState<any[]>([]);
-  const [attendanceData, setAttendanceData] = useState<any[]>([]);
-  const [studentsDistribution, setStudentsDistribution] = useState<any[]>([]);
-
-  // Guard anti-stale : annule les setState d'un appel dépassé si un plus récent a démarré
-  const loadIdRef = useRef(0);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(true);
 
   // Handlers pour l'onboarding
   const handleOnboardingComplete = async (yearConfig?: { startMonth: string; durationMonths: number; schoolType: string }) => {
@@ -161,74 +149,41 @@ export default function DashboardPage() {
   const handleOnboardingSkip = () => {
     setShowOnboardingModal(false);
     toast.info('Vous pourrez configurer votre école plus tard');
-    loadDashboardData();
+    refetch();
   };
 
-  // Charger toutes les données du dashboard
-  const loadDashboardData = useCallback(async () => {
-    const loadId = ++loadIdRef.current; // ID unique pour cet appel
-    setIsLoading(true);
-    const token = storage.getAuthItem('structura_token');
+  // ── useQuery : toutes les données du dashboard en une seule requête ────────
+  const { data: dashData, isLoading, refetch } = useQuery({
+    queryKey: ["dashboard", user?.tenantId],
+    queryFn: async () => {
+      const token = storage.getAuthItem('structura_token');
+      if (!token) { logout(); throw new Error('No token'); }
+      const [statsData, activitiesData, paymentsChart, attendanceChart, distributionData, activeYear] =
+        await Promise.all([
+          getDashboardStats(token),
+          getRecentActivities(token, 4),
+          getPaymentsChartData(token),
+          getAttendanceChartData(token),
+          getStudentsDistribution(token),
+          getCurrentAcademicYear(token).catch(() => null),
+        ]);
+      return { stats: statsData.stats, activities: activitiesData, paymentsData: paymentsChart,
+               attendanceData: attendanceChart, studentsDistribution: distributionData, hasActiveYear: !!activeYear };
+    },
+    enabled: isOnline && !!user,
+    staleTime: 60_000,
+    retry: false,
+  });
 
-    if (!token) {
-      logout();
-      return;
-    }
+  const stats               = dashData?.stats               ?? null;
+  const hasActiveYear       = dashData?.hasActiveYear       ?? null;
+  const activities          = dashData?.activities          ?? [];
+  const paymentsData        = dashData?.paymentsData        ?? [];
+  const attendanceData      = dashData?.attendanceData      ?? [];
+  const studentsDistribution = dashData?.studentsDistribution ?? [];
 
-    if (!isOnline) {
-      toast.info('Vous êtes hors ligne — certaines données peuvent ne pas être à jour.');
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      // Charger toutes les données en parallèle
-      const [
-        statsData,
-        activitiesData,
-        paymentsChart,
-        attendanceChart,
-        distributionData,
-        activeYear,
-      ] = await Promise.all([
-        getDashboardStats(token),
-        getRecentActivities(token, 4),
-        getPaymentsChartData(token),
-        getAttendanceChartData(token),
-        getStudentsDistribution(token),
-        getCurrentAcademicYear(token).catch(() => null),
-      ]);
-
-      // Ignorer si un appel plus récent a déjà démarré (évite les setState sur état périmé)
-      if (loadId !== loadIdRef.current) return;
-
-      setStats(statsData.stats);
-      setHasActiveYear(!!activeYear);
-      setActivities(activitiesData);
-      setPaymentsData(paymentsChart);
-      setAttendanceData(attendanceChart);
-      setStudentsDistribution(distributionData);
-    } catch (error: any) {
-      if (loadId !== loadIdRef.current) return;
-      console.error('Erreur chargement dashboard:', error);
-
-      if (error.message.includes('Unauthorized') || error.message.includes('401')) {
-        toast.error('Votre session a expiré — veuillez vous reconnecter.');
-        await offlineDB.clearAll().catch(() => {}); // Purger le cache local (confidentialité)
-        logout();
-        return;
-      }
-
-      if (navigator.onLine) {
-        toast.error(error.message || 'Erreur lors du chargement du dashboard');
-      }
-    } finally {
-      if (loadId === loadIdRef.current) setIsLoading(false);
-    }
-  }, [isOnline, logout]);
-
-  // Recharger quand l'utilisateur revient sur l'onglet (min 30s entre deux refreshes)
-  useRefreshOnFocus(loadDashboardData);
+  // Refetch quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(refetch);
 
   // Détecter un plan en attente depuis /tarifs (flow: tarifs → register → check-email → dashboard → billing)
   useEffect(() => {
@@ -241,20 +196,11 @@ export default function DashboardPage() {
     } catch { /* quota ou SSR */ }
   }, [router]);
 
+  // Première visite — bannière welcome
   useEffect(() => {
-    loadDashboardData();
-
-    // Vérifier si c'est la première visite
     const hasSeenWelcome = storage.getItem("dashboard_welcome_seen");
-    if (!hasSeenWelcome) {
-      setShowWelcome(true);
-    }
-
-    // Recharger automatiquement au retour de connexion
-    const handleOnline = () => loadDashboardData();
-    window.addEventListener("online", handleOnline);
-    return () => window.removeEventListener("online", handleOnline);
-  }, [loadDashboardData]);
+    if (!hasSeenWelcome) setShowWelcome(true);
+  }, []);
 
   const handleDismissWelcome = () => {
     storage.setItem("dashboard_welcome_seen", "true");
@@ -550,7 +496,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {activities.map((activity, index) => {
+                {activities.map((activity: any, index: number) => {
                   const ActivityIcon = getActivityIcon(activity.icon);
                   const style = getActivityStyle(activity.type);
 
