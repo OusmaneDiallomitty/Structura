@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import { STUDENTS_QUERY_KEY } from "@/hooks/queries/use-students-query";
 import { PAYMENTS_QUERY_KEY } from "@/hooks/queries/use-payments-query";
@@ -517,17 +517,99 @@ export default function PaymentsPage() {
   const { hasFeature } = useSubscription();
   const hasBulletins = hasFeature('bulletins');
 
-  // Lazy initializer : lit le cache React Query une seule fois au montage
-  // → affichage instantané si l'utilisateur revient sur cette page
-  const [students, setStudents] = useState<BackendStudent[]>(
-    () => queryClient.getQueryData<BackendStudent[]>(STUDENTS_QUERY_KEY(user?.tenantId)) ?? []
-  );
-  const [payments, setPayments] = useState<Payment[]>(
-    () => queryClient.getQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId)) ?? []
-  );
-  const [classes,  setClasses]  = useState<ClassInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(
-    () => queryClient.getQueryData(STUDENTS_QUERY_KEY(user?.tenantId)) == null
+  // ── React Query — données serveur ─────────────────────────────────────────
+
+  const { data: backendStudents, isLoading: studentsLoading, refetch: refetchStudents } = useQuery({
+    queryKey: STUDENTS_QUERY_KEY(user?.tenantId),
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("No token");
+      const data = await getStudents(token);
+      await offlineDB.clear(STORES.STUDENTS).catch(() => {});
+      await offlineDB.bulkAdd(STORES.STUDENTS, data).catch(() => {});
+      return data as BackendStudent[];
+    },
+    enabled: isOnline && !!user,
+    staleTime: 30_000,
+  });
+
+  const { data: backendPayments, isLoading: paymentsLoading, refetch: refetchPayments } = useQuery({
+    queryKey: PAYMENTS_QUERY_KEY(user?.tenantId),
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("No token");
+      const raw = await getPayments(token);
+      const mapped = raw.map(mapBackendPayment);
+      await offlineDB.clear(STORES.PAYMENTS).catch(() => {});
+      await offlineDB.bulkAdd(STORES.PAYMENTS, mapped).catch(() => {});
+      return mapped;
+    },
+    enabled: isOnline && !!user,
+    staleTime: 30_000,
+  });
+
+  const { data: backendRawClasses, isLoading: classesLoading, refetch: refetchClasses } = useQuery({
+    queryKey: CLASSES_QUERY_KEY(user?.tenantId),
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("No token");
+      const data = await getClasses(token);
+      await offlineDB.clear(STORES.CLASSES).catch(() => {});
+      await offlineDB.bulkAdd(STORES.CLASSES, data).catch(() => {});
+      return data;
+    },
+    enabled: isOnline && !!user,
+    staleTime: 30_000,
+  });
+
+  const { data: currentAcademicYear } = useQuery({
+    queryKey: ["academic-year-current", user?.tenantId],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("No token");
+      return getCurrentAcademicYear(token).catch(() => null);
+    },
+    enabled: isOnline && !!user,
+    staleTime: 5 * 60_000,
+  });
+
+  // Sync année scolaire courante
+  useEffect(() => {
+    if (currentAcademicYear?.name) {
+      setSelectedYear(currentAcademicYear.name);
+    }
+  }, [currentAcademicYear?.name]);
+
+  // ── Offline fallback ───────────────────────────────────────────────────────
+  const [offlineStudents, setOfflineStudents] = useState<BackendStudent[]>([]);
+  const [offlinePayments, setOfflinePayments] = useState<Payment[]>([]);
+  const [offlineRawClasses, setOfflineRawClasses] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
+      offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
+      offlineDB.getAll<any>(STORES.CLASSES).then(setOfflineRawClasses).catch(() => {});
+    }
+  }, [isOnline]);
+
+  // ── Données finales (online > offline) ────────────────────────────────────
+  const students = backendStudents ?? offlineStudents;
+  const payments = backendPayments ?? offlinePayments;
+  const isLoading = studentsLoading || paymentsLoading || classesLoading;
+
+  const rawClassesList = backendRawClasses ?? offlineRawClasses;
+  const classes = useMemo<ClassInfo[]>(() =>
+    rawClassesList.map((c: any) => {
+      const vl = c.virtualLevel || getVirtualLevel(c.name, c.level || "");
+      return {
+        id: c.id, name: c.name, section: c.section, level: c.level || "",
+        virtualLevel: vl,
+        isExamClass: c.isExamClass ?? detectExamClass(c.name, vl),
+        displayName: formatClassName(c.name, c.section),
+      };
+    }),
+    [rawClassesList]
   );
 
   // Filtres
@@ -786,95 +868,8 @@ export default function PaymentsPage() {
     setBulkRows((prev) => prev.map((r) => r.skip ? r : { ...r, amount: fee > 0 ? String(fee) : r.amount }));
   };
 
-  // ── Chargement ────────────────────────────────────────────────────────────
-
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    const token = storage.getAuthItem("structura_token");
-
-    if (!isOnline || !token) {
-      try {
-        const [cachedStudents, cachedPayments, cachedClasses] = await Promise.all([
-          offlineDB.getAll<any>(STORES.STUDENTS),
-          offlineDB.getAll<Payment>(STORES.PAYMENTS),
-          offlineDB.getAll<any>(STORES.CLASSES).catch(() => []),
-        ]);
-        setStudents(cachedStudents);
-        setPayments(cachedPayments);
-        if (cachedClasses.length > 0) {
-          setClasses(
-            cachedClasses.map((c: any): ClassInfo => {
-              const vl = c.virtualLevel || getVirtualLevel(c.name, c.level || "");
-              return {
-                id: c.id, name: c.name, section: c.section, level: c.level || "",
-                virtualLevel: vl,
-                isExamClass: c.isExamClass ?? detectExamClass(c.name, vl),
-                displayName: formatClassName(c.name, c.section),
-              };
-            })
-          );
-        }
-      } catch { toast.error("Données indisponibles sans connexion."); }
-      finally { setIsLoading(false); }
-      return;
-    }
-
-    try {
-      const [backendStudents, backendPayments, backendClasses, currentAcademicYear] = await Promise.all([
-        getStudents(token),
-        getPayments(token),
-        getClasses(token),
-        getCurrentAcademicYear(token).catch(() => null),
-      ]);
-
-      // Synchroniser l'année scolaire courante
-      if (currentAcademicYear) {
-        setSelectedYear(currentAcademicYear.name);
-        // Le calendrier scolaire (startMonth/durationMonths) est géré exclusivement
-        // par tenant.schoolCalendar (config frais) — chargé dans le useEffect dédié.
-        // academicYear.startMonth est utilisé uniquement dans le wizard NewYearWizard.
-      }
-
-      setStudents(backendStudents);
-      queryClient.setQueryData(STUDENTS_QUERY_KEY(user?.tenantId), backendStudents);
-      queryClient.setQueryData(CLASSES_QUERY_KEY(user?.tenantId), backendClasses);
-
-      // Utiliser exactement les mêmes noms que la page Classes
-      const classesList: ClassInfo[] = backendClasses.map((c) => {
-        const vl = getVirtualLevel(c.name, c.level || "");
-        return {
-          id: c.id,
-          name: c.name,
-          section: c.section,
-          level: c.level || "",
-          virtualLevel: vl,
-          isExamClass: detectExamClass(c.name, vl),
-          displayName: formatClassName(c.name, c.section),
-        };
-      });
-      setClasses(classesList);
-
-      const mappedPayments = backendPayments.map(mapBackendPayment);
-      setPayments(mappedPayments);
-      queryClient.setQueryData(PAYMENTS_QUERY_KEY(user?.tenantId), mappedPayments);
-
-      try {
-        await offlineDB.clear(STORES.PAYMENTS);
-        await offlineDB.bulkAdd(STORES.PAYMENTS, mappedPayments);
-      } catch {}
-    } catch (error: any) {
-      try {
-        const cached = await offlineDB.getAll<Payment>(STORES.PAYMENTS);
-        if (cached.length > 0) { setPayments(cached); toast.info("Erreur réseau — affichage du cache local"); }
-        else toast.error("Impossible de charger les paiements. Vérifiez votre connexion.");
-      } catch { toast.error("Impossible de charger les paiements. Vérifiez votre connexion."); }
-    } finally { setIsLoading(false); }
-  }, [isOnline]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Rafraîchir les données quand l'utilisateur revient sur l'onglet
-  useRefreshOnFocus(loadData);
+  // Rafraîchir les paiements quand l'utilisateur revient sur l'onglet
+  useRefreshOnFocus(refetchPayments);
 
   const handleBulkSave = async () => {
     const validRows = bulkRows.filter((r) => !r.skip && r.amount && Number(r.amount) > 0);
@@ -925,7 +920,7 @@ export default function PaymentsPage() {
     if (succeeded > 0) toast.success(`${succeeded} paiement${succeeded > 1 ? "s" : ""} enregistré${succeeded > 1 ? "s" : ""}.`);
     if (failed > 0) toast.error(`${failed} paiement${failed > 1 ? "s" : ""} ont échoué.`);
     setBulkProgress(null);
-    await loadData();
+    queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY(user?.tenantId) });
     if (bulkClassId) buildBulkRows(bulkClassId, resolvedTerm);
   };
 
@@ -1449,7 +1444,7 @@ export default function PaymentsPage() {
           paidDate: new Date().toISOString(),
         });
         const newPayment = mapBackendPayment(created);
-        setPayments((prev) => [newPayment, ...prev]);
+        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
         try { await offlineDB.add(STORES.PAYMENTS, newPayment); } catch {}
         markReceiptDone(newPayment.receiptNumber || newPayment.id);
         setPendingReceiptData(buildReceiptData(newPayment));
@@ -1468,7 +1463,7 @@ export default function PaymentsPage() {
         };
         await offlineDB.add(STORES.PAYMENTS, newPayment);
         await syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...newPayment } });
-        setPayments((prev) => [newPayment, ...prev]);
+        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
         setPendingReceiptData(buildReceiptData(newPayment));
         setDialogMode("success");
       }
@@ -1490,7 +1485,7 @@ export default function PaymentsPage() {
           };
           await offlineDB.add(STORES.PAYMENTS, newPayment);
           await syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...newPayment } });
-          setPayments((prev) => [newPayment, ...prev]);
+          queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
           setPendingReceiptData(buildReceiptData(newPayment));
           setDialogMode("success");
           toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
@@ -1728,7 +1723,7 @@ export default function PaymentsPage() {
           }).catch(() => {}),
         } : undefined,
       });
-      loadData().catch(() => {});
+      queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY(user?.tenantId) });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossible d'enregistrer le paiement");
     } finally {
@@ -1742,7 +1737,7 @@ export default function PaymentsPage() {
     try {
       await deletePayment(token, paymentId);
       toast.success(`Paiement annulé — ${studentName}`);
-      loadData().catch(() => {});
+      queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY(user?.tenantId) });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossible d'annuler le paiement");
     }
@@ -1771,7 +1766,7 @@ export default function PaymentsPage() {
     }
     setBulkMarkingItemId(null);
     toast.success(`${done}/${unpaidStudents.length} paiements enregistrés`);
-    loadData().catch(() => {});
+    queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY(user?.tenantId) });
   };
 
   // ─── Rendu ──────────────────────────────────────────────────────────────
@@ -2301,7 +2296,7 @@ export default function PaymentsPage() {
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Exporter</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => { refetchStudents(); refetchPayments(); refetchClasses(); }} disabled={isLoading} className="gap-2">
             <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
             <span className="hidden sm:inline">Actualiser</span>
           </Button>
