@@ -97,6 +97,23 @@ const CLASS_FEES_KEY      = "structura_class_fees_v2";
 const SCHOOL_CALENDAR_KEY = "structura_school_calendar_v1";
 const SCHOOL_TYPE_KEY     = "structura_school_type";
 const FEE_ITEMS_KEY       = "structura_fee_items_v1";
+const CURRENT_YEAR_KEY    = "structura_current_year";
+
+/** Année scolaire courante déduite de la date (ex: mars 2026 → "2025-2026") */
+function guessSchoolYear(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  return now.getMonth() + 1 >= 9 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+
+/** Lit l'année scolaire depuis le cache localStorage, ou la calcule en fallback */
+function getCachedOrGuessedYear(): string {
+  if (typeof window !== "undefined") {
+    const cached = localStorage.getItem(CURRENT_YEAR_KEY);
+    if (cached) return cached;
+  }
+  return guessSchoolYear();
+}
 
 type PaymentFrequency = "monthly" | "quarterly" | "annual";
 type FeeMode = "global" | "by-level" | "by-class";
@@ -574,10 +591,11 @@ export default function PaymentsPage() {
     staleTime: 5 * 60_000,
   });
 
-  // Sync année scolaire courante
+  // Sync année scolaire courante + mise en cache localStorage
   useEffect(() => {
     if (currentAcademicYear?.name) {
       setSelectedYear(currentAcademicYear.name);
+      localStorage.setItem(CURRENT_YEAR_KEY, currentAcademicYear.name);
     }
   }, [currentAcademicYear?.name]);
 
@@ -617,9 +635,7 @@ export default function PaymentsPage() {
   const [activeClass,   setActiveClass]   = useState("all");
   const [searchQuery,   setSearchQuery]   = useState("");
   const [statusFilter,  setStatusFilter]  = useState("all");
-  const [selectedYear,  setSelectedYear]  = useState(
-    `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`
-  );
+  const [selectedYear,  setSelectedYear]  = useState(getCachedOrGuessedYear);
 
   // Fréquence et période
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("monthly");
@@ -675,7 +691,7 @@ export default function PaymentsPage() {
   const [feeItemForm, setFeeItemForm] = useState({
     name: "",
     amount: "",
-    academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+    academicYear: getCachedOrGuessedYear(),
     classIds: [] as string[],
     allClasses: true,
   });
@@ -1664,7 +1680,7 @@ export default function PaymentsPage() {
     setFeeItemForm({
       name: "",
       amount: "",
-      academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+      academicYear: selectedYear,
       classIds: [],
       allClasses: false, // classes visibles dès l'ouverture
     });
