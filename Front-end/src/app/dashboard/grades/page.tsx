@@ -614,7 +614,7 @@ function GradesPageInner() {
       );
       return { students: sortedStudents, scores };
     },
-    enabled: isOnline && !!user && !!selectedClassId && isPrimaryClass && activeTab === "evaluations",
+    enabled: isOnline && !!user && !!selectedClassId && isPrimaryClass && activeTab === "compositions",
     staleTime: 30_000,
   });
 
