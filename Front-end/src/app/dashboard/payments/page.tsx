@@ -1646,7 +1646,7 @@ export default function PaymentsPage() {
       amount: "",
       academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       classIds: [],
-      allClasses: true,
+      allClasses: false, // classes visibles dès l'ouverture
     });
     setIsFeeItemDialogOpen(true);
   };
@@ -1701,13 +1701,14 @@ export default function PaymentsPage() {
             remaining: 0,
             paymentMethod: markPaidMethod,
             description: markPaidNote.trim() || item.name,
-            date: new Date().toLocaleDateString("fr-FR"),
+            date: new Date().toISOString(),
             receiptNumber: result.receiptNumber ?? `REC-${Date.now()}`,
             academicYear: item.academicYear,
             term: item.name,
             schoolName: user?.schoolName ?? "",
             schoolAddress: "",
             schoolPhone: "",
+            isContribution: true,
           }).catch(() => {}),
         } : undefined,
       });
@@ -2077,13 +2078,14 @@ export default function PaymentsPage() {
                                       remaining: 0,
                                       paymentMethod: paymentRecord.method,
                                       description: item.name,
-                                      date: paymentRecord.paidDate ? new Date(paymentRecord.paidDate).toLocaleDateString("fr-FR") : new Date().toLocaleDateString("fr-FR"),
+                                      date: paymentRecord.paidDate ?? new Date().toISOString(),
                                       receiptNumber: paymentRecord.receiptNumber ?? `REC-${paymentRecord.id.slice(0, 8)}`,
                                       academicYear: item.academicYear,
                                       term: item.name,
                                       schoolName: user?.schoolName ?? "",
                                       schoolAddress: "",
                                       schoolPhone: "",
+                                      isContribution: true,
                                     }).catch(() => {})}
                                   >
                                     <Printer className="h-3.5 w-3.5" />
@@ -2189,47 +2191,56 @@ export default function PaymentsPage() {
                   onChange={(e) => setFeeItemForm((f) => ({ ...f, academicYear: e.target.value }))}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Classes concernées</Label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={feeItemForm.allClasses}
-                    onChange={(e) => setFeeItemForm((f) => ({ ...f, allClasses: e.target.checked, classIds: [] }))}
-                    className="rounded"
-                  />
-                  Toutes les classes
-                </label>
+                {/* Toggle "Toutes les classes" */}
+                <Button
+                  type="button"
+                  variant={feeItemForm.allClasses ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs h-7 gap-1.5"
+                  onClick={() => setFeeItemForm((f) => ({ ...f, allClasses: !f.allClasses, classIds: [] }))}
+                >
+                  {feeItemForm.allClasses ? <CheckCircle2 className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+                  {feeItemForm.allClasses ? "Toutes les classes (cliquer pour choisir)" : "Choisir les classes"}
+                </Button>
+                {/* Chips de sélection — visibles quand allClasses = false */}
                 {!feeItemForm.allClasses && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {classes.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Chargement des classes…</p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {classes.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">Chargement des classes…</p>
+                    ) : (
+                      classes.map((cls) => {
+                        const selected = feeItemForm.classIds.includes(cls.id);
+                        return (
+                          <button
+                            key={cls.id}
+                            type="button"
+                            onClick={() =>
+                              setFeeItemForm((f) => ({
+                                ...f,
+                                classIds: selected
+                                  ? f.classIds.filter((id) => id !== cls.id)
+                                  : [...f.classIds, cls.id],
+                              }))
+                            }
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${
+                              selected
+                                ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                : "bg-background text-muted-foreground border-muted-foreground/30 hover:border-primary hover:text-primary"
+                            }`}
+                          >
+                            {selected && "✓ "}{cls.displayName}
+                          </button>
+                        );
+                      })
                     )}
-                    {classes.map((cls) => {
-                      const selected = feeItemForm.classIds.includes(cls.id);
-                      return (
-                        <button
-                          key={cls.id}
-                          type="button"
-                          onClick={() =>
-                            setFeeItemForm((f) => ({
-                              ...f,
-                              classIds: selected
-                                ? f.classIds.filter((id) => id !== cls.id)
-                                : [...f.classIds, cls.id],
-                            }))
-                          }
-                          className={`px-2 py-1 rounded text-xs border transition-colors ${
-                            selected
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-background text-foreground border-border hover:bg-muted"
-                          }`}
-                        >
-                          {cls.displayName}
-                        </button>
-                      );
-                    })}
                   </div>
+                )}
+                {!feeItemForm.allClasses && feeItemForm.classIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {feeItemForm.classIds.length} classe{feeItemForm.classIds.length > 1 ? "s" : ""} sélectionnée{feeItemForm.classIds.length > 1 ? "s" : ""}
+                  </p>
                 )}
               </div>
             </div>

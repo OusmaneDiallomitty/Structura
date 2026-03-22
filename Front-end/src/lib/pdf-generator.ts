@@ -111,6 +111,11 @@ export interface PaymentReceiptData {
   /** Code devise actif (ex: "GNF", "XOF", "EUR"). Défaut : "GNF". */
   currency?: string;
   /**
+   * Mode contribution (école publique) — change tous les libellés :
+   * "REÇU DE PAIEMENT" → "REÇU DE CONTRIBUTION", supprime le récapitulatif annuel, etc.
+   */
+  isContribution?: boolean;
+  /**
    * Décomposition par trimestre — active le rendu groupé.
    * Envoyé quand le paiement couvre des mois de trimestres différents
    * ou un trimestre partiellement. Chaque groupe = un sous-en-tête coloré.
@@ -202,15 +207,15 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.setFont("helvetica", "bold");
   doc.text(data.schoolName, textX, 20, { align: "center" });
 
-  // Badge "REÇU DE PAIEMENT" — rectangle bleu centré
-  const badgeW = 62; const badgeH = 8;
+  // Badge "REÇU DE PAIEMENT" ou "REÇU DE CONTRIBUTION" — rectangle centré
+  const badgeW = data.isContribution ? 72 : 62; const badgeH = 8;
   const badgeX = textX - badgeW / 2;
-  doc.setFillColor(59, 130, 246);
+  doc.setFillColor(data.isContribution ? 16 : 59, data.isContribution ? 185 : 130, data.isContribution ? 129 : 246);
   doc.roundedRect(badgeX, 25, badgeW, badgeH, 2, 2, "F");
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.text("REÇU DE PAIEMENT", textX, 30.5, { align: "center" });
+  doc.text(data.isContribution ? "REÇU DE CONTRIBUTION" : "REÇU DE PAIEMENT", textX, 30.5, { align: "center" });
 
   if (data.schoolAddress || data.schoolPhone) {
     const contact = [data.schoolAddress, data.schoolPhone].filter(Boolean).join("  •  ");
@@ -233,13 +238,12 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text(
-    `Date : ${new Date(data.date).toLocaleString("fr-FR", {
-      day: "2-digit", month: "long", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    })}`,
-    MR, 58, { align: "right" }
-  );
+  // Tente de reformater la date ; si elle est déjà en français (ex: "21/03/2026"), on l'utilise telle quelle
+  const parsedDate = new Date(data.date);
+  const dateLabel = !isNaN(parsedDate.getTime())
+    ? parsedDate.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    : data.date;
+  doc.text(`Date : ${dateLabel}`, MR, 58, { align: "right" });
 
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.4);
@@ -357,17 +361,17 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139);
-  doc.text("DETAIL DES PAIEMENTS", ML, yPos);
+  doc.text(data.isContribution ? "DETAIL DE LA CONTRIBUTION" : "DETAIL DES PAIEMENTS", ML, yPos);
   yPos += 5;
 
-  // En-tête de tableau (fond bleu)
-  doc.setFillColor(59, 130, 246);
+  // En-tête de tableau
+  doc.setFillColor(data.isContribution ? 16 : 59, data.isContribution ? 185 : 130, data.isContribution ? 129 : 246);
   doc.rect(ML, yPos, TW, ROW_H + 1, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text("Mois / Periode", C1 + 4, yPos + 5.5);
-  doc.text("Frais mensuel", C2 + (C3 - C2) / 2, yPos + 5.5, { align: "center" });
+  doc.text(data.isContribution ? "Libelle" : "Mois / Periode", C1 + 4, yPos + 5.5);
+  doc.text(data.isContribution ? "Montant" : "Frais mensuel", C2 + (C3 - C2) / 2, yPos + 5.5, { align: "center" });
   doc.text("Statut", MR - 3, yPos + 5.5, { align: "right" });
   yPos += ROW_H + 1;
 
@@ -441,43 +445,57 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.text(fmt(data.amount), MR - 4, yPos + 6, { align: "right" });
   yPos += ROW_H + 7;
 
-  // ─────────────── RÉCAPITULATIF ANNUEL ──────────────────
+  // ─────────────── RÉCAPITULATIF ─────────────────────────
   if (data.expectedFee && data.expectedFee > 0 && data.totalPaid !== undefined) {
-    const recapH = data.remaining && data.remaining > 0 ? 34 : 28;
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(ML, yPos, TW, recapH, 2, 2, "F");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text("RECAPITULATIF ANNUEL", ML + 5, yPos + 7);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(31, 41, 55);
-    doc.text("Total attendu :", ML + 5, yPos + 15);
-    doc.setFont("helvetica", "bold");
-    doc.text(fmt(data.expectedFee), MR - 5, yPos + 15, { align: "right" });
-
-    doc.setFont("helvetica", "normal");
-    doc.text("Total verse :", ML + 5, yPos + 22);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(16, 185, 129);
-    doc.text(fmt(data.totalPaid), MR - 5, yPos + 22, { align: "right" });
-
-    if (data.remaining && data.remaining > 0) {
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(239, 68, 68);
-      doc.text("Reste a payer :", ML + 5, yPos + 29);
+    // En mode contribution, on n'affiche pas de "récapitulatif annuel" : just un résumé simple
+    if (data.isContribution) {
+      // Bloc résumé compact pour contribution
+      doc.setFillColor(240, 253, 244); // green-50
+      doc.roundedRect(ML, yPos, TW, 20, 2, 2, "F");
       doc.setFont("helvetica", "bold");
-      doc.text(fmt(data.remaining), MR - 5, yPos + 29, { align: "right" });
+      doc.setFontSize(9);
+      doc.setTextColor(16, 185, 129);
+      doc.text("Contribution versee avec succes", ML + 5, yPos + 13);
+      doc.text(fmt(data.totalPaid), MR - 5, yPos + 13, { align: "right" });
+      yPos += 26;
     } else {
+      // Récapitulatif annuel standard (école privée)
+      const recapH = data.remaining && data.remaining > 0 ? 34 : 28;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(ML, yPos, TW, recapH, 2, 2, "F");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text("RECAPITULATIF ANNUEL", ML + 5, yPos + 7);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(31, 41, 55);
+      doc.text("Total attendu :", ML + 5, yPos + 15);
+      doc.setFont("helvetica", "bold");
+      doc.text(fmt(data.expectedFee), MR - 5, yPos + 15, { align: "right" });
+
+      doc.setFont("helvetica", "normal");
+      doc.text("Total verse :", ML + 5, yPos + 22);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(16, 185, 129);
-      doc.text("Scolarite integralement reglee", ML + 5, yPos + 29);
-    }
+      doc.text(fmt(data.totalPaid), MR - 5, yPos + 22, { align: "right" });
 
-    yPos += recapH + 6;
+      if (data.remaining && data.remaining > 0) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(239, 68, 68);
+        doc.text("Reste a payer :", ML + 5, yPos + 29);
+        doc.setFont("helvetica", "bold");
+        doc.text(fmt(data.remaining), MR - 5, yPos + 29, { align: "right" });
+      } else {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(16, 185, 129);
+        doc.text("Scolarite integralement reglee", ML + 5, yPos + 29);
+      }
+
+      yPos += recapH + 6;
+    }
   }
 
   // ──────────────────── NOTE LÉGALE ──────────────────────
