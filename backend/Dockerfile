@@ -49,8 +49,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Utiliser dumb-init pour lancer l'app
 ENTRYPOINT ["dumb-init", "--"]
 
-# Synchroniser le schéma Prisma avec la BDD production au démarrage
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate --accept-data-loss && node dist/main.js"]
+# Synchroniser le schéma Prisma avec la BDD production au démarrage.
+# Note : ?pgbouncer=true est incompatible avec prisma db push (advisory locks session-level).
+# On retire ce paramètre uniquement pour la migration ; node dist/main.js utilise l'URL complète.
+CMD ["sh", "-c", "MIGRATE_URL=$(echo \"$DATABASE_URL\" | sed 's/[?&]pgbouncer=true//g') && DATABASE_URL=\"$MIGRATE_URL\" node_modules/.bin/prisma db push --skip-generate --accept-data-loss && node dist/main.js"]
 
 # Expose le port
 EXPOSE 3001
