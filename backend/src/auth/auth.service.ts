@@ -216,7 +216,10 @@ export class AuthService {
     // Exception : SUPER_ADMIN bypass — contrôle du système, pas besoin d'auto-approbation.
     // Exception : même appareil reconnu (lastTrustedDeviceId = deviceId localStorage persistant).
     //   → Fermer Chrome sans se déconnecter puis revenir ne déclenche pas l'approbation.
-    const hadActiveSession = !!matchedUser.currentSessionId;
+    // hadActiveSession est vrai uniquement si l'utilisateur a déjà eu un appareil
+    // de confiance enregistré (lastTrustedDeviceId). Sans ça, le compte est "neuf"
+    // (inscription récente ou compte recréé après suppression) → pas d'approbation.
+    const hadActiveSession = !!(matchedUser.currentSessionId && matchedUser.lastTrustedDeviceId);
     const isSuperAdmin = matchedUser.role === 'SUPER_ADMIN';
     const isDevMode = this.configService.get('NODE_ENV') === 'development';
     const isSameDevice = !!(loginDto.deviceId && matchedUser.lastTrustedDeviceId &&
