@@ -1,24 +1,28 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { WifiOff, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useOnline } from "@/hooks/use-online";
 
 export default function DashboardError({
-  error,
   reset,
 }: {
-  error: Error & { digest?: string };
+  error?: Error & { digest?: string };
   reset: () => void;
 }) {
   const isOnline = useOnline();
   const router = useRouter();
 
+  const prevOnline = useRef(isOnline);
   useEffect(() => {
-    // Quand la connexion revient, réessayer automatiquement
-    if (isOnline) reset();
+    // Réessayer automatiquement uniquement quand la connexion REVIENT (offline → online)
+    // Ne pas appeler reset() au montage initial pour éviter une boucle infinie
+    if (!prevOnline.current && isOnline) {
+      reset();
+    }
+    prevOnline.current = isOnline;
   }, [isOnline, reset]);
 
   return (
