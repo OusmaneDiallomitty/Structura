@@ -49,10 +49,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Utiliser dumb-init pour lancer l'app
 ENTRYPOINT ["dumb-init", "--"]
 
-# Synchroniser le schéma Prisma avec la BDD production au démarrage.
-# prisma db push utilise automatiquement DIRECT_URL (Session Pooler 5432) pour les migrations
-# et DATABASE_URL (Transaction Pooler 6543 ?pgbouncer=true) pour les requêtes — setup officiel Supabase+Prisma.
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate && node dist/main.js"]
+# En production, les migrations sont exécutées séparément (pas au démarrage du container).
+# Lancer directement l'app — aucune connexion DB gaspillée au démarrage.
+CMD ["node", "dist/main.js"]
 
 # Expose le port
 EXPOSE 3001
