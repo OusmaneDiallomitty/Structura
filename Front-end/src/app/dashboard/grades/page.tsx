@@ -221,8 +221,22 @@ function GradesPageInner() {
 
   // Academic year (courante, chargée depuis le backend)
   const [academicYear, setAcademicYear] = useState<string>("");
-  const [startMonth, setStartMonth] = useState<string>("Septembre");
-  const [durationMonths, setDurationMonths] = useState<number>(9);
+  // Calendrier scolaire — initialisé depuis le cache localStorage (même clé que payments/settings)
+  // pour que le prof voie immédiatement les bons mois par trimestre, sans attendre l'API.
+  const [startMonth, setStartMonth] = useState<string>(() => {
+    if (typeof window === "undefined") return "Septembre";
+    try {
+      const s = localStorage.getItem("structura_school_calendar_v1");
+      return s ? (JSON.parse(s).startMonth || "Septembre") : "Septembre";
+    } catch { return "Septembre"; }
+  });
+  const [durationMonths, setDurationMonths] = useState<number>(() => {
+    if (typeof window === "undefined") return 9;
+    try {
+      const s = localStorage.getItem("structura_school_calendar_v1");
+      return s ? (JSON.parse(s).durationMonths || 9) : 9;
+    } catch { return 9; }
+  });
   // Année sélectionnée via le sélecteur archive (vide = année courante)
   const [selectedYear, setSelectedYear] = useState<string>("");
   const [selectedYearObj, setSelectedYearObj] = useState<AcademicYear | null>(null);
@@ -373,13 +387,38 @@ function GradesPageInner() {
           const calDuration = yr.durationMonths || feesConfig?.schoolCalendar?.durationMonths;
           if (calStart) setStartMonth(calStart);
           if (calDuration) setDurationMonths(calDuration);
+          // Mettre en cache pour tous les utilisateurs (prof inclus) — même clé que payments/settings
+          if (calStart || calDuration) {
+            try {
+              const existing = localStorage.getItem("structura_school_calendar_v1");
+              const base = existing ? JSON.parse(existing) : {};
+              localStorage.setItem("structura_school_calendar_v1", JSON.stringify({
+                ...base,
+                ...(calStart    && { startMonth: calStart }),
+                ...(calDuration && { durationMonths: calDuration }),
+              }));
+            } catch { /* quota */ }
+          }
         } else {
           const now = new Date();
           const y = now.getFullYear();
           setAcademicYear(`${y}-${y + 1}`);
           // Fallback depuis tenant si pas d'année courante
-          if (feesConfig?.schoolCalendar?.startMonth) setStartMonth(feesConfig.schoolCalendar.startMonth);
-          if (feesConfig?.schoolCalendar?.durationMonths) setDurationMonths(feesConfig.schoolCalendar.durationMonths);
+          const calStart = feesConfig?.schoolCalendar?.startMonth;
+          const calDuration = feesConfig?.schoolCalendar?.durationMonths;
+          if (calStart) setStartMonth(calStart);
+          if (calDuration) setDurationMonths(calDuration);
+          if (calStart || calDuration) {
+            try {
+              const existing = localStorage.getItem("structura_school_calendar_v1");
+              const base = existing ? JSON.parse(existing) : {};
+              localStorage.setItem("structura_school_calendar_v1", JSON.stringify({
+                ...base,
+                ...(calStart    && { startMonth: calStart }),
+                ...(calDuration && { durationMonths: calDuration }),
+              }));
+            } catch { /* quota */ }
+          }
         }
       } catch (e) {
         if (!navigator.onLine || (e as any)?.message === 'Failed to fetch') {
