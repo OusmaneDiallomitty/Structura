@@ -173,7 +173,7 @@ export class NotificationsService {
     body: string,
     url?: string,
   ) {
-    const payload = JSON.stringify({ title, body, url, icon: '/icon-192.png', badge: '/icon-96.png' });
+    const payload = JSON.stringify({ title, body, url, icon: '/logo.png', badge: '/logo.png' });
 
     try {
       await webpush.sendNotification(
@@ -195,11 +195,20 @@ export class NotificationsService {
 
   // ─── Helper : vérifie si aujourd'hui est un jour de cours pour un tenant ──
 
-  private isTodaySchoolDay(schoolDays: { saturday?: boolean; thursdayOff?: boolean } | null): boolean {
+  private isTodaySchoolDay(schoolDays: Record<string, unknown> | null): boolean {
     const day = new Date().getDay(); // 0=Dim, 1=Lun, 2=Mar, 3=Mer, 4=Jeu, 5=Ven, 6=Sam
     if (day === 0) return false; // Dimanche toujours congé
-    if (day === 6 && !schoolDays?.saturday) return false; // Samedi congé sauf config
-    if (day === 4 && schoolDays?.thursdayOff) return false; // Jeudi congé si configuré
+
+    // Nouveau format : { monday, tuesday, wednesday, thursday, friday, saturday }
+    const keys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const key = keys[day];
+    if (schoolDays && key in schoolDays) {
+      return schoolDays[key] === true;
+    }
+
+    // Ancien format : { saturday?, thursdayOff? }
+    if (day === 6 && !schoolDays?.saturday) return false;
+    if (day === 4 && schoolDays?.thursdayOff) return false;
     return true;
   }
 
@@ -218,7 +227,7 @@ export class NotificationsService {
     });
 
     // Regrouper les profs par tenant pour éviter de charger le tenant plusieurs fois
-    const tenantCache = new Map<string, { saturday?: boolean; thursdayOff?: boolean } | null>();
+    const tenantCache = new Map<string, Record<string, unknown> | null>();
 
     for (const teacher of teachers) {
       const assignments = teacher.classAssignments as Array<{ classId: string }> | null;
@@ -232,7 +241,7 @@ export class NotificationsService {
         });
         tenantCache.set(
           teacher.tenantId,
-          (tenant?.schoolDays as { saturday?: boolean; thursdayOff?: boolean } | null) ?? null,
+          (tenant?.schoolDays as Record<string, unknown> | null) ?? null,
         );
       }
       const schoolDays = tenantCache.get(teacher.tenantId) ?? null;
