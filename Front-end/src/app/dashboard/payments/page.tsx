@@ -548,7 +548,7 @@ export default function PaymentsPage() {
       return data as BackendStudent[];
     },
     enabled: isOnline && !!user,
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,  // 5 min — élèves changent rarement
   });
 
   const { data: backendPayments, isLoading: paymentsLoading, refetch: refetchPayments } = useQuery({
@@ -563,7 +563,7 @@ export default function PaymentsPage() {
       return mapped;
     },
     enabled: isOnline && !!user,
-    staleTime: 30_000,
+    staleTime: 2 * 60_000,  // 2 min — paiements changent plus souvent
   });
 
   const { data: backendRawClasses, isLoading: classesLoading, refetch: refetchClasses } = useQuery({
@@ -577,7 +577,7 @@ export default function PaymentsPage() {
       return data;
     },
     enabled: isOnline && !!user,
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,  // 5 min — classes changent rarement
   });
 
   const { data: currentAcademicYear } = useQuery({
@@ -599,23 +599,25 @@ export default function PaymentsPage() {
     }
   }, [currentAcademicYear?.name]);
 
-  // ── Offline fallback ───────────────────────────────────────────────────────
+  // ── Cache IndexedDB — chargé au montage comme placeholder ─────────────────
+  // Permet d'afficher les données immédiatement pendant que React Query rafraîchit en arrière-plan.
   const [offlineStudents, setOfflineStudents] = useState<BackendStudent[]>([]);
   const [offlinePayments, setOfflinePayments] = useState<Payment[]>([]);
   const [offlineRawClasses, setOfflineRawClasses] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!isOnline) {
-      offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
-      offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
-      offlineDB.getAll<any>(STORES.CLASSES).then(setOfflineRawClasses).catch(() => {});
-    }
-  }, [isOnline]);
+    offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
+    offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
+    offlineDB.getAll<any>(STORES.CLASSES).then(setOfflineRawClasses).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Données finales (online > offline) ────────────────────────────────────
   const students = backendStudents ?? offlineStudents;
   const payments = backendPayments ?? offlinePayments;
-  const isLoading = studentsLoading || paymentsLoading || classesLoading;
+  // Spinner uniquement si aucune donnée disponible (ni API ni cache IndexedDB)
+  const hasData = students.length > 0 || payments.length > 0;
+  const isLoading = (studentsLoading || paymentsLoading || classesLoading) && !hasData;
 
   const rawClassesList = backendRawClasses ?? offlineRawClasses;
   const classes = useMemo<ClassInfo[]>(() =>
@@ -637,9 +639,17 @@ export default function PaymentsPage() {
   const [statusFilter,  setStatusFilter]  = useState("all");
   const [selectedYear,  setSelectedYear]  = useState(getCachedOrGuessedYear);
 
-  // Fréquence et période
-  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("monthly");
-  const [selectedTerm,     setSelectedTerm]     = useState<string>(() => getCurrentPeriod("monthly"));
+  // Fréquence et période — initialisées depuis le cache localStorage
+  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>(() => {
+    if (typeof window === "undefined") return "monthly";
+    const saved = localStorage.getItem(PAYMENT_FREQ_KEY);
+    return (saved as PaymentFrequency) || "monthly";
+  });
+  const [selectedTerm, setSelectedTerm] = useState<string>(() => {
+    if (typeof window === "undefined") return getCurrentPeriod("monthly");
+    const saved = localStorage.getItem(PAYMENT_FREQ_KEY) as PaymentFrequency || "monthly";
+    return getCurrentPeriod(saved);
+  });
 
   // Type d'école et postes de frais (école publique)
   const [schoolType, setSchoolType] = useState<"private" | "public">(() => {
@@ -649,11 +659,20 @@ export default function PaymentsPage() {
     }
     return "private";
   });
-  const [feeItems,    setFeeItems]    = useState<import("@/lib/api/fees.service").FeeItem[]>([]);
-  const [feesLoading, setFeesLoading] = useState(true);
+  const [feeItems,    setFeeItems]    = useState<import("@/lib/api/fees.service").FeeItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { const s = localStorage.getItem(FEE_ITEMS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  // false si on a déjà un cache localStorage, true sinon (premier accès)
+  const [feesLoading, setFeesLoading] = useState(() =>
+    typeof window !== "undefined" ? !localStorage.getItem(CLASS_FEES_KEY) : true
+  );
 
-  // Frais
-  const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
+  // Frais — initialisés depuis le cache localStorage pour un affichage immédiat des montants
+  const [feeConfig, setFeeConfig] = useState<FeeConfig>(() => {
+    if (typeof window === "undefined") return DEFAULT_FEE_CONFIG;
+    try { const s = localStorage.getItem(CLASS_FEES_KEY); return s ? JSON.parse(s) : DEFAULT_FEE_CONFIG; } catch { return DEFAULT_FEE_CONFIG; }
+  });
 
   // Drawer détail élève (remplace les expand rows)
   const [drawerStudent, setDrawerStudent] = useState<StudentSummary | null>(null);
@@ -680,8 +699,11 @@ export default function PaymentsPage() {
   const [isFeeDialogOpen,  setIsFeeDialogOpen]  = useState(false);
   const [draftFeeConfig,   setDraftFeeConfig]   = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
-  // Calendrier scolaire
-  const [schoolCalendar,      setSchoolCalendar]      = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
+  // Calendrier scolaire — initialisé depuis le cache localStorage
+  const [schoolCalendar, setSchoolCalendar] = useState<SchoolCalendar>(() => {
+    if (typeof window === "undefined") return DEFAULT_SCHOOL_CALENDAR;
+    try { const s = localStorage.getItem(SCHOOL_CALENDAR_KEY); return s ? JSON.parse(s) : DEFAULT_SCHOOL_CALENDAR; } catch { return DEFAULT_SCHOOL_CALENDAR; }
+  });
   const [draftSchoolCalendar, setDraftSchoolCalendar] = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
 
   // ── Dialog "Ajouter / Éditer un poste de frais" (école publique) ─────────
