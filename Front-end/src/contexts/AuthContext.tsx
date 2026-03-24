@@ -103,12 +103,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Heartbeat toutes les 2 minutes : détecte SESSION_INVALIDATED même en cas d'inactivité
+  // Heartbeat toutes les 5 minutes : refresh uniquement si le token access est expiré.
+  // Ne pas rafraîchir aveuglément — chaque rotation écrit en BDD et risque de perdre
+  // la réponse en cas de timeout réseau, rendant l'ancien refresh token invalide.
   useEffect(() => {
     if (!user) return;
     const interval = setInterval(() => {
-      tryRefreshToken();
-    }, 2 * 60 * 1000);
+      const token = storage.getAuthItem(TOKEN_KEY);
+      if (token && isTokenExpired(token)) {
+        tryRefreshToken();
+      }
+    }, 5 * 60 * 1000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
