@@ -261,10 +261,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const response = await registerUser(data);
 
-      // Stocker les données d'authentification (connexion automatique)
-      storage.setItem(TOKEN_KEY, response.token);
-      storage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
-      storage.setItem(USER_KEY, JSON.stringify(response.user));
+      // Stocker les données d'authentification en localStorage (connexion automatique).
+      // On force persist=true pour que les refreshs de token (heartbeat) gardent les
+      // tokens en localStorage et non sessionStorage — évite la déconnexion au F5.
+      storage.setAuthItem(TOKEN_KEY, response.token, true);
+      storage.setAuthItem(REFRESH_TOKEN_KEY, response.refreshToken, true);
+      storage.setAuthItem(USER_KEY, JSON.stringify(response.user), true);
+      localStorage.setItem("structura_remember_me", "true");
 
       // Purger les données stale d'un tenant précédent (même navigateur, nouveau compte)
       if (response.user.tenantId) clearStaleTenanData(response.user.tenantId);
