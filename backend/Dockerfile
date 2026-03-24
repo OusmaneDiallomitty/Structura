@@ -50,9 +50,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENTRYPOINT ["dumb-init", "--"]
 
 # Synchroniser le schéma Prisma avec la BDD production au démarrage.
-# Note : ?pgbouncer=true est incompatible avec prisma db push (advisory locks session-level).
-# On retire ce paramètre uniquement pour la migration ; node dist/main.js utilise l'URL complète.
-CMD ["sh", "-c", "MIGRATE_URL=$(echo \"$DATABASE_URL\" | sed 's/[?&]pgbouncer=true//g') && DATABASE_URL=\"$MIGRATE_URL\" node_modules/.bin/prisma db push --skip-generate --accept-data-loss && node dist/main.js"]
+# prisma db push utilise automatiquement DIRECT_URL (Session Pooler 5432) pour les migrations
+# et DATABASE_URL (Transaction Pooler 6543 ?pgbouncer=true) pour les requêtes — setup officiel Supabase+Prisma.
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate && node dist/main.js"]
 
 # Expose le port
 EXPOSE 3001

@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // Transaction Pooler 6543 + ?pgbouncer=true (requêtes app)
+  directUrl = env("DIRECT_URL")     // Session Pooler 5432 (migrations uniquement)
 }
 
 // Enums
