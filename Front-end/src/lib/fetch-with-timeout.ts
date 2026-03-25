@@ -9,6 +9,9 @@
  *     navigator.onLine = true même quand le débit est coupé → useOnline() se trompe.
  *     En interceptant les erreurs réseau réelles ici, useOnline() reflète la réalité.
  */
+// Suivi de l'état réseau réel — évite de dispatcher network:online à chaque requête
+let _networkWasOffline = false;
+
 export async function fetchWithTimeout(
   url: string,
   options?: RequestInit,
@@ -20,8 +23,9 @@ export async function fetchWithTimeout(
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
 
-    // Requête réussie → confirmer qu'on est en ligne (corrige un false-offline)
-    if (typeof window !== 'undefined') {
+    // Dispatcher network:online UNIQUEMENT si on était hors ligne avant
+    if (typeof window !== 'undefined' && _networkWasOffline) {
+      _networkWasOffline = false;
       window.dispatchEvent(new CustomEvent('network:online'));
     }
 
@@ -47,6 +51,7 @@ export async function fetchWithTimeout(
     // Dans les deux cas : l'utilisateur n'a pas accès au serveur → marquer offline.
     // Cela corrige le cas EDGE : navigator.onLine=true mais internet coupé.
     if (typeof window !== 'undefined') {
+      _networkWasOffline = true;
       window.dispatchEvent(new CustomEvent('network:offline'));
     }
     throw err;
