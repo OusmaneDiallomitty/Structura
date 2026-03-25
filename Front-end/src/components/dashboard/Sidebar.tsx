@@ -18,6 +18,8 @@ import {
   X,
   ChevronDown,
   LogOut,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -328,16 +330,45 @@ export function Sidebar() {
                 }
               </div>
             )}
+            {/* Indicateur online/offline */}
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium",
+              isOnline ? "text-emerald-600" : "text-gray-400"
+            )}>
+              {isOnline
+                ? <Wifi className="h-3.5 w-3.5 shrink-0" />
+                : <WifiOff className="h-3.5 w-3.5 shrink-0" />
+              }
+              {isOnline ? "En ligne" : "Hors ligne"}
+            </div>
+
             <Link
               href="/dashboard/profile"
               onClick={closeSidebar}
               className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
             >
-              <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-                {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
-              </div>
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={`${user.firstName} ${user.lastName}`}
+                  className="h-8 w-8 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div className={cn(
+                  "h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0",
+                  user?.role === "director"  ? "bg-blue-600"   :
+                  user?.role === "teacher"   ? "bg-emerald-600" :
+                  user?.role === "secretary" ? "bg-violet-600" :
+                  "bg-gray-500"
+                )}>
+                  {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
+                <p
+                  className="text-sm font-medium truncate"
+                  title={`${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim()}
+                >
                   {user?.firstName} {user?.lastName}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
