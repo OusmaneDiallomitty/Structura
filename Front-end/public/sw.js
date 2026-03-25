@@ -42,8 +42,9 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ── Offline Cache ─────────────────────────────────────────────────────────────
-// v6 : pré-cache toutes les pages + staleWhileRevalidate (recommandé Workbox/Google)
-const CACHE_VERSION = 'structura-v7';
+// v8 : Network First pour les pages HTML (évite de servir du HTML obsolète après
+//      un déploiement), Cache First pour les assets statiques hashés.
+const CACHE_VERSION = 'structura-v8';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
@@ -115,47 +116,37 @@ async function cacheFirst(request, cacheName) {
 }
 
 /**
- * Stale While Revalidate — pour les pages HTML et RSC payloads Next.js.
- * Stratégie recommandée par Google Workbox pour les PWA offline.
+ * Network First — pour les pages HTML et RSC payloads Next.js.
  *
  * Comportement :
- *   Online  → cache servi immédiatement (instantané) + réseau mis à jour en fond
- *   Offline → cache servi immédiatement (refresh fonctionne même hors ligne)
- *   EDGE    → cache servi pendant que la requête tourne en fond (pas d'écran blanc)
+ *   Online  → réseau toujours prioritaire → HTML frais à chaque déploiement
+ *   Offline → cache servi si disponible, sinon offline.html
  *
- * vs networkFirst (ancien) :
- *   networkFirst attendait la réponse réseau avant de servir le cache.
- *   Sur EDGE/connexion lente → écran blanc jusqu'au timeout. Plus utilisé.
+ * Pourquoi pas staleWhileRevalidate ?
+ *   SWR servait l'ancien HTML en cache immédiatement, avec les anciens noms de
+ *   chunks JS. Après un déploiement Vercel, les utilisateurs voyaient l'ancienne
+ *   version jusqu'au prochain refresh manuel.
  */
-async function staleWhileRevalidate(request, cacheName) {
-  const cached = await caches.match(request);
-
-  // Lancer la revalidation réseau en arrière-plan (fire-and-forget)
-  const revalidate = fetch(request).then(async (response) => {
+async function networkFirst(request, cacheName) {
+  try {
+    const response = await fetch(request);
     if (response.ok) {
       const cache = await caches.open(cacheName);
       cache.put(request, response.clone());
     }
     return response;
-  }).catch(() => null);
+  } catch {
+    // Hors ligne : servir depuis le cache
+    const cached = await caches.match(request);
+    if (cached) return cached;
 
-  // Cache disponible → retourner immédiatement (offline ou lent = aucune différence)
-  if (cached) return cached;
+    if (request.mode === 'navigate') {
+      const fallback = await caches.match('/offline.html');
+      if (fallback) return fallback;
+    }
 
-  // Pas encore en cache → attendre le réseau (premier chargement)
-  const response = await revalidate;
-  if (response && response.ok) return response;
-
-  // Fallback navigation : page offline dédiée.
-  // Ne jamais servir /dashboard à la place d'une autre page — cela trompe Next.js
-  // et affiche le mauvais contenu (dashboard) sur la mauvaise URL.
-  if (request.mode === 'navigate') {
-    const fallback = await caches.match('/offline.html');
-    if (fallback) return fallback;
+    return new Response('', { status: 503, statusText: 'Offline' });
   }
-
-  // RSC payloads / chunks dynamiques : réponse vide → Next.js garde la page courante
-  return new Response('', { status: 503, statusText: 'Offline' });
 }
 
 // ── Fetch : intercepter toutes les requêtes same-origin ──────────────────────
@@ -185,6 +176,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Tout le reste : pages HTML, RSC payloads (_next/data/*, ?_rsc=*), chunks → SWR
-  event.respondWith(staleWhileRevalidate(request, PAGES_CACHE));
+  // Pages HTML, RSC payloads (_next/data/*, ?_rsc=*) → Network First
+  event.respondWith(networkFirst(request, PAGES_CACHE));
 });
