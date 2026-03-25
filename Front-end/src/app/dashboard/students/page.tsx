@@ -120,8 +120,13 @@ export default function StudentsPage() {
   const [sortField, setSortField] = useState<"name" | "matricule" | "class" | "paymentStatus">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  // Stats globales (depuis l'endpoint /students/stats)
-  const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, late: 0 });
+  // Stats globales — initialisées depuis le cache localStorage pour affichage instantané
+  const [stats, setStats] = useState<{ total: number; paid: number; pending: number; late: number }>(() => {
+    try {
+      const s = localStorage.getItem('structura_students_stats');
+      return s ? JSON.parse(s) : { total: 0, paid: 0, pending: 0, late: 0 };
+    } catch { return { total: 0, paid: 0, pending: 0, late: 0 }; }
+  });
 
   // Sélection multiple
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
@@ -292,12 +297,14 @@ export default function StudentsPage() {
     if (!isOnline || !token) return;
     try {
       const data = await getStudentsStats(token);
-      setStats({
+      const fresh = {
         total:   (data as any).total   ?? 0,
         paid:    (data as any).paid    ?? 0,
         pending: (data as any).pending ?? 0,
         late:    (data as any).late    ?? 0,
-      });
+      };
+      setStats(fresh);
+      try { localStorage.setItem('structura_students_stats', JSON.stringify(fresh)); } catch { /* quota */ }
     } catch { /* silencieux */ }
   }, [isOnline]);
 
