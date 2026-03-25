@@ -79,7 +79,7 @@ import { useOnline } from "@/hooks/use-online";
 import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
-import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent } from "@/lib/api/students.service";
+import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent, bulkCreateStudents } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
 import { getFeesConfig } from "@/lib/api/fees.service";
 import { YearSelector } from "@/components/shared/YearSelector";
@@ -732,37 +732,35 @@ export default function StudentsPage() {
         const validRows = resolved.filter((r): r is { row: any; classId: string } => !('error' in r));
         const resolveErrors = resolved.length - validRows.length;
 
-        // Phase 2 : créer tous les élèves en parallèle (bien plus rapide qu'une boucle séquentielle)
-        const results = await Promise.allSettled(
-          validRows.map(({ row, classId }) =>
-            createStudent(token, {
-              firstName: row.prenom || '',
-              lastName: row.nom || '',
-              classId,
-              dateOfBirth: row.dateNaissance,
-              gender: row.genre,
-              parentName: row.nomParent || '',
-              parentPhone: row.telephoneParent || '',
-              parentEmail: row.email || '',
-              parentProfession: row.professionParent || '',
-            })
-          )
+        // Phase 2 : import bulk — 1 seule requête HTTP, 1 transaction Prisma
+        // Le backend génère les matricules séquentiellement (pas de race condition)
+        const result = await bulkCreateStudents(
+          token,
+          validRows.map(({ row, classId }) => ({
+            firstName:        row.prenom || '',
+            lastName:         row.nom || '',
+            classId,
+            dateOfBirth:      row.dateNaissance,
+            gender:           row.genre,
+            parentName:       row.nomParent || '',
+            parentPhone:      row.telephoneParent || '',
+            parentEmail:      row.email || '',
+            parentProfession: row.professionParent || '',
+          }))
         );
 
-        const successCount = results.filter((r) => r.status === 'fulfilled').length;
-        const errorCount   = results.filter((r) => r.status === 'rejected').length + resolveErrors;
+        const successCount = result.created;
+        const errorCount   = resolveErrors;
 
-        if (successCount > 0) {
-          setClassFilter("all");
-          setPaymentFilter("all");
-          setSearchQuery("");
-          queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
-        }
+        setClassFilter("all");
+        setPaymentFilter("all");
+        setSearchQuery("");
+        queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
 
         if (errorCount === 0) {
           toast.success(`${successCount} élève(s) importé(s) avec succès`);
         } else {
-          toast.warning(`${successCount} importé(s), ${errorCount} erreur(s)`);
+          toast.warning(`${successCount} importé(s), ${errorCount} classe(s) introuvable(s) ignorée(s)`);
         }
 
       } else {

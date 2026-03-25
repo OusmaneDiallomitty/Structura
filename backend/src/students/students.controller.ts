@@ -14,6 +14,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { BulkCreateStudentDto } from './dto/bulk-create-student.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -45,6 +46,14 @@ export class StudentsController {
       ).catch(() => {});
     }
     return student;
+  }
+
+  @SkipThrottle()
+  @Post('bulk')
+  @Roles('DIRECTOR', 'SECRETARY')
+  @RequirePermission('students', 'create')
+  async bulkCreate(@Request() req, @Body() dto: BulkCreateStudentDto) {
+    return this.studentsService.bulkCreate(req.user.tenantId, dto.students);
   }
 
   @SkipThrottle()

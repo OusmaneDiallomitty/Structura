@@ -132,6 +132,31 @@ export async function createStudent(token: string, data: CreateStudentDto): Prom
 }
 
 /**
+ * Créer plusieurs élèves en une seule requête (import CSV).
+ * Le backend génère les matricules séquentiellement et insère en une transaction.
+ */
+export async function bulkCreateStudents(
+  token: string,
+  students: CreateStudentDto[],
+): Promise<{ created: number; students: BackendStudent[] }> {
+  const response = await fetch(`${API_BASE_URL}/students/bulk`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ students }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Erreur lors de l\'import' }));
+    throw new Error(error.message || 'Erreur lors de l\'import');
+  }
+
+  return response.json();
+}
+
+/**
  * Mettre à jour un étudiant
  */
 export async function updateStudent(token: string, id: string, data: UpdateStudentDto): Promise<BackendStudent> {

@@ -206,6 +206,49 @@ export class StudentsService {
     });
   }
 
+  /**
+   * Création en masse — import CSV.
+   *
+   * Stratégie matricule sécurisée :
+   *  1. Trouver le DERNIER matricule existant du tenant pour l'année (ORDER BY DESC LIMIT 1)
+   *     → résistant aux trous laissés par des suppressions (plus fiable que COUNT)
+   *  2. Générer les numéros suivants séquentiellement : lastNum+1, lastNum+2…
+   *  3. Insérer en une seule $transaction Prisma (atomique — tout réussit ou tout annule)
+   *
+   * Pourquoi $transaction et non createMany ?
+   *  createMany ne supporte pas `include` sur PostgreSQL avec Prisma.
+   *  $transaction([...creates]) exécute N INSERT dans une seule transaction DB,
+   *  ce qui est équivalent en performance et permet de retourner les objets complets.
+   */
+  async bulkCreate(tenantId: string, students: import('./dto/create-student.dto').CreateStudentDto[]) {
+    const currentYear = new Date().getFullYear();
+    const prefix = `STU-${currentYear}-`;
+
+    // Trouver le matricule le plus élevé existant pour ce tenant + cette année
+    const lastStudent = await this.prisma.student.findFirst({
+      where: { tenantId, matricule: { startsWith: prefix } },
+      orderBy: { matricule: 'desc' },
+      select: { matricule: true },
+    });
+
+    const lastNum = lastStudent
+      ? parseInt(lastStudent.matricule.replace(prefix, ''), 10)
+      : 0;
+
+    // Construire les creates avec matricules uniques et séquentiels
+    const creates = students.map((dto, i) => {
+      const num = lastNum + i + 1;
+      const matricule = `${prefix}${String(num).padStart(5, '0')}`;
+      const data: any = { ...dto, matricule, tenantId };
+      if (dto.dateOfBirth) data.dateOfBirth = new Date(dto.dateOfBirth);
+      return this.prisma.student.create({ data, include: { class: true } });
+    });
+
+    // Une seule transaction — atomique
+    const created = await this.prisma.$transaction(creates);
+    return { created: created.length, students: created };
+  }
+
   async remove(tenantId: string, id: string) {
     // Vérifier que l'élève appartient au tenant
     await this.findOne(tenantId, id);
