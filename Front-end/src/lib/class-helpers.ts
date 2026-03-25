@@ -61,6 +61,7 @@ function extractBaseName(name: string): string {
  * - formatClassName("CM1 A", null) → "CM1 A (5ème année)"  [ancien format]
  */
 export function formatClassName(name: string, section?: string | null): string {
+  if (!name) return section?.trim() || "Classe";
   const trimmedName = name.trim();
 
   // Extraire le nom de base (gère "CP1" et "CP1 A")
