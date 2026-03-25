@@ -665,6 +665,35 @@ function GradesPageInner() {
     setGridSavedSubjects(new Set());
   }, [primaryGridData]);
 
+  // ── Offline : charger les élèves depuis IndexedDB quand hors ligne ───────────
+  // Les queries evalGrid / compGrid / primaryGrid sont disabled offline.
+  // Sans cet effet, les grilles restent vides → le prof ne peut rien saisir.
+  // On charge les élèves de la classe depuis IndexedDB pour afficher les lignes.
+  // Les notes elles-mêmes ne sont pas en cache — le prof peut en saisir de nouvelles
+  // (elles iront en syncQueue) mais ne verra pas celles déjà enregistrées.
+  useEffect(() => {
+    if (isOnline || !selectedClassId) return;
+    offlineDB.getAll<BackendStudent>(STORES.STUDENTS)
+      .then((all) => {
+        const classStudents = all
+          .filter((s) => (s as any).classId === selectedClassId)
+          .sort((a, b) =>
+            `${(a as any).lastName} ${(a as any).firstName}`
+              .localeCompare(`${(b as any).lastName} ${(b as any).firstName}`, 'fr')
+          );
+        if (classStudents.length === 0) return;
+        // Alimenter les trois états selon le type de classe
+        if (isPrimaryClass) {
+          setGridStudents((prev) => prev.length === 0 ? classStudents as any : prev);
+        } else {
+          setEvalGridStudents((prev) => prev.length === 0 ? classStudents as any : prev);
+          setCompGridStudents((prev) => prev.length === 0 ? classStudents as any : prev);
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, selectedClassId, isPrimaryClass]);
+
   // ── useQuery: bulletin + verrou trimestre ─────────────────────────────────
   const {
     data: bulletinData,

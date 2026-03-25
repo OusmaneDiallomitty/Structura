@@ -43,7 +43,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ── Offline Cache ─────────────────────────────────────────────────────────────
 // v6 : pré-cache toutes les pages + staleWhileRevalidate (recommandé Workbox/Google)
-const CACHE_VERSION = 'structura-v6';
+const CACHE_VERSION = 'structura-v7';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
@@ -58,6 +58,7 @@ const APP_SHELL = [
   '/login',
   '/dashboard',
   '/dashboard/students',
+  '/dashboard/students/add',
   '/dashboard/classes',
   '/dashboard/attendance',
   '/dashboard/payments',
@@ -65,6 +66,7 @@ const APP_SHELL = [
   '/dashboard/team',
   '/dashboard/settings',
   '/dashboard/profile',
+  '/dashboard/billing',
 ];
 
 // ── Install : pré-cacher l'app shell ─────────────────────────────────────────
@@ -144,9 +146,11 @@ async function staleWhileRevalidate(request, cacheName) {
   const response = await revalidate;
   if (response && response.ok) return response;
 
-  // Fallback navigation : retourner le dashboard en cache ou la page offline
+  // Fallback navigation : page offline dédiée.
+  // Ne jamais servir /dashboard à la place d'une autre page — cela trompe Next.js
+  // et affiche le mauvais contenu (dashboard) sur la mauvaise URL.
   if (request.mode === 'navigate') {
-    const fallback = await caches.match('/dashboard') || await caches.match('/offline.html');
+    const fallback = await caches.match('/offline.html');
     if (fallback) return fallback;
   }
 

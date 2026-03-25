@@ -257,10 +257,12 @@ export default function AttendancePage() {
   });
 
   const [offlineClasses, setOfflineClasses] = useState<BackendClass[]>([]);
+  // Charger au montage (pas seulement quand offline) : garantit que les données
+  // IndexedDB sont disponibles même si l'app démarre directement hors ligne
+  // (isOnline ne change jamais → l'effet conditionnel ne se déclencherait pas).
   useEffect(() => {
-    if (isOnline) return;
     offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
-  }, [isOnline]);
+  }, []);
   useEffect(() => {
     if (!classesError) return;
     offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
