@@ -581,14 +581,16 @@ export default function PaymentsPage() {
   });
 
   const { data: currentAcademicYear } = useQuery({
-    queryKey: ["academic-year-current", user?.tenantId],
+    // Même queryKey que useCurrentAcademicYear → partage le cache entre toutes les pages
+    queryKey: ["current-academic-year", user?.tenantId],
     queryFn: async () => {
       const token = storage.getAuthItem("structura_token");
       if (!token) throw new Error("No token");
       return getCurrentAcademicYear(token).catch(() => null);
     },
     enabled: isOnline && !!user,
-    staleTime: 5 * 60_000,
+    staleTime: 24 * 60 * 60 * 1000, // 24h — l'année ne change qu'une fois par an
+    gcTime:    7  * 24 * 60 * 60 * 1000,
   });
 
   // Sync année scolaire courante + mise en cache localStorage

@@ -36,6 +36,7 @@ import { getStudents } from "@/lib/api/students.service";
 import { offlineDB, STORES } from "@/lib/offline-db";
 import { getTeamMembers } from "@/lib/api/users.service";
 import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
+import { useCurrentAcademicYear } from "@/hooks/queries/use-academic-year-query";
 import { YearSelector } from "@/components/shared/YearSelector";
 import type { AcademicYear } from "@/lib/api/academic-years.service";
 import { getFeesConfig } from "@/lib/api/fees.service";
@@ -212,6 +213,9 @@ function GradesPageInner() {
   const teacherAssignments = user?.classAssignments ?? [];
   const canSaveGrades = hasPermission("grades", "create") || hasPermission("grades", "edit");
 
+  // Cache 24h partagé entre toutes les pages — 0 requête supplémentaire si déjà chargé
+  const { data: sharedAcademicYear } = useCurrentAcademicYear();
+
   // Rafraîchir le profil au montage pour que classAssignments soit à jour
   // sans que le prof ait besoin de se reconnecter après une assignation par le directeur.
   useEffect(() => {
@@ -374,8 +378,9 @@ function GradesPageInner() {
       if (!token) return;
 
       try {
+        // Utiliser le cache React Query partagé (24h) au lieu d'un appel API direct
         const [yr, feesConfig] = await Promise.all([
-          getCurrentAcademicYear(token),
+          sharedAcademicYear !== undefined ? Promise.resolve(sharedAcademicYear) : getCurrentAcademicYear(token),
           getFeesConfig(token).catch(() => null),
         ]);
 

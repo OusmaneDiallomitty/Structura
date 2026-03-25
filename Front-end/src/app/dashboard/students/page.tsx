@@ -83,7 +83,8 @@ import { getStudentsPaginated, getStudentsStats, deleteStudent, createStudent, b
 import { getClasses } from "@/lib/api/classes.service";
 import { getFeesConfig } from "@/lib/api/fees.service";
 import { YearSelector } from "@/components/shared/YearSelector";
-import { getCurrentAcademicYear, type AcademicYear } from "@/lib/api/academic-years.service";
+import { type AcademicYear } from "@/lib/api/academic-years.service";
+import { useCurrentAcademicYear } from "@/hooks/queries/use-academic-year-query";
 import { formatClassName } from "@/lib/class-helpers";
 import type { Student } from "@/types";
 
@@ -311,17 +312,20 @@ export default function StudentsPage() {
   // Rafraîchir les données quand l'utilisateur revient sur l'onglet
   useRefreshOnFocus(refetchStudents);
 
-  // Refresh du profil + année courante + type d'école au montage
+  // Année scolaire courante — hook partagé (cache 24h, 0 requête supplémentaire)
+  const { data: currentAcademicYearData } = useCurrentAcademicYear();
+  useEffect(() => {
+    if (currentAcademicYearData && !selectedAcademicYear) {
+      setSelectedAcademicYear(currentAcademicYearData.name);
+      setSelectedAcademicYearObj(currentAcademicYearData);
+    }
+  }, [currentAcademicYearData, selectedAcademicYear]);
+
+  // Refresh du profil + type d'école au montage
   useEffect(() => {
     refreshUserProfile();
     const token = storage.getAuthItem('structura_token');
     if (token) {
-      getCurrentAcademicYear(token).then((year) => {
-        if (year) {
-          setSelectedAcademicYear(year.name);
-          setSelectedAcademicYearObj(year);
-        }
-      }).catch(() => {/* silencieux si pas d'année */});
 
       // Charger le type d'école depuis l'API (confirme ou corrige le cache localStorage)
       getFeesConfig(token).then((config) => {
@@ -434,41 +438,41 @@ export default function StudentsPage() {
 
   const handleDeleteSelected = async () => {
     const token = storage.getAuthItem('structura_token');
+    const toDelete = new Set(selectedStudents);
 
-    try {
-      let successCount = 0;
-      let errorCount = 0;
+    // Optimistic update immédiat — retrait de la liste sans attendre le serveur
+    const prevData = queryClient.getQueryData<{ data: Student[]; total: number }>(studentsQueryKey);
+    queryClient.setQueryData(studentsQueryKey, (old: { data: Student[]; total: number } | undefined) => {
+      if (!old) return old;
+      return { data: old.data.filter(s => !toDelete.has(s.id)), total: Math.max(0, old.total - toDelete.size) };
+    });
+    setStats(prev => ({ ...prev, total: Math.max(0, prev.total - toDelete.size) }));
+    setSelectedStudents([]);
 
-      for (const studentId of selectedStudents) {
-        try {
-          if (isOnline && token) {
-            await deleteStudent(token, studentId);
-            await offlineDB.delete(STORES.STUDENTS, studentId);
-          } else {
-            await offlineDB.delete(STORES.STUDENTS, studentId);
-            await syncQueue.add({
-              type: "student",
-              action: "delete",
-              data: { id: studentId },
-            });
-          }
-          successCount++;
-        } catch (error) {
-          console.error(`Erreur suppression ${studentId}:`, error);
-          errorCount++;
+    // Suppression parallèle — toutes les requêtes partent en même temps
+    const results = await Promise.allSettled(
+      selectedStudents.map(async (studentId) => {
+        if (isOnline && token) {
+          await deleteStudent(token, studentId);
+          offlineDB.delete(STORES.STUDENTS, studentId).catch(() => {});
+        } else {
+          await offlineDB.delete(STORES.STUDENTS, studentId);
+          await syncQueue.add({ type: "student", action: "delete", data: { id: studentId } });
         }
-      }
+      })
+    );
 
-      setSelectedStudents([]);
-      if (errorCount === 0) {
-        toast.success(`${successCount} élève(s) supprimé(s) avec succès`);
-      } else {
-        toast.warning(`${successCount} supprimé(s), ${errorCount} erreur(s)`);
-      }
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    const errorCount   = results.filter(r => r.status === 'rejected').length;
+
+    if (errorCount > 0 && prevData) {
+      // Rollback partiel : on recharge depuis le serveur pour avoir l'état réel
+      queryClient.setQueryData(studentsQueryKey, prevData);
       queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
-      await loadStats();
-    } catch (error: any) {
-      toast.error(`Erreur lors de la suppression: ${error.message}`);
+      toast.warning(`${successCount} supprimé(s), ${errorCount} erreur(s)`);
+    } else {
+      toast.success(`${successCount} élève(s) supprimé(s) avec succès`);
+      loadStats();
     }
   };
 
@@ -485,18 +489,27 @@ export default function StudentsPage() {
 
     try {
       if (isOnline && token) {
-        await deleteStudent(token, selectedStudent.id);
+        // Optimistic update : retrait immédiat de la liste avant réponse serveur
+        const prevData = queryClient.getQueryData<{ data: Student[]; total: number }>(studentsQueryKey);
+        queryClient.setQueryData(studentsQueryKey, (old: { data: Student[]; total: number } | undefined) => {
+          if (!old) return old;
+          return { data: old.data.filter(s => s.id !== selectedStudent.id), total: Math.max(0, old.total - 1) };
+        });
+        setStats(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+        setIsDeleteDialogOpen(false);
 
         try {
-          await offlineDB.delete(STORES.STUDENTS, selectedStudent.id);
-        } catch {
-          // Erreur cache non bloquante
+          await deleteStudent(token, selectedStudent.id);
+          offlineDB.delete(STORES.STUDENTS, selectedStudent.id).catch(() => {});
+          toast.success("Élève supprimé avec succès");
+          loadStats(); // rafraîchit les stats en arrière-plan
+        } catch (err: any) {
+          // Rollback si l'API échoue
+          if (prevData) queryClient.setQueryData(studentsQueryKey, prevData);
+          setStats(prev => ({ ...prev, total: prev.total + 1 }));
+          setIsDeleteDialogOpen(true);
+          toast.error("Erreur lors de la suppression", { description: err?.message });
         }
-
-        setIsDeleteDialogOpen(false);
-        toast.success("Élève supprimé avec succès");
-        queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
-        await loadStats();
       } else {
         await offlineDB.delete(STORES.STUDENTS, selectedStudent.id);
         setOfflineStudentsData(prev => ({

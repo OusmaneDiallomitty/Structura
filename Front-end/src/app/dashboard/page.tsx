@@ -146,6 +146,7 @@ export default function DashboardPage() {
   };
 
   // ── useQuery : toutes les données du dashboard en une seule requête ────────
+  const DASH_CACHE_KEY = `structura_dashboard_${user?.tenantId}`;
   const { data: dashData, isLoading, refetch } = useQuery({
     queryKey: ["dashboard", user?.tenantId],
     queryFn: async () => {
@@ -160,8 +161,18 @@ export default function DashboardPage() {
           getStudentsDistribution(token),
           getCurrentAcademicYear(token).catch(() => null),
         ]);
-      return { stats: statsData.stats, activities: activitiesData, paymentsData: paymentsChart,
+      const result = { stats: statsData.stats, activities: activitiesData, paymentsData: paymentsChart,
                attendanceData: attendanceChart, studentsDistribution: distributionData, hasActiveYear: !!activeYear };
+      // Sauvegarder en cache localStorage pour affichage instantané au prochain chargement
+      try { localStorage.setItem(DASH_CACHE_KEY, JSON.stringify(result)); } catch { /* quota */ }
+      return result;
+    },
+    // Afficher les données en cache immédiatement pendant le rechargement en arrière-plan
+    placeholderData: () => {
+      try {
+        const cached = localStorage.getItem(DASH_CACHE_KEY);
+        return cached ? JSON.parse(cached) : undefined;
+      } catch { return undefined; }
     },
     enabled: isOnline && !!user,
     staleTime: 60_000,
@@ -304,7 +315,9 @@ export default function DashboardPage() {
   };
 
 
-  if (isLoading) {
+  // Spinner uniquement si AUCUNE donnée disponible (ni cache, ni données fraîches)
+  // Avec le placeholderData localStorage, ce cas n'arrive qu'à la toute première visite
+  if (isLoading && !dashData) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center space-y-4">
