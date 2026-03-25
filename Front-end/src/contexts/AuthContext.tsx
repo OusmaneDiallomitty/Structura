@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { updateProfile, getMyProfile } from "@/lib/api/users.service";
 import * as storage from "@/lib/storage";
 import { offlineDB } from "@/lib/offline-db";
+import { prefetchOfflineData, resetPrefetchCooldown } from "@/lib/offline-prefetch";
 
 /** Clés localStorage liées à un tenant spécifique — à purger si le tenant change */
 const TENANT_SCOPED_KEYS = [
@@ -32,6 +33,8 @@ function clearStaleTenanData(newTenantId: string) {
     if (last && last !== newTenantId) {
       TENANT_SCOPED_KEYS.forEach((k) => localStorage.removeItem(k));
       offlineDB.clearAll().catch(() => {});
+      // Forcer un re-fetch complet pour le nouveau tenant (bypass cooldown)
+      resetPrefetchCooldown();
     }
     localStorage.setItem("structura_last_tenant_id", newTenantId);
   } catch { /* quota ou SSR */ }
@@ -189,6 +192,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const freshUserData = storage.getAuthItem(USER_KEY);
         if (freshUserData) {
           setUser(JSON.parse(freshUserData));
+          // Pre-fetch silencieux au chargement de l'app si le cooldown est écoulé.
+          // Assure que les données IndexedDB sont fraîches même après une longue absence.
+          const currentToken = storage.getAuthItem(TOKEN_KEY);
+          if (currentToken) {
+            prefetchOfflineData(currentToken).catch(() => {});
+          }
         }
       }
     } catch {
@@ -251,6 +260,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (authResponse.user.tenantId) clearStaleTenanData(authResponse.user.tenantId);
 
       setUser(authResponse.user);
+
+      // Pre-fetch en arrière-plan : charge élèves, classes, paiements dans IndexedDB
+      // pour que toutes les pages soient disponibles hors ligne sans visite préalable.
+      // Force=true : on vient de se connecter → données fraîches garanties.
+      prefetchOfflineData(authResponse.token, { force: true }).catch(() => {});
 
       if (!authResponse.user.emailVerified) {
         router.push("/check-email");
