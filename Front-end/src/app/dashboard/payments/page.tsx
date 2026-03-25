@@ -1508,68 +1508,73 @@ export default function PaymentsPage() {
       ),
     });
 
+    // ── UI optimiste : paiement temporaire visible immédiatement ─────────────
+    const tempId = `temp-${crypto.randomUUID()}`;
+    const tempPayment: Payment = {
+      id: tempId, studentId: selectedStudentForPayment.id,
+      studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
+      amount, currency: getActiveCurrency(),
+      method: paymentForm.method.toLowerCase() as Payment["method"],
+      status: "paid", paidDate: new Date().toISOString(),
+      description:  paymentForm.description,
+      academicYear: paymentForm.academicYear, term: computedDialogTerm,
+      createdAt: new Date().toISOString(),
+    };
+    queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [tempPayment, ...prev]);
+    setPendingReceiptData(buildReceiptData(tempPayment));
+    setDialogMode("success");
+    setIsSubmitting(false);
+
+    // ── Persistance en arrière-plan ───────────────────────────────────────────
+    if (!isOnline || !token) {
+      // Mode hors ligne : sauvegarder localement
+      const offlinePayment = { ...tempPayment, needsSync: true };
+      offlineDB.add(STORES.PAYMENTS, offlinePayment).catch(() => {});
+      syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...offlinePayment } }).catch(() => {});
+      queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+        prev.map((p) => (p.id === tempId ? offlinePayment : p))
+      );
+      toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
+      return;
+    }
+
     try {
-      if (isOnline && token) {
-        const created = await createPayment(token, {
-          studentId:    selectedStudentForPayment.id,
-          amount, method: paymentForm.method, currency: getActiveCurrency(), status: "paid",
-          description:  paymentForm.description,
-          academicYear: paymentForm.academicYear, term: computedDialogTerm,
-          paidDate: new Date().toISOString(),
-        });
-        const newPayment = mapBackendPayment(created);
-        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
-        try { await offlineDB.add(STORES.PAYMENTS, newPayment); } catch {}
-        markReceiptDone(newPayment.receiptNumber || newPayment.id);
-        setPendingReceiptData(buildReceiptData(newPayment));
-        setDialogMode("success");
-      } else {
-        const tempId     = `offline-payment-${crypto.randomUUID()}`;
-        const newPayment: Payment = {
-          id: tempId, studentId: selectedStudentForPayment.id,
-          studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
-          amount, currency: getActiveCurrency(),
-          method: paymentForm.method.toLowerCase() as Payment["method"],
-          status: "paid", paidDate: new Date().toISOString(),
-          description:  paymentForm.description,
-          academicYear: paymentForm.academicYear, term: computedDialogTerm,
-          needsSync: true, createdAt: new Date().toISOString(),
-        };
-        await offlineDB.add(STORES.PAYMENTS, newPayment);
-        await syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...newPayment } });
-        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
-        setPendingReceiptData(buildReceiptData(newPayment));
-        setDialogMode("success");
-      }
-      // Ne pas fermer : on reste sur la vue succès pour choisir le reçu
+      const created = await createPayment(token, {
+        studentId:    selectedStudentForPayment.id,
+        amount, method: paymentForm.method, currency: getActiveCurrency(), status: "paid",
+        description:  paymentForm.description,
+        academicYear: paymentForm.academicYear, term: computedDialogTerm,
+        paidDate: new Date().toISOString(),
+      });
+      const realPayment = mapBackendPayment(created);
+      // Remplacer le paiement temporaire par le vrai (avec receiptNumber)
+      queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+        prev.map((p) => (p.id === tempId ? realPayment : p))
+      );
+      offlineDB.add(STORES.PAYMENTS, realPayment).catch(() => {});
+      markReceiptDone(realPayment.receiptNumber || realPayment.id);
+      setPendingReceiptData(buildReceiptData(realPayment));
     } catch (error: any) {
-      // Si la connexion a coupé pendant l'appel, basculer sur la sauvegarde offline
-      if (!navigator.onLine || error.message === 'Failed to fetch') {
-        try {
-          const tempId = `offline-payment-${crypto.randomUUID()}`;
-          const newPayment: Payment = {
-            id: tempId, studentId: selectedStudentForPayment.id,
-            studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
-            amount, currency: getActiveCurrency(),
-            method: paymentForm.method.toLowerCase() as Payment["method"],
-            status: "paid", paidDate: new Date().toISOString(),
-            description: paymentForm.description,
-            academicYear: paymentForm.academicYear, term: computedDialogTerm,
-            needsSync: true, createdAt: new Date().toISOString(),
-          };
-          await offlineDB.add(STORES.PAYMENTS, newPayment);
-          await syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...newPayment } });
-          queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [newPayment, ...prev]);
-          setPendingReceiptData(buildReceiptData(newPayment));
-          setDialogMode("success");
-          toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
-        } catch {
-          toast.error("Impossible d'enregistrer le paiement");
-        }
+      const isNetworkFailure = !navigator.onLine || error.message === "Failed to fetch";
+      if (isNetworkFailure) {
+        // Connexion coupée en cours d'appel → garder le paiement en offline
+        const offlinePayment = { ...tempPayment, needsSync: true };
+        offlineDB.add(STORES.PAYMENTS, offlinePayment).catch(() => {});
+        syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...offlinePayment } }).catch(() => {});
+        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+          prev.map((p) => (p.id === tempId ? offlinePayment : p))
+        );
+        toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
       } else {
+        // Erreur serveur → rollback
+        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+          prev.filter((p) => p.id !== tempId)
+        );
+        setDialogMode("form");
+        setIsSubmitting(false);
         toast.error("Erreur lors de l'enregistrement", { description: error.message });
       }
-    } finally { setIsSubmitting(false); }
+    }
   };
 
   const handleGenerateReceipt = async (summary: StudentSummary, specificPayment?: Payment, mode: ReceiptOutputMode = "download") => {

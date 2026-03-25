@@ -494,15 +494,30 @@ export default function AttendancePage() {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      const token     = storage.getAuthItem("structura_token");
-      const markedBy  = user ? `${user.firstName} ${user.lastName}`.trim() : "Inconnu";
-      const dateTime  = `${selectedDate}T${selectedTime}:00`;
+    const token    = storage.getAuthItem("structura_token");
+    const markedBy = user ? `${user.firstName} ${user.lastName}`.trim() : "Inconnu";
+    const dateTime = `${selectedDate}T${selectedTime}:00`;
 
-      if (isOnline && token) {
-        const newRows     = rows.filter((r) => !r.existingId);
-        const changedRows = rows.filter(
+    if (isOnline && token) {
+      // ── UI optimiste : feedback immédiat ──────────────────────────────────
+      const previousRows = [...rows];
+      setRows((prev) =>
+        prev.map((r) => ({ ...r, originalStatus: r.status ?? undefined, originalNotes: r.notes }))
+      );
+      setAlreadySaved(true);
+      const pCount = rows.filter((r) => r.status === "PRESENT").length;
+      const aCount = rows.filter((r) => r.status === "ABSENT").length;
+      const lCount = rows.filter((r) => r.status === "LATE").length;
+      const eCount = rows.filter((r) => r.status === "EXCUSED").length;
+      toast.success(
+        `Présences enregistrées — ${pCount} présents · ${aCount} absents · ${lCount} retards · ${eCount} excusés`
+      );
+
+      // ── API en arrière-plan ────────────────────────────────────────────────
+      setIsSaving(true);
+      try {
+        const newRows     = previousRows.filter((r) => !r.existingId);
+        const changedRows = previousRows.filter(
           (r) => r.existingId && (r.status !== r.originalStatus || r.notes !== r.originalNotes)
         );
         const promises: Promise<any>[] = [];
@@ -531,53 +546,50 @@ export default function AttendancePage() {
         }
 
         await Promise.all(promises);
-
-        setRows((prev) =>
-          prev.map((r) => ({ ...r, originalStatus: r.status ?? undefined, originalNotes: r.notes }))
-        );
-        setAlreadySaved(true);
-
-        const pCount = rows.filter((r) => r.status === "PRESENT").length;
-        const aCount = rows.filter((r) => r.status === "ABSENT").length;
-        const lCount = rows.filter((r) => r.status === "LATE").length;
-        const eCount = rows.filter((r) => r.status === "EXCUSED").length;
-        toast.success(
-          `Présences enregistrées — ${pCount} présents · ${aCount} absents · ${lCount} retards · ${eCount} excusés`
-        );
-
         if (newRows.length > 0) await refetchMarking();
-      } else {
-        // Mode hors ligne
-        for (const r of rows) {
-          const localId = r.existingId || `att-${r.studentId}-${selectedDate}`;
-          const record = {
-            id: localId, studentId: r.studentId, classId: selectedClassId,
-            date: dateTime, status: r.status!, notes: r.notes, markedBy,
-          };
-          try {
-            const ex = await offlineDB.getById(STORES.ATTENDANCE, localId);
-            if (ex) await offlineDB.update(STORES.ATTENDANCE, record);
-            else     await offlineDB.add(STORES.ATTENDANCE, record);
-          } catch {
-            await offlineDB.add(STORES.ATTENDANCE, record);
-          }
-        }
-        for (const r of rows) {
-          await syncQueue.add({
-            type: "attendance", action: "create",
-            data: {
-              studentId: r.studentId, classId: selectedClassId,
-              date: dateTime, status: r.status!, notes: r.notes || undefined, markedBy,
-            },
-          });
-        }
-        setAlreadySaved(true);
-        const pCount = rows.filter((r) => r.status === "PRESENT").length;
-        toast.info(
-          `Présences enregistrées (${pCount}/${rows.length} présents) — envoi automatique dès la reconnexion.`,
-          { duration: 5000 }
-        );
+      } catch (err: any) {
+        // Rollback : restaurer l'état précédent
+        setRows(previousRows);
+        setAlreadySaved(false);
+        toast.error(err?.message || "Erreur lors de l'enregistrement — veuillez réessayer");
+      } finally {
+        setIsSaving(false);
       }
+      return;
+    }
+
+    // ── Mode hors ligne ────────────────────────────────────────────────────────
+    setIsSaving(true);
+    try {
+      for (const r of rows) {
+        const localId = r.existingId || `att-${r.studentId}-${selectedDate}`;
+        const record = {
+          id: localId, studentId: r.studentId, classId: selectedClassId,
+          date: dateTime, status: r.status!, notes: r.notes, markedBy,
+        };
+        try {
+          const ex = await offlineDB.getById(STORES.ATTENDANCE, localId);
+          if (ex) await offlineDB.update(STORES.ATTENDANCE, record);
+          else     await offlineDB.add(STORES.ATTENDANCE, record);
+        } catch {
+          await offlineDB.add(STORES.ATTENDANCE, record);
+        }
+      }
+      for (const r of rows) {
+        await syncQueue.add({
+          type: "attendance", action: "create",
+          data: {
+            studentId: r.studentId, classId: selectedClassId,
+            date: dateTime, status: r.status!, notes: r.notes || undefined, markedBy,
+          },
+        });
+      }
+      setAlreadySaved(true);
+      const pCount = rows.filter((r) => r.status === "PRESENT").length;
+      toast.info(
+        `Présences enregistrées (${pCount}/${rows.length} présents) — envoi automatique dès la reconnexion.`,
+        { duration: 5000 }
+      );
     } catch (err: any) {
       toast.error(err?.message || "Erreur lors de l'enregistrement");
     } finally {
