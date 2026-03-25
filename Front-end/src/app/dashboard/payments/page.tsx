@@ -716,12 +716,8 @@ export default function PaymentsPage() {
   const [isFeeDialogOpen,  setIsFeeDialogOpen]  = useState(false);
   const [draftFeeConfig,   setDraftFeeConfig]   = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
-  // Calendrier scolaire — initialisé depuis le cache localStorage
-  const [schoolCalendar, setSchoolCalendar] = useState<SchoolCalendar>(() => {
-    if (typeof window === "undefined") return DEFAULT_SCHOOL_CALENDAR;
-    try { const s = localStorage.getItem(SCHOOL_CALENDAR_KEY); return s ? JSON.parse(s) : DEFAULT_SCHOOL_CALENDAR; } catch { return DEFAULT_SCHOOL_CALENDAR; }
-  });
-  const [draftSchoolCalendar, setDraftSchoolCalendar] = useState<SchoolCalendar>(DEFAULT_SCHOOL_CALENDAR);
+  // Calendrier scolaire fixé : Septembre, 9 mois (non configurable)
+  const schoolCalendar = DEFAULT_SCHOOL_CALENDAR;
 
   // ── Dialog "Ajouter / Éditer un poste de frais" (école publique) ─────────
   const [isFeeItemDialogOpen,  setIsFeeItemDialogOpen]  = useState(false);
@@ -780,7 +776,6 @@ export default function PaymentsPage() {
       items?: import("@/lib/api/fees.service").FeeItem[] | null,
     ) => {
       if (fee?.mode && typeof fee.globalFee === "number") setFeeConfig(fee);
-      if (cal?.startMonth && typeof cal.durationMonths === "number") setSchoolCalendar(cal);
       const f = (freq as PaymentFrequency) || "monthly";
       setPaymentFrequency(f);
       setSelectedTerm(getCurrentPeriod(f));
@@ -796,20 +791,15 @@ export default function PaymentsPage() {
           // la migration vers l'API) mais que le localStorage du directeur en contient,
           // on les migre automatiquement en BDD pour tout le tenant.
           const localFees = localStorage.getItem(CLASS_FEES_KEY);
-          const localCal  = localStorage.getItem(SCHOOL_CALENDAR_KEY);
           const localFreq = localStorage.getItem(PAYMENT_FREQ_KEY);
           if (!config.feeConfig && localFees) {
             try {
               const parsedFees = JSON.parse(localFees) as FeeConfig;
-              const parsedCal  = localCal ? JSON.parse(localCal) as SchoolCalendar : undefined;
               updateFeesConfig(token, {
                 feeConfig:        parsedFees,
                 paymentFrequency: (localFreq as PaymentFrequency) || "monthly",
-                schoolCalendar:   parsedCal,
               }).catch(console.error);
-              // Utiliser les données locales immédiatement en attendant la réponse API
-              // Toujours appliquer le schoolType de l'API (source de vérité), pas du cache local
-              applyConfig(parsedFees, localFreq || "monthly", parsedCal ?? null, config.schoolType);
+              applyConfig(parsedFees, localFreq || "monthly", null, config.schoolType);
               if (config.schoolType) localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
               return;
             } catch { /* si JSON invalide, continuer normalement */ }
@@ -818,13 +808,12 @@ export default function PaymentsPage() {
           applyConfig(
             config.feeConfig as FeeConfig | null,
             config.paymentFrequency,
-            config.schoolCalendar as SchoolCalendar | null,
+            null,
             config.schoolType,
             config.feeItems as import("@/lib/api/fees.service").FeeItem[] | null,
           );
           // Mettre en cache pour le mode hors ligne
           if (config.feeConfig)           localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
-          if (config.schoolCalendar)      localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(config.schoolCalendar));
           localStorage.setItem(PAYMENT_FREQ_KEY, config.paymentFrequency || "monthly");
           if (config.schoolType)          localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
           if (config.feeItems?.length)    localStorage.setItem(FEE_ITEMS_KEY,   JSON.stringify(config.feeItems));
@@ -1312,7 +1301,6 @@ export default function PaymentsPage() {
 
   const openFeeDialog = () => {
     setDraftFeeConfig(JSON.parse(JSON.stringify(feeConfig)));
-    setDraftSchoolCalendar({ ...schoolCalendar });
     setIsFeeDialogOpen(true);
   };
 
@@ -1342,7 +1330,6 @@ export default function PaymentsPage() {
         await updateFeesConfig(token, {
           feeConfig:        rounded,
           paymentFrequency: paymentFrequency,
-          schoolCalendar:   draftSchoolCalendar,
         });
       } catch (err) {
         toast.error("Erreur lors de la sauvegarde", {
@@ -1354,11 +1341,9 @@ export default function PaymentsPage() {
 
     // Mettre à jour l'état local + cache offline
     setFeeConfig(rounded);
-    localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(rounded));
-    setSchoolCalendar(draftSchoolCalendar);
-    localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(draftSchoolCalendar));
+    localStorage.setItem(CLASS_FEES_KEY, JSON.stringify(rounded));
     setIsFeeDialogOpen(false);
-    toast.success("Frais et calendrier mis à jour !");
+    toast.success("Frais mis à jour !");
   };
 
   /** Marque un reçu comme imprimé (localStorage) */
@@ -1482,8 +1467,8 @@ export default function PaymentsPage() {
     // ── Construit les données du reçu sans déclencher le PDF ────────────────
     const buildReceiptData = (newPayment: Payment): PaymentReceiptData => ({
       receiptNumber:      newPayment.receiptNumber || `REC-${Date.now()}`,
-      studentName:        `${selectedStudentForPayment!.firstName} ${selectedStudentForPayment!.lastName}`,
-      studentMatricule:   selectedStudentForPayment!.matricule,
+      studentName:        newPayment.studentName || `${selectedStudentForPayment?.firstName ?? ""} ${selectedStudentForPayment?.lastName ?? ""}`.trim() || "Élève",
+      studentMatricule:   selectedStudentForPayment?.matricule || "",
       className:          receiptCls?.displayName ?? receiptCls?.name ?? "",
       amount,
       totalPaid:          receiptTotalPaid,
@@ -4028,81 +4013,6 @@ export default function PaymentsPage() {
                 </div>
               </div>
             )}
-            {/* ── Calendrier scolaire ── */}
-            <div className="pt-2 border-t space-y-3">
-              <div>
-                <p className="text-sm font-semibold">Calendrier scolaire</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Définit les mois de cours et la répartition automatique T1 / T2 / T3
-                </p>
-              </div>
-              <div className="rounded-lg border bg-muted/30 px-4 py-3 space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2 flex-1 min-w-[180px]">
-                    <Label className="text-xs whitespace-nowrap shrink-0">Mois de rentrée :</Label>
-                    <Select
-                      value={draftSchoolCalendar.startMonth}
-                      onValueChange={(v) => setDraftSchoolCalendar((prev) => ({ ...prev, startMonth: v }))}
-                    >
-                      <SelectTrigger className="h-8 flex-1 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {ALL_MONTHS_GRE.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs whitespace-nowrap shrink-0">Durée :</Label>
-                    <Input
-                      type="number" min={1} max={12} step={1}
-                      className="h-8 w-16 text-sm text-center"
-                      value={draftSchoolCalendar.durationMonths}
-                      onChange={(e) =>
-                        setDraftSchoolCalendar((prev) => ({
-                          ...prev,
-                          durationMonths: Math.min(12, Math.max(1, Number(e.target.value) || 1)),
-                        }))
-                      }
-                    />
-                    <span className="text-xs text-muted-foreground">mois</span>
-                  </div>
-                </div>
-                {/* Aperçu T1/T2/T3 calculé en temps réel */}
-                {(() => {
-                  const groups = getCalendarTrimestreGroups(selectedYear, draftSchoolCalendar);
-                  const nonSchool = SCHOOL_MONTHS.filter(
-                    (m) => !getSchoolMonthNames(draftSchoolCalendar).includes(m)
-                  );
-                  return (
-                    <div className="pt-2 border-t border-border/50 space-y-1.5">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Aperçu — {selectedYear}
-                      </p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1">
-                        {groups.map((g) => (
-                          <div key={g.trimestre} className="text-xs">
-                            <span className="font-semibold text-foreground">{g.label} :</span>{" "}
-                            <span className="text-muted-foreground">
-                              {g.monthsWithYear.map((m) => MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3)).join(" · ")}
-                            </span>
-                            <span className="text-muted-foreground/60 ml-1">({g.monthsWithYear.length} mois)</span>
-                          </div>
-                        ))}
-                      </div>
-                      {nonSchool.length > 0 && (
-                        <p className="text-[10px] text-muted-foreground/60 italic">
-                          Hors cours : {nonSchool.map((m) => MONTH_SHORT[m] ?? m).join(", ")}
-                        </p>
-                      )}
-                      <p className="text-[10px] text-muted-foreground">
-                        Annuel = <span className="font-semibold">{draftSchoolCalendar.durationMonths} mois</span> · Trimestre = montant mensuel × mois du trimestre
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
 
           </div>{/* fin space-y-6 */}
 
