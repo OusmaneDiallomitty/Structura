@@ -27,9 +27,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
   const url = event.notification.data?.url || '/';
-
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
@@ -44,41 +42,61 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ── Offline Cache ─────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'structura-v5';
+// v6 : pré-cache toutes les pages + staleWhileRevalidate (recommandé Workbox/Google)
+const CACHE_VERSION = 'structura-v6';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
-// Pages à précacher lors de l'installation (garantissent un fallback offline)
+/**
+ * App Shell — toutes les pages critiques précachées à l'installation du SW.
+ * Garantit qu'un refresh hors ligne sur n'importe quelle page fonctionne,
+ * même sur première visite ou après longue absence.
+ */
 const APP_SHELL = [
   '/offline.html',
-  '/dashboard',
-  '/login',
   '/logo.png',
+  '/login',
+  '/dashboard',
+  '/dashboard/students',
+  '/dashboard/classes',
+  '/dashboard/attendance',
+  '/dashboard/payments',
+  '/dashboard/grades',
+  '/dashboard/team',
+  '/dashboard/settings',
+  '/dashboard/profile',
 ];
 
-// ── Install ──────────────────────────────────────────────────────────────────
+// ── Install : pré-cacher l'app shell ─────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+      .then(() => self.skipWaiting())   // activer immédiatement sans attendre reload
+      .catch(() => self.skipWaiting())  // ne pas bloquer si une URL échoue (auth redirect)
   );
 });
 
-// ── Activate : purger les vieux caches ───────────────────────────────────────
+// ── Activate : purger les anciens caches (versions précédentes) ───────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => !k.startsWith(CACHE_VERSION))
-            .map((k) => caches.delete(k))
+        keys
+          .filter((k) => !k.startsWith(CACHE_VERSION))
+          .map((k)  => caches.delete(k))
       ))
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim()) // prendre le contrôle des onglets ouverts
   );
 });
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Stratégies de cache ───────────────────────────────────────────────────────
 
+/**
+ * Cache First — pour les assets statiques hashés (_next/static/*).
+ * Ces fichiers ont des noms uniques (ex: main.abc123.js) → jamais modifiés.
+ * Stratégie : cache toujours prioritaire, réseau seulement si absent.
+ */
 async function cacheFirst(request, cacheName) {
   const cached = await caches.match(request);
   if (cached) return cached;
@@ -94,60 +112,75 @@ async function cacheFirst(request, cacheName) {
   }
 }
 
-async function networkFirst(request) {
-  try {
-    const response = await fetch(request);
+/**
+ * Stale While Revalidate — pour les pages HTML et RSC payloads Next.js.
+ * Stratégie recommandée par Google Workbox pour les PWA offline.
+ *
+ * Comportement :
+ *   Online  → cache servi immédiatement (instantané) + réseau mis à jour en fond
+ *   Offline → cache servi immédiatement (refresh fonctionne même hors ligne)
+ *   EDGE    → cache servi pendant que la requête tourne en fond (pas d'écran blanc)
+ *
+ * vs networkFirst (ancien) :
+ *   networkFirst attendait la réponse réseau avant de servir le cache.
+ *   Sur EDGE/connexion lente → écran blanc jusqu'au timeout. Plus utilisé.
+ */
+async function staleWhileRevalidate(request, cacheName) {
+  const cached = await caches.match(request);
+
+  // Lancer la revalidation réseau en arrière-plan (fire-and-forget)
+  const revalidate = fetch(request).then(async (response) => {
     if (response.ok) {
-      const cache = await caches.open(PAGES_CACHE);
+      const cache = await caches.open(cacheName);
       cache.put(request, response.clone());
     }
     return response;
-  } catch {
-    // Essayer le cache exact
-    const cached = await caches.match(request);
-    if (cached) return cached;
+  }).catch(() => null);
 
-    // Pour les navigations : fallback dashboard ou offline.html
-    if (request.mode === 'navigate') {
-      const dashboard = await caches.match('/dashboard');
-      if (dashboard) return dashboard;
-      return caches.match('/offline.html');
-    }
+  // Cache disponible → retourner immédiatement (offline ou lent = aucune différence)
+  if (cached) return cached;
 
-    // Pour les requêtes RSC / données Next.js : réponse vide acceptable
-    // Next.js gardera la page actuelle en mémoire
-    return new Response('', { status: 503, statusText: 'Offline' });
+  // Pas encore en cache → attendre le réseau (premier chargement)
+  const response = await revalidate;
+  if (response && response.ok) return response;
+
+  // Fallback navigation : retourner le dashboard en cache ou la page offline
+  if (request.mode === 'navigate') {
+    const fallback = await caches.match('/dashboard') || await caches.match('/offline.html');
+    if (fallback) return fallback;
   }
+
+  // RSC payloads / chunks dynamiques : réponse vide → Next.js garde la page courante
+  return new Response('', { status: 503, statusText: 'Offline' });
 }
 
-// ── Fetch ────────────────────────────────────────────────────────────────────
+// ── Fetch : intercepter toutes les requêtes same-origin ──────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Ignorer les requêtes non-HTTP
+  // Non-HTTP (chrome-extension://, etc.) → ignorer
   if (!url.protocol.startsWith('http')) return;
 
-  // Laisser passer les requêtes cross-origin (API backend Render, Sentry, etc.)
+  // Cross-origin (API Render, Sentry, Vercel analytics, etc.) → laisser passer
+  // Les appels API sont gérés par IndexedDB/sync-queue, pas par le SW
   if (url.hostname !== self.location.hostname) return;
 
-  // Laisser passer les routes API Next.js et monitoring
+  // Routes API Next.js et monitoring → laisser passer (jamais mettre en cache)
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/monitoring')) return;
 
-  // Assets statiques Next.js (noms hashés, immuables) → Cache First
+  // Assets statiques Next.js (/_next/static/*) — noms hashés, immuables → Cache First
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(cacheFirst(request, STATIC_CACHE));
     return;
   }
 
   // Images, fonts, fichiers publics → Cache First
-  if (/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?|ttf|otf)$/.test(url.pathname)) {
+  if (/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?|ttf|otf|css)$/.test(url.pathname)) {
     event.respondWith(cacheFirst(request, STATIC_CACHE));
     return;
   }
 
-  // Tout le reste (pages HTML, RSC payloads Next.js, chunks dynamiques)
-  // → Network First avec fallback cache
-  // Couvre : navigate, RSC (Accept: text/x-component), prefetch, etc.
-  event.respondWith(networkFirst(request));
+  // Tout le reste : pages HTML, RSC payloads (_next/data/*, ?_rsc=*), chunks → SWR
+  event.respondWith(staleWhileRevalidate(request, PAGES_CACHE));
 });
