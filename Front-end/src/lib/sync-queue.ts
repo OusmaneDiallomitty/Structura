@@ -106,18 +106,25 @@ class SyncQueue {
             continue;
           }
 
-          // Incrémenter le compteur de tentatives
+          // Erreur réseau / timeout → connexion trop instable au moment de la sync.
+          // Les données sont valides, on ne consomme PAS de retry.
+          // L'action reste en queue et sera renvoyée à la prochaine reconnexion.
+          if (this.isNetworkError(error)) {
+            console.warn(`📶 Erreur réseau — action conservée en queue (retries: ${action.retries})`);
+            continue;
+          }
+
+          // Erreur serveur ou données invalides → incrémenter le compteur
           action.retries++;
 
           if (action.retries >= this.maxRetries) {
-            // Supprimer après trop de tentatives
+            // Abandonner seulement après maxRetries échecs non-réseau consécutifs
             if (action.id) {
               await offlineDB.delete(STORES.SYNC_QUEUE, action.id);
             }
             failCount++;
-            console.error(`❌ Action abandonnée après ${this.maxRetries} tentatives`);
+            console.error(`❌ Action abandonnée après ${this.maxRetries} échecs serveur`);
           } else {
-            // Mettre à jour le compteur de tentatives
             await offlineDB.update(STORES.SYNC_QUEUE, action);
           }
         }
@@ -277,6 +284,25 @@ class SyncQueue {
   private isAuthError(err: any): boolean {
     const msg = (err?.message ?? "").toLowerCase();
     return msg.includes("401") || msg.includes("unauthorized") || msg.includes("non autorisé");
+  }
+
+  /**
+   * Détecte une erreur réseau pure (pas de connexion) ou un timeout.
+   * Ces erreurs ne signifient pas que les données sont invalides — la connexion
+   * était juste trop instable au moment de l'envoi. On ne consomme pas de retry.
+   */
+  private isNetworkError(err: any): boolean {
+    // TypeError = "Failed to fetch", "NetworkError", "Load failed" (Safari)
+    if (err instanceof TypeError) return true;
+    // AbortError = timeout déclenché par fetchWithTimeout
+    if (err?.name === "AbortError") return true;
+    const msg = (err?.message ?? "").toLowerCase();
+    return (
+      msg.includes("failed to fetch") ||
+      msg.includes("networkerror") ||
+      msg.includes("load failed") ||
+      msg.includes("network request failed")
+    );
   }
 
   /**
