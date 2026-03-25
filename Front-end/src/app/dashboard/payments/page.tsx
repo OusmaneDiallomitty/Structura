@@ -612,9 +612,24 @@ export default function PaymentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Après une sync réussie → rafraîchir les données + recharger IndexedDB
+  useEffect(() => {
+    const handleSyncCompleted = () => {
+      refetchPayments();
+      refetchStudents();
+      offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
+      offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
+    };
+    window.addEventListener('sync:completed', handleSyncCompleted);
+    return () => window.removeEventListener('sync:completed', handleSyncCompleted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Données finales (online > offline) ────────────────────────────────────
-  const students = backendStudents ?? offlineStudents;
-  const payments = backendPayments ?? offlinePayments;
+  // Utiliser || au lieu de ?? pour éviter que backendStudents=[] (vide initial)
+  // ne cache les données offline IndexedDB pendant le chargement.
+  const students = (backendStudents && backendStudents.length > 0) ? backendStudents : offlineStudents;
+  const payments = (backendPayments && backendPayments.length > 0) ? backendPayments : offlinePayments;
   // Spinner uniquement si aucune donnée disponible (ni API ni cache IndexedDB)
   const hasData = students.length > 0 || payments.length > 0;
   const isLoading = (studentsLoading || paymentsLoading || classesLoading) && !hasData;

@@ -60,11 +60,8 @@ class SyncQueue {
       console.log("⏳ Synchronisation déjà en cours...");
       return;
     }
-
-    if (!navigator.onLine) {
-      console.log("📡 Hors ligne, synchronisation reportée");
-      return;
-    }
+    // Ne pas bloquer sur navigator.onLine — sur EDGE il reste true même sans internet.
+    // On laisse les appels API échouer naturellement et retenter à la prochaine connexion.
 
     this.isProcessing = true;
     console.log("🔄 Début de la synchronisation...");
@@ -129,6 +126,10 @@ class SyncQueue {
       // Afficher un toast de résultat
       if (successCount > 0) {
         toast.success(`Données mises à jour (${successCount} modification${successCount > 1 ? 's' : ''})`);
+        // Notifier les pages pour qu'elles rechargent leurs données depuis le serveur
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sync:completed', { detail: { successCount } }));
+        }
       }
 
       if (failCount > 0) {
@@ -329,11 +330,23 @@ class SyncQueue {
 // Instance singleton
 export const syncQueue = new SyncQueue();
 
-// Écouter le retour de connexion pour synchroniser automatiquement
+// Écouter le retour de connexion pour synchroniser automatiquement.
+// Deux sources : événement natif 'online' (WiFi/mode avion) + 'network:online'
+// dispatché par fetchWithTimeout quand un appel API réussit réellement
+// (corrige navigator.onLine unreliable sur EDGE et connexions mobiles).
 if (typeof window !== "undefined") {
-  window.addEventListener("online", () => {
+  let syncToastShown = false;
+
+  const triggerSync = () => {
+    if (!syncToastShown) {
+      syncToastShown = true;
+      toast.info("Connexion rétablie — mise à jour des données en cours...");
+      setTimeout(() => { syncToastShown = false; }, 5000); // éviter les toasts en double
+    }
     console.log("🌐 Connexion rétablie, synchronisation automatique...");
-    toast.info("Connexion rétablie — mise à jour des données en cours...");
     syncQueue.process();
-  });
+  };
+
+  window.addEventListener("online",          triggerSync);
+  window.addEventListener("network:online",  triggerSync);
 }
