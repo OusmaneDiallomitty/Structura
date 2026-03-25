@@ -3,12 +3,17 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheService } from '../../cache/cache.service';
+
+/** TTL du cache utilisateur JWT — 5 minutes */
+const JWT_USER_CACHE_TTL = 5 * 60;
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
+    private cache: CacheService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -18,7 +23,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // Charger l'utilisateur et son tenant depuis la BDD (fraîcheur garantie)
+    const cacheKey = `jwt_user:${payload.userId}`;
+
+    // ── 1. Vérifier le cache Redis ────────────────────────────────────────────
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) {
+      // Si le sessionId correspond → retourner directement sans requête BDD
+      if (cached.currentSessionId && cached.currentSessionId === payload.sessionId) {
+        const { currentSessionId: _sid, ...userWithoutSessionId } = cached;
+        return userWithoutSessionId;
+      }
+      // SessionId différent → session révoquée ou nouvelle connexion → aller en BDD
+    }
+
+    // ── 2. Cache miss ou sessionId mismatch → requête BDD ────────────────────
     const user = await this.prisma.user.findUnique({
       where: { id: payload.userId },
       include: {
@@ -31,40 +49,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           },
         },
       },
-      // classAssignments est sélectionné automatiquement via findUnique
     });
 
-    // Compte inexistant ou désactivé
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Compte invalide ou désactivé');
     }
 
-    // Organisation désactivée (ex : abonnement expiré)
     if (!user.tenant?.isActive) {
       throw new UnauthorizedException('Organisation désactivée');
     }
 
-    // Garantie d'intégrité : le tenantId du token doit correspondre à celui en BDD
-    // Protège contre un token émis avec un mauvais tenantId
     if (user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException('Token invalide');
     }
 
-    // Vérification session unique — si sessionId ne correspond pas, une autre connexion
-    // a pris la main (autre appareil). On rejette le token immédiatement.
     if (!user.currentSessionId || user.currentSessionId !== payload.sessionId) {
       throw new UnauthorizedException('SESSION_INVALIDATED');
     }
 
-    // Retourne les valeurs de la BDD (jamais celles du payload JWT).
-    // IMPORTANT : role reste en MAJUSCULES pour la compatibilité des guards backend.
-    // La transformation lowercase se fait dans le controller /auth/me pour le frontend.
-    return {
+    // ── 3. Mettre en cache (avec currentSessionId pour validation future) ─────
+    const userData = {
       id:               user.id,
       email:            user.email,
       firstName:        user.firstName,
       lastName:         user.lastName,
-      role:             user.role,           // MAJUSCULES — requis par SuperAdminGuard / RolesGuard
+      role:             user.role,
       tenantId:         user.tenantId,
       schoolName:       user.tenant?.name  ?? null,
       schoolLogo:       user.tenant?.logo  ?? null,
@@ -73,10 +82,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       emailVerified:    user.emailVerified,
       isActive:         user.isActive,
       permissions:      user.permissions,
-      assignedClassIds:  user.taughtClasses.map((c) => c.id),
-      classAssignments:  user.classAssignments ?? [],
-      createdAt:         user.createdAt,
-      updatedAt:         user.updatedAt,
+      assignedClassIds: user.taughtClasses.map((c) => c.id),
+      classAssignments: user.classAssignments ?? [],
+      createdAt:        user.createdAt,
+      updatedAt:        user.updatedAt,
+      currentSessionId: user.currentSessionId, // gardé en cache pour validation
     };
+
+    await this.cache.set(cacheKey, userData, JWT_USER_CACHE_TTL);
+
+    const { currentSessionId: _sid, ...userToReturn } = userData;
+    return userToReturn;
   }
 }

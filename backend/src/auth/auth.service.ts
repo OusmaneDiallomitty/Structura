@@ -271,6 +271,9 @@ export class AuthService {
       },
     });
 
+    // Invalider le cache JWT — la nouvelle sessionId doit être validée depuis la BDD
+    this.cacheService.del(`jwt_user:${matchedUser.id}`).catch(() => {});
+
     // Notifier les directeurs quand un membre active son compte pour la première fois
     if (isFirstLogin && matchedUser.role !== 'DIRECTOR' && matchedUser.role !== 'SUPER_ADMIN') {
       this.notificationsService.notifyDirectors(
@@ -316,6 +319,8 @@ export class AuthService {
       where: { id: userId },
       data: { currentSessionId: null, refreshTokenHash: null },
     });
+    // Invalider le cache JWT immédiatement
+    this.cacheService.del(`jwt_user:${userId}`).catch(() => {});
   }
 
   /**
@@ -338,6 +343,8 @@ export class AuthService {
       where: { id: stored.userId },
       data: { currentSessionId: null, refreshTokenHash: null },
     });
+    // Invalider le cache JWT
+    this.cacheService.del(`jwt_user:${stored.userId}`).catch(() => {});
     // Log audit
     this.logSecurityEvent('SESSION_REVOKED_BY_EMAIL', null, null, `Session révoquée via lien email pour userId: ${stored.userId}`).catch(() => {});
   }
@@ -485,6 +492,8 @@ export class AuthService {
 
     // Nettoyer Redis (best-effort)
     this.cacheService.del(`approved_login:${user.pendingLoginToken ?? ''}`).catch(() => {});
+    // Invalider le cache JWT — nouvelle session sur nouvel appareil
+    this.cacheService.del(`jwt_user:${user.id}`).catch(() => {});
 
     // Générer les tokens JWT + mettre à jour la session maintenant
     const tokens      = await this.generateTokens(user);
@@ -880,6 +889,8 @@ export class AuthService {
       where: { id: userId },
       data: { password: hashed, currentSessionId: null, refreshTokenHash: null },
     });
+    // Invalider le cache JWT
+    this.cacheService.del(`jwt_user:${userId}`).catch(() => {});
 
     return { message: 'Mot de passe modifié avec succès. Veuillez vous reconnecter.' };
   }

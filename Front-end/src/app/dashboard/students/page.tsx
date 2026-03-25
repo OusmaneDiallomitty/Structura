@@ -249,19 +249,21 @@ export default function StudentsPage() {
       return { data: mapped, total: result.total };
     },
     enabled: isOnline && !!user,
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
   });
 
-  // Offline fallback
+  // Placeholder IndexedDB au montage (affichage instantané) + fallback si offline
   useEffect(() => {
-    if (isOnline) return;
     offlineDB.getAll<any>(STORES.STUDENTS).then((raw) => {
       const cached = raw.map((s: any) => s.name !== undefined ? s as Student : mapStudent(s));
       const start = (currentPage - 1) * itemsPerPage;
-      setOfflineStudentsData({ data: cached.slice(start, start + itemsPerPage), total: cached.length });
-      if (cached.length > 0) toast.info('Vous êtes hors ligne — affichage des dernières données');
-      else toast.info('Aucune donnée disponible. Reconnectez-vous pour charger les élèves.');
+      if (cached.length > 0) {
+        setOfflineStudentsData({ data: cached.slice(start, start + itemsPerPage), total: cached.length });
+        if (!isOnline) toast.info('Vous êtes hors ligne — affichage des dernières données');
+      } else if (!isOnline) {
+        toast.info('Aucune donnée disponible. Reconnectez-vous pour charger les élèves.');
+      }
     }).catch(() => {});
   }, [isOnline, currentPage, itemsPerPage]);
 
@@ -1135,7 +1137,7 @@ export default function StudentsPage() {
           </div>
 
           {/* Table */}
-          {isLoading ? (
+          {isLoading && students.length === 0 ? (
             <div className="py-12 text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
               <p className="text-sm text-muted-foreground mt-2">

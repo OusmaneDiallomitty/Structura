@@ -954,7 +954,8 @@ export default function PaymentsPage() {
     let succeeded = 0;
     let failed = 0;
 
-    for (const row of validRows) {
+    // Parallélisation : tous les paiements s'envoient simultanément (× ~10 plus rapide)
+    await Promise.all(validRows.map(async (row) => {
       try {
         await createPayment(token, {
           studentId:    row.id,
@@ -970,7 +971,7 @@ export default function PaymentsPage() {
         succeeded++;
       } catch { failed++; }
       setBulkProgress({ done: succeeded + failed, total: validRows.length });
-    }
+    }));
 
     setBulkSaving(false);
     if (succeeded > 0) toast.success(`${succeeded} paiement${succeeded > 1 ? "s" : ""} enregistré${succeeded > 1 ? "s" : ""}.`);
@@ -1803,23 +1804,21 @@ export default function PaymentsPage() {
     const token = storage.getAuthItem("structura_token");
     if (!token || unpaidStudents.length === 0) return;
     setBulkMarkingItemId(item.id);
-    let done = 0;
-    for (const student of unpaidStudents) {
-      try {
-        await createPayment(token, {
-          studentId: student.id,
-          amount: item.amount,
-          method: "CASH",
-          currency: getActiveCurrency(),
-          status: "paid",
-          description: item.name,
-          term: item.id,
-          academicYear: item.academicYear,
-          paidDate: new Date().toISOString(),
-        });
-        done++;
-      } catch { /* continuer malgré l'erreur sur un élève */ }
-    }
+    // Parallélisation : tous les paiements s'envoient simultanément
+    const results = await Promise.allSettled(unpaidStudents.map((student) =>
+      createPayment(token, {
+        studentId: student.id,
+        amount: item.amount,
+        method: "CASH",
+        currency: getActiveCurrency(),
+        status: "paid",
+        description: item.name,
+        term: item.id,
+        academicYear: item.academicYear,
+        paidDate: new Date().toISOString(),
+      })
+    ));
+    const done = results.filter((r) => r.status === "fulfilled").length;
     setBulkMarkingItemId(null);
     toast.success(`${done}/${unpaidStudents.length} paiements enregistrés`);
     queryClient.invalidateQueries({ queryKey: PAYMENTS_QUERY_KEY(user?.tenantId) });

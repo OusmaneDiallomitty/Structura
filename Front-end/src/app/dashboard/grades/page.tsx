@@ -259,9 +259,8 @@ function GradesPageInner() {
 
   const [offlineClasses, setOfflineClasses] = useState<BackendClass[]>([]);
   useEffect(() => {
-    if (isOnline) return;
     offlineDB.getAll<BackendClass>(STORES.CLASSES).then(setOfflineClasses).catch(() => {});
-  }, [isOnline]);
+  }, []);
 
   const classes = useMemo<BackendClass[]>(() => {
     const raw = allClassesData ?? offlineClasses;
@@ -1489,7 +1488,7 @@ function GradesPageInner() {
                 <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
                   Classe
                 </label>
-                {classesLoading ? (
+                {classesLoading && classes.length === 0 ? (
                   <Skeleton className="h-10 w-full rounded-md" />
                 ) : (
                   <Select
@@ -3072,7 +3071,7 @@ function GradesPageInner() {
                   {/* ── Vue liste des classes (quand aucune classe ouverte) ── */}
                   {!configClassId && (
                     <>
-                      {classesLoading ? (
+                      {classesLoading && classes.length === 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {[1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
                         </div>
