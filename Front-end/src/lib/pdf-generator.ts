@@ -974,26 +974,28 @@ function ordinal(n: number, gender: string | null | undefined): string {
   return `${n}ème`;
 }
 
+/** Supprime les accents pour jsPDF Helvetica (ne supporte pas Unicode) */
+function ascii(str: string): string {
+  return str
+    .replace(/[àâä]/g, "a").replace(/[ÀÂÄÁ]/g, "A")
+    .replace(/[éèêë]/g, "e").replace(/[ÉÈÊË]/g, "E")
+    .replace(/[îï]/g,   "i").replace(/[ÎÏ]/g,   "I")
+    .replace(/[ôö]/g,   "o").replace(/[ÔÖ]/g,   "O")
+    .replace(/[ùûü]/g,  "u").replace(/[ÙÛÜ]/g,  "U")
+    .replace(/[ç]/g,    "c").replace(/[Ç]/g,     "C")
+    .replace(/[æ]/g,   "ae").replace(/[Æ]/g,    "AE")
+    .replace(/[œ]/g,   "oe").replace(/[Œ]/g,    "OE")
+    .replace(/[≥]/g,   ">=").replace(/[≤]/g,    "<=");
+}
+
 export function generateProclamationPDF(data: ProclamationData) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.width;   // 297
   const pageH = doc.internal.pageSize.height;  // 210
-  const margin = 12;
+  const margin = 14;
   const contentW = pageW - margin * 2;
 
-  // ── HEADER ────────────────────────────────────────────────────────────────
-  doc.setFillColor(COLORS.primary);
-  doc.rect(0, 0, pageW, 32, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
-  doc.setFont("helvetica", "bold");
-  doc.text(data.schoolName, pageW / 2, 12, { align: "center" });
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(`PROCLAMATION DES RÉSULTATS — ${data.term.toUpperCase()}`, pageW / 2, 21, { align: "center" });
-  doc.text(`Classe : ${data.className}   |   Année scolaire : ${data.academicYear}`, pageW / 2, 28, { align: "center" });
-
-  // ── STATISTIQUES (en haut, sous le header) ────────────────────────────────
+  // ── Statistiques ──────────────────────────────────────────────────────────
   const composed  = data.students.filter((s) => s.totalSubjects > 0);
   const admitted  = composed.filter((s) => s.generalAverage >= data.passThreshold);
   const failed    = composed.filter((s) => s.generalAverage < data.passThreshold);
@@ -1005,124 +1007,192 @@ export function generateProclamationPDF(data: ProclamationData) {
   const boysAdm   = boysComp.filter((s) => s.generalAverage >= data.passThreshold);
   const rate      = composed.length > 0 ? Math.round((admitted.length / composed.length) * 100) : 0;
   const girlsRate = girlsComp.length > 0 ? Math.round((girlsAdm.length / girlsComp.length) * 100) : 0;
-  const boysRate  = boysComp.length > 0  ? Math.round((boysAdm.length  / boysComp.length)  * 100) : 0;
+  const boysRate  = boysComp.length  > 0 ? Math.round((boysAdm.length  / boysComp.length)  * 100) : 0;
 
-  let y = 38;
-
-  // Tableau statistiques
-  const statCols = [60, 225 / 3, 225 / 3, 225 / 3];
-  const statX = [margin, margin + statCols[0], margin + statCols[0] + statCols[1], margin + statCols[0] + statCols[1] + statCols[2]];
-  const rowH = 7;
-
-  // En-tête stats
-  doc.setFillColor(COLORS.primary);
-  doc.rect(margin, y, contentW, rowH, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.text("",             statX[0] + 2, y + 5);
-  doc.text("Total",        statX[1] + statCols[1] / 2, y + 5, { align: "center" });
-  doc.text("Filles",       statX[2] + statCols[2] / 2, y + 5, { align: "center" });
-  doc.text("Garçons",      statX[3] + statCols[3] / 2, y + 5, { align: "center" });
-
-  const statRows = [
-    ["Inscrits",                    data.students.length, girls.length, boys.length],
-    ["Ont composé",                 composed.length,      girlsComp.length, boysComp.length],
-    [`Ont la moyenne (≥${data.passThreshold})`, admitted.length, girlsAdm.length, boysAdm.length],
-    ["N'ont pas la moyenne",        failed.length,        girlsComp.length - girlsAdm.length, boysComp.length - boysAdm.length],
-    ["Taux de réussite",            `${rate}%`,           `${girlsRate}%`, `${boysRate}%`],
-  ] as [string, string | number, string | number, string | number][];
-
-  doc.setTextColor(COLORS.dark);
-  doc.setFont("helvetica", "normal");
-
-  statRows.forEach((row, i) => {
-    const rowY = y + rowH + i * rowH;
-    if (i % 2 === 0) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(margin, rowY, contentW, rowH, "F");
-    }
-    doc.setDrawColor(220, 220, 220);
-    doc.rect(margin, rowY, contentW, rowH);
-    doc.setFontSize(7.5);
-    doc.setTextColor(COLORS.dark);
-    doc.setFont("helvetica", i === 4 ? "bold" : "normal");
-    doc.text(String(row[0]), statX[0] + 2, rowY + 5);
-    doc.text(String(row[1]), statX[1] + statCols[1] / 2, rowY + 5, { align: "center" });
-    doc.text(String(row[2]), statX[2] + statCols[2] / 2, rowY + 5, { align: "center" });
-    doc.text(String(row[3]), statX[3] + statCols[3] / 2, rowY + 5, { align: "center" });
-  });
-
-  // Moyenne de classe à droite des stats
-  const statsBottom = y + rowH + statRows.length * rowH;
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(COLORS.primary);
-  doc.text(`Moyenne de classe : ${data.classAverage.toFixed(2)}/${data.scoreMax}`, pageW - margin, statsBottom + 5, { align: "right" });
-
-  // ── CLASSEMENT ────────────────────────────────────────────────────────────
-  y = statsBottom + 10;
-
-  // Titre
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(COLORS.dark);
-  doc.text("CLASSEMENT PAR ORDRE DE MÉRITE", margin, y);
-  y += 5;
-
-  // Colonnes classement
-  const rankCols = { rang: 14, nom: 90, moy: 25, mention: 40, decision: 35 };
-  const rankX = {
-    rang:     margin,
-    nom:      margin + rankCols.rang,
-    moy:      margin + rankCols.rang + rankCols.nom,
-    mention:  margin + rankCols.rang + rankCols.nom + rankCols.moy,
-    decision: margin + rankCols.rang + rankCols.nom + rankCols.moy + rankCols.mention,
-  };
-  const rankRowH = 6;
-
-  // En-tête classement
-  doc.setFillColor(31, 41, 55);
-  doc.rect(margin, y, contentW, rankRowH, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("Rang",       rankX.rang     + rankCols.rang     / 2, y + 4.2, { align: "center" });
-  doc.text("Nom & Prénom",rankX.nom     + 2,                      y + 4.2);
-  doc.text("Moy.",       rankX.moy      + rankCols.moy      / 2, y + 4.2, { align: "center" });
-  doc.text("Mention",    rankX.mention  + rankCols.mention  / 2, y + 4.2, { align: "center" });
-  doc.text("Décision",   rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
-  y += rankRowH;
-
-  // Pré-calculer les rangs partagés (ex aequo)
+  // ── Pré-calculer rangs partagés (ex aequo) ────────────────────────────────
   const rankCount: Record<number, number> = {};
   for (const st of data.students) {
     if (st.totalSubjects > 0) rankCount[st.rank] = (rankCount[st.rank] ?? 0) + 1;
   }
 
+  // ── HELPERS ───────────────────────────────────────────────────────────────
+  const drawTableHeader = (y: number, cols: { x: number; w: number; label: string; align?: "left" | "center" }[], rowH: number, bgR: number, bgG: number, bgB: number) => {
+    doc.setFillColor(bgR, bgG, bgB);
+    doc.rect(margin, y, contentW, rowH, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    for (const col of cols) {
+      const tx = col.align === "left" ? col.x + 3 : col.x + col.w / 2;
+      doc.text(col.label, tx, y + rowH * 0.68, { align: col.align === "left" ? "left" : "center" });
+    }
+  };
+
+  const repeatRankHeader = (y: number, cols: { x: number; w: number; label: string; align?: "left" | "center" }[], rowH: number) => {
+    drawTableHeader(y, cols, rowH, 30, 41, 55);
+    return y + rowH;
+  };
+
+  // ── HEADER ────────────────────────────────────────────────────────────────
+  // Bande bleue principale
+  doc.setFillColor(37, 99, 235);
+  doc.rect(0, 0, pageW, 36, "F");
+  // Ligne dorée décorative en bas du header
+  doc.setFillColor(251, 191, 36);
+  doc.rect(0, 36, pageW, 1.5, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text(ascii(data.schoolName.toUpperCase()), pageW / 2, 13, { align: "center" });
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("PROCLAMATION DES RESULTATS", pageW / 2, 22, { align: "center" });
+
+  doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
+  const dateStr = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  doc.text(ascii(`Classe : ${data.className}   |   ${data.term}   |   Annee scolaire : ${data.academicYear}   |   ${dateStr}`), pageW / 2, 30, { align: "center" });
+
+  // ── BLOC INFOS RÉSUMÉ (3 badges côte à côte) ─────────────────────────────
+  let y = 42;
+  const badgeW = (contentW - 8) / 3;
+  const badgeH = 14;
+  const badges = [
+    { label: "Effectif compose", value: `${composed.length} / ${data.students.length}`, sub: `${data.students.length - composed.length} absent(s)`, color: [59, 130, 246] as [number, number, number] },
+    { label: "Admis(es)", value: `${admitted.length} eleves`, sub: `Taux : ${rate}%`, color: [16, 185, 129] as [number, number, number] },
+    { label: `Moyenne de classe`, value: `${data.classAverage.toFixed(2)} / ${data.scoreMax}`, sub: ascii(`Seuil d'admission : ${data.passThreshold}/${data.scoreMax}`), color: [124, 58, 237] as [number, number, number] },
+  ];
+  badges.forEach((b, i) => {
+    const bx = margin + i * (badgeW + 4);
+    doc.setFillColor(...b.color);
+    doc.roundedRect(bx, y, badgeW, badgeH, 2, 2, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(b.value, bx + badgeW / 2, y + 6, { align: "center" });
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "normal");
+    doc.text(ascii(b.label.toUpperCase()), bx + badgeW / 2, y + 10.5, { align: "center" });
+    doc.setFontSize(6);
+    doc.text(ascii(b.sub), bx + badgeW / 2, y + 13.5, { align: "center" });
+  });
+
+  y += badgeH + 5;
+
+  // ── TABLEAU STATISTIQUES ──────────────────────────────────────────────────
+  const statLabelW = 72;
+  const statDataW  = (contentW - statLabelW) / 3;
+  const statCols = [
+    { x: margin,                             w: statLabelW, label: "",         align: "left"   as const },
+    { x: margin + statLabelW,                w: statDataW,  label: "TOTAL",    align: "center" as const },
+    { x: margin + statLabelW + statDataW,    w: statDataW,  label: "FILLES",   align: "center" as const },
+    { x: margin + statLabelW + 2 * statDataW, w: statDataW, label: "GARCONS",  align: "center" as const },
+  ];
+  const statRowH = 7;
+
+  drawTableHeader(y, statCols, statRowH, 30, 41, 55);
+  y += statRowH;
+
+  const statRows: [string, string | number, string | number, string | number, boolean][] = [
+    ["Inscrits",                                  data.students.length,  girls.length,                   boys.length,                   false],
+    ["Ont compose",                               composed.length,       girlsComp.length,               boysComp.length,               false],
+    [ascii(`Ont la moyenne (>= ${data.passThreshold})`), admitted.length, girlsAdm.length,               boysAdm.length,               false],
+    ["N'ont pas la moyenne",                      failed.length,         girlsComp.length - girlsAdm.length, boysComp.length - boysAdm.length, false],
+    ["Taux de reussite",                          `${rate}%`,            `${girlsRate}%`,                `${boysRate}%`,                true],
+  ];
+
+  statRows.forEach(([label, total, f, b, isBold], i) => {
+    const rowY = y + i * statRowH;
+    // Alternance
+    if (i % 2 === 0) { doc.setFillColor(247, 248, 250); doc.rect(margin, rowY, contentW, statRowH, "F"); }
+    // Ligne admis : fond vert très clair
+    if (i === 2) { doc.setFillColor(236, 253, 245); doc.rect(margin, rowY, contentW, statRowH, "F"); }
+    // Ligne taux : fond bleu très clair
+    if (i === 4) { doc.setFillColor(239, 246, 255); doc.rect(margin, rowY, contentW, statRowH, "F"); }
+
+    doc.setDrawColor(220, 225, 230);
+    doc.rect(margin, rowY, contentW, statRowH);
+    // séparateurs verticaux
+    for (let c = 1; c < statCols.length; c++) {
+      doc.line(statCols[c].x, rowY, statCols[c].x, rowY + statRowH);
+    }
+
+    doc.setTextColor(COLORS.dark);
+    doc.setFont("helvetica", isBold ? "bold" : "normal");
+    doc.setFontSize(7.5);
+    doc.text(ascii(String(label)), statCols[0].x + 3, rowY + 4.8);
+
+    const vals = [total, f, b];
+    vals.forEach((v, ci) => {
+      const col = statCols[ci + 1];
+      // Taux de réussite : couleur selon valeur
+      if (i === 4) {
+        const pct = parseInt(String(v));
+        doc.setTextColor(pct >= 50 ? 5 : 185, pct >= 50 ? 150 : 28, pct >= 50 ? 80 : 28);
+      } else if (i === 2) {
+        doc.setTextColor(5, 150, 80);
+      } else if (i === 3) {
+        doc.setTextColor(185, 28, 28);
+      } else {
+        doc.setTextColor(COLORS.dark);
+      }
+      doc.setFont("helvetica", "bold");
+      doc.text(String(v), col.x + col.w / 2, rowY + 4.8, { align: "center" });
+    });
+  });
+
+  y += statRows.length * statRowH + 7;
+
+  // ── TITRE CLASSEMENT ─────────────────────────────────────────────────────
+  doc.setFillColor(251, 191, 36);
+  doc.rect(margin, y, contentW, 0.8, "F");
+  y += 3;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(30, 41, 59);
+  doc.text("CLASSEMENT PAR ORDRE DE MERITE", margin, y + 5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(ascii(`${composed.length} eleve(s) classe(s)  —  ${admitted.length} admis(es)  —  ${failed.length} non admis(es)`), pageW - margin, y + 5, { align: "right" });
+  y += 9;
+
+  // ── TABLEAU CLASSEMENT ────────────────────────────────────────────────────
+  const rankRowH  = 6.5;
+  const rCols = {
+    rang:     { w: 22 },
+    nom:      { w: 95 },
+    moy:      { w: 30 },
+    mention:  { w: 50 },
+    decision: { w: contentW - 22 - 95 - 30 - 50 },
+  };
+  let rx = margin;
+  const rX: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rCols)) { rX[k] = rx; rx += v.w; }
+
+  const rankHeaderCols = [
+    { x: rX.rang,     w: rCols.rang.w,     label: "RANG",       align: "center" as const },
+    { x: rX.nom,      w: rCols.nom.w,      label: "NOM & PRENOM", align: "left"  as const },
+    { x: rX.moy,      w: rCols.moy.w,      label: "MOYENNE",    align: "center" as const },
+    { x: rX.mention,  w: rCols.mention.w,  label: "MENTION",    align: "center" as const },
+    { x: rX.decision, w: rCols.decision.w, label: "DECISION",   align: "center" as const },
+  ];
+
+  y = repeatRankHeader(y, rankHeaderCols, rankRowH);
+
   let page = 1;
 
-  for (const st of data.students) {
-    // Nouvelle page si besoin
+  for (let ri = 0; ri < data.students.length; ri++) {
+    const st = data.students[ri];
+
     if (y + rankRowH > pageH - 14) {
       addFooter(doc, page);
       doc.addPage();
       page++;
       y = 12;
-      // Répéter en-tête
-      doc.setFillColor(31, 41, 55);
-      doc.rect(margin, y, contentW, rankRowH, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "bold");
-      doc.text("Rang",        rankX.rang     + rankCols.rang     / 2, y + 4.2, { align: "center" });
-      doc.text("Nom & Prénom",rankX.nom      + 2,                      y + 4.2);
-      doc.text("Moy.",        rankX.moy      + rankCols.moy      / 2, y + 4.2, { align: "center" });
-      doc.text("Mention",     rankX.mention  + rankCols.mention  / 2, y + 4.2, { align: "center" });
-      doc.text("Décision",    rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
-      y += rankRowH;
-      doc.setFont("helvetica", "normal");
+      y = repeatRankHeader(y, rankHeaderCols, rankRowH);
     }
 
     const isFemale = st.gender === "F";
@@ -1130,66 +1200,90 @@ export function generateProclamationPDF(data: ProclamationData) {
     const noComp   = st.totalSubjects === 0;
     const isExAeq  = !noComp && rankCount[st.rank] > 1;
 
-    if (st.rank % 2 === 0) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(margin, y, contentW, rankRowH, "F");
+    // Fond de ligne
+    if (isAdmis) {
+      doc.setFillColor(240, 253, 244);
+    } else if (noComp) {
+      doc.setFillColor(249, 250, 251);
+    } else {
+      doc.setFillColor(ri % 2 === 0 ? 255 : 247, ri % 2 === 0 ? 255 : 248, ri % 2 === 0 ? 255 : 250);
     }
-    doc.setDrawColor(230, 230, 230);
+    doc.rect(margin, y, contentW, rankRowH, "F");
+    doc.setDrawColor(226, 232, 240);
     doc.rect(margin, y, contentW, rankRowH);
+    for (const col of rankHeaderCols.slice(1)) {
+      doc.setDrawColor(226, 232, 240);
+      doc.line(col.x, y, col.x, y + rankRowH);
+    }
 
-    doc.setTextColor(COLORS.dark);
+    const cy = y + rankRowH * 0.72;
     doc.setFontSize(7.5);
 
-    // Rang (avec "Ex Æquo" si partagé)
-    doc.setFont("helvetica", "bold");
+    // Rang
     if (noComp) {
-      doc.text("—", rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+      doc.setTextColor(160, 160, 160);
+      doc.setFont("helvetica", "normal");
+      doc.text("-", rX.rang + rCols.rang.w / 2, cy, { align: "center" });
     } else if (isExAeq) {
-      doc.setFontSize(6);
-      doc.text(`${ordinal(st.rank, st.gender)}`, rankX.rang + rankCols.rang / 2, y + 3, { align: "center" });
+      doc.setTextColor(124, 58, 237);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.text(ordinal(st.rank, st.gender), rX.rang + rCols.rang.w / 2, y + 3.5, { align: "center" });
       doc.setFontSize(5.5);
-      doc.setTextColor(100, 100, 100);
-      doc.text("Ex Æquo", rankX.rang + rankCols.rang / 2, y + 6.5, { align: "center" });
-      doc.setTextColor(COLORS.dark);
-      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("Ex Aequo", rX.rang + rCols.rang.w / 2, y + 5.8, { align: "center" });
     } else {
-      doc.text(ordinal(st.rank, st.gender), rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+      doc.setTextColor(30, 41, 59);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.text(ordinal(st.rank, st.gender), rX.rang + rCols.rang.w / 2, cy, { align: "center" });
     }
 
     // Nom
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    const fullName = `${st.lastName.toUpperCase()} ${st.firstName}`;
-    doc.text(fullName, rankX.nom + 2, y + 4.2);
+    doc.setTextColor(30, 41, 59);
+    const fullName = ascii(`${st.lastName.toUpperCase()} ${st.firstName}`);
+    doc.text(fullName, rX.nom + 3, cy);
 
     // Moyenne
-    if (!noComp) {
-      doc.setTextColor(isAdmis ? 16 : 180, isAdmis ? 160 : 40, isAdmis ? 80 : 40);
-    } else {
-      doc.setTextColor(150, 150, 150);
-    }
     doc.setFont("helvetica", "bold");
-    doc.text(noComp ? "—" : `${st.generalAverage.toFixed(2)}/${data.scoreMax}`, rankX.moy + rankCols.moy / 2, y + 4.2, { align: "center" });
+    doc.setFontSize(8);
+    if (noComp) {
+      doc.setTextColor(160, 160, 160);
+      doc.text("-", rX.moy + rCols.moy.w / 2, cy, { align: "center" });
+    } else if (isAdmis) {
+      doc.setTextColor(5, 150, 105);
+      doc.text(`${st.generalAverage.toFixed(2)}`, rX.moy + rCols.moy.w / 2, cy, { align: "center" });
+    } else {
+      doc.setTextColor(220, 38, 38);
+      doc.text(`${st.generalAverage.toFixed(2)}`, rX.moy + rCols.moy.w / 2, cy, { align: "center" });
+    }
 
     // Mention
-    doc.setTextColor(COLORS.dark);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
-    doc.text(noComp ? "N/A" : getMention(st.generalAverage, data.scoreMax), rankX.mention + rankCols.mention / 2, y + 4.2, { align: "center" });
+    doc.setTextColor(71, 85, 105);
+    doc.text(noComp ? "-" : ascii(getMention(st.generalAverage, data.scoreMax)), rX.mention + rCols.mention.w / 2, cy, { align: "center" });
 
-    // Décision (accordée au genre)
-    doc.setFontSize(7.5);
-    if (noComp) {
-      doc.setTextColor(150, 150, 150);
-      doc.text(isFemale ? "Absente" : "Absent", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
-    } else if (isAdmis) {
-      doc.setTextColor(16, 160, 80);
+    // Décision — badge coloré
+    if (!noComp) {
+      const decLabel = isAdmis ? (isFemale ? "ADMISE" : "ADMIS") : (isFemale ? "REFUSEE" : "REFUSE");
+      const [dr, dg, db] = isAdmis ? [5, 150, 105] : [220, 38, 38];
+      const [bgR2, bgG2, bgB2] = isAdmis ? [209, 250, 229] : [254, 226, 226];
+      const decX = rX.decision + rCols.decision.w / 2;
+      const badgeTW = 24;
+      doc.setFillColor(bgR2, bgG2, bgB2);
+      doc.roundedRect(decX - badgeTW / 2, y + 1, badgeTW, rankRowH - 2, 1, 1, "F");
+      doc.setTextColor(dr, dg, db);
       doc.setFont("helvetica", "bold");
-      doc.text(isFemale ? "ADMISE" : "ADMIS", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      doc.setFontSize(7);
+      doc.text(decLabel, decX, cy, { align: "center" });
     } else {
-      doc.setTextColor(180, 40, 40);
-      doc.setFont("helvetica", "bold");
-      doc.text(isFemale ? "REFUSÉE" : "REFUSÉ", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      doc.setTextColor(160, 160, 160);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(isFemale ? "Absente" : "Absent", rX.decision + rCols.decision.w / 2, cy, { align: "center" });
     }
 
     y += rankRowH;
@@ -1197,5 +1291,5 @@ export function generateProclamationPDF(data: ProclamationData) {
 
   addFooter(doc, page);
   const safeClass = data.className.replace(/[^a-zA-Z0-9]/g, "-");
-  doc.save(`proclamation-${safeClass}-${data.term.replace(/\s+/g, "-")}.pdf`);
+  doc.save(`proclamation-${safeClass}-${ascii(data.term).replace(/\s+/g, "-")}.pdf`);
 }
