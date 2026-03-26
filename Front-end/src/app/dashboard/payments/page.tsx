@@ -1315,7 +1315,7 @@ export default function PaymentsPage() {
     payments.forEach((p) => {
       if (p.studentId !== selectedStudentForPayment.id) return;
       if (p.academicYear && p.academicYear !== paymentForm.academicYear) return;
-      if (p.status !== "paid" && p.status !== "partial") return;
+      if (p.status !== "paid") return; // partial = incomplet, reste sélectionnable
       if (!p.term) return;
       if (p.term.includes(",")) {
         p.term.split(",").map((s) => s.trim()).forEach((m) => paidMonths.add(m));
@@ -1332,6 +1332,29 @@ export default function PaymentsPage() {
       }
     });
     return paidMonths;
+  }, [selectedStudentForPayment, payments, paymentForm.academicYear, schoolCalendar]);
+
+  /** Mois avec un paiement PARTIEL pour l'élève en cours (affichage amber dans la grille) */
+  const partialMonthsForStudent = useMemo(() => {
+    if (!selectedStudentForPayment) return new Set<string>();
+    const partialMonths = new Set<string>();
+    payments.forEach((p) => {
+      if (p.studentId !== selectedStudentForPayment.id) return;
+      if (p.academicYear && p.academicYear !== paymentForm.academicYear) return;
+      if (p.status !== "partial") return;
+      if (!p.term) return;
+      if (p.term.includes(",")) {
+        p.term.split(",").map((s) => s.trim()).forEach((m) => partialMonths.add(m));
+      } else if (p.term.startsWith("Trimestre")) {
+        getMonthsWithYearForTrimestre(p.term, paymentForm.academicYear, schoolCalendar).forEach((m) => partialMonths.add(m));
+      } else {
+        partialMonths.add(p.term!);
+        const allSchool = getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar);
+        const yearQualified = allSchool.find(m => m.split(" ")[0] === p.term!.trim());
+        if (yearQualified) partialMonths.add(yearQualified);
+      }
+    });
+    return partialMonths;
   }, [selectedStudentForPayment, payments, paymentForm.academicYear, schoolCalendar]);
 
   // ── Validation séquentielle ───────────────────────────────────────────────
@@ -4711,13 +4734,12 @@ export default function PaymentsPage() {
                         {/* Boutons mois */}
                         <div className="flex gap-1 flex-wrap flex-1">
                           {monthsWithYear.map((month) => {
-                            const isPaid    = paidMonthsForStudent.has(month);
-                            const isSel     = dialogTrimestreMonths.has(month);
-                            const shortName = MONTH_SHORT[month.split(" ")[0]] ?? month.split(" ")[0].slice(0, 3);
-                            // Un mois scolaire est "en attente" si des mois antérieurs ne sont pas encore payés
-                            // → l'utilisateur PEUT quand même cliquer dessus (auto-fill), mais on l'indique visuellement
+                            const isPaid      = paidMonthsForStudent.has(month);
+                            const isPartial   = !isPaid && partialMonthsForStudent.has(month);
+                            const isSel       = dialogTrimestreMonths.has(month);
+                            const shortName   = MONTH_SHORT[month.split(" ")[0]] ?? month.split(" ")[0].slice(0, 3);
                             const monthSchoolIdx = dialogSchoolMonths.indexOf(month);
-                            const isAwaitingPrev = !isHC && !isPaid && !isSel &&
+                            const isAwaitingPrev = !isHC && !isPaid && !isPartial && !isSel &&
                               monthSchoolIdx > firstUnpaidIdx &&
                               dialogSchoolMonths.slice(firstUnpaidIdx, monthSchoolIdx).some((m) => !dialogTrimestreMonths.has(m) && !paidMonthsForStudent.has(m));
                             return (
@@ -4726,7 +4748,8 @@ export default function PaymentsPage() {
                                 type="button"
                                 disabled={isPaid}
                                 title={
-                                  isPaid ? `${month} — déjà payé` :
+                                  isPaid      ? `${month} — déjà payé` :
+                                  isPartial   ? `${month} — paiement partiel, cliquer pour compléter` :
                                   isAwaitingPrev ? `Cliquer inclura automatiquement les mois précédents non réglés` :
                                   undefined
                                 }
@@ -4740,6 +4763,8 @@ export default function PaymentsPage() {
                                     ? "bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed"
                                     : isSel
                                     ? "bg-primary border-primary text-primary-foreground shadow-sm active:bg-primary/80"
+                                    : isPartial
+                                    ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100 active:bg-amber-100"
                                     : isAwaitingPrev
                                     ? "bg-amber-50/60 border-amber-200/60 text-amber-700 hover:bg-amber-50 active:bg-amber-100"
                                     : isHC
@@ -4752,6 +4777,8 @@ export default function PaymentsPage() {
                                   ? <CheckCircle2 className="h-2 w-2" />
                                   : isSel
                                   ? <Check className="h-2 w-2" />
+                                  : isPartial
+                                  ? <span className="text-[9px] font-bold leading-none">½</span>
                                   : isAwaitingPrev
                                   ? <Lock className="h-2 w-2 opacity-50" />
                                   : <span className="h-2" />}
