@@ -728,6 +728,27 @@ function GradesPageInner() {
     setTrimesterLock(bulletinData.lock);
   }, [bulletinData]);
 
+  // ── useQuery: pré-chargement des compteurs de matières pour toutes les classes ──
+  // Lance un Promise.all dès que l'onglet configuration est ouvert
+  useQuery({
+    queryKey: ["config-subjects-all", user?.tenantId, classes.map((c) => c.id).join(",")],
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const results = await Promise.all(
+        classes.map((c) => getClassSubjects(token, c.id).then((subs) => ({ id: c.id, count: subs.length })).catch(() => ({ id: c.id, count: 0 })))
+      );
+      const map: Record<string, number> = {};
+      for (const { id, count } of results) {
+        if (count > 0) map[id] = count;
+      }
+      setConfiguredMap(map);
+      return map;
+    },
+    enabled: activeTab === "configuration" && isOnline && !!user && classes.length > 0,
+    staleTime: 5 * 60_000,
+  });
+
   // ── useQuery: config sujets (onglet configuration) ────────────────────────
   const {
     data: configSubjectsData,
