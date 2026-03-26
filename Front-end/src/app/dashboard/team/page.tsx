@@ -544,13 +544,9 @@ export default function TeamPage() {
     };
     setMembers((prev) => prev.map((m) => (m.id === selectedMember.id ? optimistic : m)));
     setIsEditDialogOpen(false);
-    toast.success("Membre modifié", {
-      description: `${editForm.firstName} ${editForm.lastName} a été mis à jour.`,
-    });
 
-    // ── Appels API en arrière-plan ──
-    setIsSubmitting(true);
-    try {
+    // ── Un seul toast : loading → succès ou erreur (pas de double toast contradictoire) ──
+    const apiCall = async () => {
       const emailChanged = editForm.email && editForm.email !== selectedMember.email;
       const updated = await updateTeamMember(token, selectedMember.id, {
         firstName: editForm.firstName,
@@ -568,7 +564,6 @@ export default function TeamPage() {
           editForm.selectedClassIds,
           checkedAssignments,
         );
-        // Réconcilier avec les vraies données serveur
         setMembers((prev) =>
           prev.map((m) => (m.id === selectedMember.id ? mapMember(withClasses) : m))
         );
@@ -577,15 +572,17 @@ export default function TeamPage() {
           prev.map((m) => (m.id === selectedMember.id ? mapMember(updated) : m))
         );
       }
-    } catch (err) {
-      // Annuler l'optimistic update en cas d'échec
-      setMembers((prev) => prev.map((m) => (m.id === selectedMember.id ? selectedMember : m)));
-      toast.error("Erreur lors de la modification.", {
-        description: err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    };
+
+    toast.promise(apiCall(), {
+      loading: "Enregistrement...",
+      success: `${editForm.firstName} ${editForm.lastName} a été mis à jour.`,
+      error: (err: unknown) => {
+        // Rollback optimistic update en cas d'échec
+        setMembers((prev) => prev.map((m) => (m.id === selectedMember.id ? selectedMember : m)));
+        return err instanceof Error ? err.message : "Erreur lors de la modification.";
+      },
+    });
   };
 
   const confirmPermissions = async () => {
