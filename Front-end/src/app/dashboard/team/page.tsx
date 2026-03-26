@@ -524,37 +524,51 @@ export default function TeamPage() {
     const token = storage.getAuthItem("structura_token");
     if (!token) return;
 
-    const isSelf = selectedMember.id === user?.id;
+    const isSelf    = selectedMember.id === user?.id;
     const previousRole = selectedMember.role;
-    const newRole = (editForm.role || previousRole) as RoleType;
+    const newRole   = (editForm.role || previousRole) as RoleType;
+    const checkedAssignments = editForm.classAssignments.filter((a) =>
+      editForm.selectedClassIds.includes(a.classId)
+    );
 
+    // ── Optimistic update : fermer le dialog et mettre à jour l'UI immédiatement ──
+    const optimistic: MemberView = {
+      ...selectedMember,
+      firstName:        editForm.firstName,
+      lastName:         editForm.lastName,
+      phone:            editForm.phone || "",
+      ...(!isSelf && { role: newRole, isActive: editForm.isActive }),
+      ...(newRole === "teacher" && {
+        classAssignments: checkedAssignments,
+      }),
+    };
+    setMembers((prev) => prev.map((m) => (m.id === selectedMember.id ? optimistic : m)));
+    setIsEditDialogOpen(false);
+    toast.success("Membre modifié", {
+      description: `${editForm.firstName} ${editForm.lastName} a été mis à jour.`,
+    });
+
+    // ── Appels API en arrière-plan ──
     setIsSubmitting(true);
     try {
       const emailChanged = editForm.email && editForm.email !== selectedMember.email;
       const updated = await updateTeamMember(token, selectedMember.id, {
         firstName: editForm.firstName,
-        lastName: editForm.lastName,
-        phone: editForm.phone || undefined,
-        // Ne pas envoyer role/isActive si on s'édite soi-même (backend le rejette)
+        lastName:  editForm.lastName,
+        phone:     editForm.phone || undefined,
         ...(!isSelf && { role: newRole.toUpperCase() }),
         ...(!isSelf && { isActive: editForm.isActive }),
-        // Email uniquement si modifié et compte non activé
         ...(emailChanged && !selectedMember.lastLoginAt && { email: editForm.email }),
       });
-      // Note : le backend déassigne automatiquement les classes si le rôle change de TEACHER → autre.
 
-      // Si le membre est (ou reste) un professeur, synchroniser ses classes.
       if (!isSelf && newRole === "teacher") {
-        // Filtrer pour n'envoyer que les assignments des classes effectivement cochées
-        const checkedAssignments = editForm.classAssignments.filter((a) =>
-          editForm.selectedClassIds.includes(a.classId)
-        );
         const withClasses = await assignTeacherClasses(
           token,
           selectedMember.id,
           editForm.selectedClassIds,
           checkedAssignments,
         );
+        // Réconcilier avec les vraies données serveur
         setMembers((prev) =>
           prev.map((m) => (m.id === selectedMember.id ? mapMember(withClasses) : m))
         );
@@ -563,23 +577,11 @@ export default function TeamPage() {
           prev.map((m) => (m.id === selectedMember.id ? mapMember(updated) : m))
         );
       }
-
-      setIsEditDialogOpen(false);
-
-      // Message contextuel si le rôle a changé et a provoqué une déassignation
-      if (!isSelf && previousRole === "teacher" && newRole !== "teacher" && selectedMember.assignedClasses.length > 0) {
-        toast.success("Membre modifié", {
-          description: `${updated.firstName} ${updated.lastName} a été mis à jour. Ses classes ont été désassignées.`,
-        });
-      } else {
-        toast.success("Membre modifié", {
-          description: `${updated.firstName} ${updated.lastName} a été mis à jour.`,
-        });
-      }
     } catch (err) {
-      toast.error("Impossible de modifier le membre.", {
-        description:
-          err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
+      // Annuler l'optimistic update en cas d'échec
+      setMembers((prev) => prev.map((m) => (m.id === selectedMember.id ? selectedMember : m)));
+      toast.error("Erreur lors de la modification.", {
+        description: err instanceof Error ? err.message : "Une erreur inattendue s'est produite.",
       });
     } finally {
       setIsSubmitting(false);
