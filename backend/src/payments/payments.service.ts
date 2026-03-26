@@ -114,7 +114,7 @@ export class PaymentsService {
         const incomingSchoolMonths = incomingMonths.filter((m) => schoolMonths.includes(m));
         if (incomingSchoolMonths.length === 0) return;
 
-        // 3. Récupérer tous les paiements paid/partial de l'élève pour cette année
+        // 3. Récupérer tous les paiements paid ET partial de l'élève pour cette année
         const existingPayments = await this.prisma.payment.findMany({
             where: {
                 tenantId,
@@ -122,26 +122,34 @@ export class PaymentsService {
                 academicYear,
                 status: { in: ['paid', 'partial'] },
             },
-            select: { term: true },
+            select: { term: true, status: true },
         });
 
-        // 4. Calculer l'ensemble des mois déjà couverts
-        const paidMonths = new Set<string>();
+        // 4a. Mois entièrement payés (status=paid) → bloquent tout nouveau paiement
+        const fullyPaidMonths = new Set<string>();
+        // 4b. Mois partiellement payés (status=partial) → autorisent un complément
+        const partialMonths = new Set<string>();
         for (const p of existingPayments) {
             if (!p.term) continue;
-            this.expandTermToMonths(p.term, schoolMonths, trimestreGroups)
-                .forEach((m) => paidMonths.add(m));
+            const months = this.expandTermToMonths(p.term, schoolMonths, trimestreGroups);
+            if (p.status === 'paid') {
+                months.forEach((m) => fullyPaidMonths.add(m));
+            } else {
+                months.forEach((m) => partialMonths.add(m));
+            }
         }
+        // Pour l'anti-saut, un mois est "couvert" s'il est paid OU partial
+        const paidMonths = new Set<string>([...fullyPaidMonths, ...partialMonths]);
 
-        // 5. Anti-doublon : aucun mois entrant ne doit déjà être payé
-        const alreadyPaid = incomingSchoolMonths.filter((m) => paidMonths.has(m));
+        // 5. Anti-doublon : bloquer uniquement les mois entièrement payés (pas les partiels)
+        const alreadyPaid = incomingSchoolMonths.filter((m) => fullyPaidMonths.has(m));
         if (alreadyPaid.length > 0) {
             throw new ConflictException(
                 `Paiement déjà enregistré pour : ${alreadyPaid.join(', ')}`,
             );
         }
 
-        // 6. Anti-saut : tous les mois scolaires antérieurs au premier mois entrant doivent être payés
+        // 6. Anti-saut : tous les mois scolaires antérieurs au premier mois entrant doivent être couverts
         const firstIncomingIdx = schoolMonths.findIndex((m) => incomingSchoolMonths.includes(m));
         if (firstIncomingIdx > 0) {
             const gapMonths = schoolMonths
