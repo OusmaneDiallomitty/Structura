@@ -881,7 +881,7 @@ export default function PaymentsPage() {
   }, [isOnline]);
 
   // ── Dépenses — chargement pour le widget Solde Net ────────────────────────
-  useEffect(() => {
+  const loadExpensesTotal = useCallback(() => {
     if (!isOnline) return;
     const token = storage.getAuthItem("structura_token");
     if (!token) return;
@@ -889,6 +889,17 @@ export default function PaymentsPage() {
       .then((s) => setExpensesTotal(s.totalAmount))
       .catch(() => {}); // silencieux — widget optionnel
   }, [isOnline, selectedYear]);
+
+  useEffect(() => { loadExpensesTotal(); }, [loadExpensesTotal]);
+
+  // Mise à jour temps réel : écouter les mutations de la page Dépenses
+  useEffect(() => {
+    window.addEventListener("expenses:updated", loadExpensesTotal);
+    return () => window.removeEventListener("expenses:updated", loadExpensesTotal);
+  }, [loadExpensesTotal]);
+
+  // Rafraîchir le solde net au retour sur l'onglet
+  useRefreshOnFocus(loadExpensesTotal, 10_000);
 
   const handleFrequencyChange = (freq: PaymentFrequency) => {
     setPaymentFrequency(freq);

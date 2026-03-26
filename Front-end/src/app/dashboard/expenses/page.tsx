@@ -1,150 +1,139 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import * as XLSX from "xlsx";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { useOnline } from "@/hooks/use-online";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "sonner";
 import {
-  getExpenses,
-  getExpenseStats,
-  createExpense,
-  updateExpense,
-  deleteExpense,
-  EXPENSE_CATEGORIES,
-  CATEGORY_LABELS,
-  CATEGORY_COLORS,
-  CATEGORY_ICONS,
-  type Expense,
-  type CreateExpenseDto,
-  type ExpenseStats,
-  type ExpenseCategory,
+  getExpenses, getExpenseStats, createExpense, updateExpense, deleteExpense,
+  EXPENSE_CATEGORIES, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_ICONS,
+  type Expense, type CreateExpenseDto, type ExpenseStats, type ExpenseCategory,
 } from "@/lib/api/expenses.service";
+import { getPayments } from "@/lib/api/payments.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Wallet,
-  Plus,
-  Search,
-  Filter,
-  Pencil,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-  BarChart3,
-  Lock,
-  RefreshCw,
-  Calendar,
-  FileText,
+  Wallet, Plus, Search, Filter, Pencil, Trash2, TrendingDown, TrendingUp,
+  BarChart3, Lock, RefreshCw, Calendar, FileText, Download, AlertTriangle,
+  Settings2,
 } from "lucide-react";
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+const BUDGET_KEY      = "structura_expense_budget_v1";
+const CURRENT_YEAR_KEY = "structura_current_year";
+
+const ALL_MONTHS_FR = [
+  "Janvier","Février","Mars","Avril","Mai","Juin",
+  "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
+] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("fr-GN", {
-    style: "currency",
-    currency: "GNF",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    style: "currency", currency: "GNF",
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(amount);
 }
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
+    day: "2-digit", month: "short", year: "numeric",
   });
 }
 
+/** Abréviation 3 lettres du mois (ex: "2026-03" → "Mar") */
+function shortMonth(yyyyMM: string): string {
+  const [y, m] = yyyyMM.split("-");
+  const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+  return d.toLocaleDateString("fr-FR", { month: "short" });
+}
+
 const METHOD_LABELS: Record<string, string> = {
-  CASH:          "Espèces",
-  MOBILE_MONEY:  "Mobile Money",
-  BANK_TRANSFER: "Virement",
-  CHECK:         "Chèque",
+  CASH: "Espèces", MOBILE_MONEY: "Mobile Money",
+  BANK_TRANSFER: "Virement", CHECK: "Chèque",
 };
 
 // ─── Types formulaire ─────────────────────────────────────────────────────────
 
 interface ExpenseForm {
-  amount:      string;
-  category:    ExpenseCategory;
-  description: string;
-  method:      string;
-  date:        string;
-  academicYear: string;
-  reference:   string;
-  note:        string;
+  amount: string; category: ExpenseCategory; description: string;
+  method: string; date: string; academicYear: string; reference: string; note: string;
 }
 
 const EMPTY_FORM: ExpenseForm = {
-  amount:      "",
-  category:    "GENERAL",
-  description: "",
-  method:      "CASH",
-  date:        new Date().toISOString().split("T")[0],
-  academicYear: "",
-  reference:   "",
-  note:        "",
+  amount: "", category: "GENERAL", description: "", method: "CASH",
+  date: new Date().toISOString().split("T")[0],
+  academicYear: "", reference: "", note: "",
 };
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
   const { user } = useAuth();
-  const isOnline = useOnline();
+  const isOnline  = useOnline();
 
   // ── State ──
-  const [expenses, setExpenses]         = useState<Expense[]>([]);
-  const [stats, setStats]               = useState<ExpenseStats | null>(null);
-  const [loading, setLoading]           = useState(true);
-  const [submitting, setSubmitting]     = useState(false);
+  const [expenses,      setExpenses]      = useState<Expense[]>([]);
+  const [stats,         setStats]         = useState<ExpenseStats | null>(null);
+  const [loading,       setLoading]       = useState(true);
+  const [submitting,    setSubmitting]    = useState(false);
+  const [revenueByMonth, setRevenueByMonth] = useState<Record<string, number>>({});
 
   // Filtres
-  const [searchQuery, setSearchQuery]   = useState("");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [selectedYear, setSelectedYear] = useState<string>("");
+  const [searchQuery,     setSearchQuery]     = useState("");
+  const [filterCategory,  setFilterCategory]  = useState<string>("all");
+  const [selectedYear,    setSelectedYear]    = useState<string>("");
 
-  // Dialog
-  const [dialogOpen, setDialogOpen]     = useState(false);
-  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [form, setForm]                 = useState<ExpenseForm>(EMPTY_FORM);
-  const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
+  // Dialogs
+  const [dialogOpen,      setDialogOpen]      = useState(false);
+  const [editingExpense,  setEditingExpense]  = useState<Expense | null>(null);
+  const [form,            setForm]            = useState<ExpenseForm>(EMPTY_FORM);
+  const [deleteTarget,    setDeleteTarget]    = useState<Expense | null>(null);
+  const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
+  const [budgetForm,       setBudgetForm]       = useState<Partial<Record<ExpenseCategory, string>>>({});
+
+  // Budget configuré par catégorie (localStorage)
+  const [budgetConfig, setBudgetConfig] = useState<Partial<Record<ExpenseCategory, number>>>(() => {
+    if (typeof window === "undefined") return {};
+    try { const s = localStorage.getItem(BUDGET_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
 
   // Permissions
   const canCreate = user?.role === "director" || user?.role === "accountant";
   const canEdit   = user?.role === "director" || user?.role === "accountant";
   const canDelete = user?.role === "director";
   const canView   = user?.role === "director" || user?.role === "accountant" || user?.role === "secretary";
+  const isDirector = user?.role === "director";
 
-  // ── Chargement ──
+  // ── Init année scolaire ──
+  useEffect(() => {
+    const stored = storage.getAuthItem(CURRENT_YEAR_KEY) || localStorage.getItem(CURRENT_YEAR_KEY);
+    if (stored) setSelectedYear(stored);
+  }, []);
+
+  // ── Chargement dépenses + stats ──
   const loadExpenses = useCallback(async () => {
     if (!isOnline) return;
     const token = storage.getAuthItem("structura_token");
@@ -168,11 +157,58 @@ export default function ExpensesPage() {
     loadExpenses();
   }, [loadExpenses]);
 
-  // ── Récupérer l'année scolaire courante depuis user/storage ──
+  // Rafraîchir au retour sur l'onglet
+  useRefreshOnFocus(loadExpenses);
+
+  // ── Chargement recettes (paiements scolarité) pour le graphique ──
   useEffect(() => {
-    const stored = storage.getAuthItem("structura_current_year");
-    if (stored) setSelectedYear(stored);
-  }, []);
+    if (!isOnline) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    getPayments(token, { academicYear: selectedYear || undefined, limit: 5000 } as any)
+      .then((payments: any[]) => {
+        const byMonth: Record<string, number> = {};
+        for (const p of payments) {
+          if (p.status !== "paid" && p.status !== "partial") continue;
+          if (p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription")) continue;
+          const date = p.paidDate || p.createdAt;
+          if (!date) continue;
+          const key = (date as string).slice(0, 7);
+          byMonth[key] = (byMonth[key] ?? 0) + (p.amount as number);
+        }
+        setRevenueByMonth(byMonth);
+      })
+      .catch(() => {});
+  }, [isOnline, selectedYear]);
+
+  // ── Données graphique : fusion recettes + dépenses par mois ──
+  const chartData = useMemo(() => {
+    const allKeys = new Set([
+      ...Object.keys(revenueByMonth),
+      ...Object.keys(stats?.byMonth ?? {}),
+    ]);
+    // Trier chronologiquement, garder 12 derniers mois max
+    return [...allKeys]
+      .sort()
+      .slice(-12)
+      .map((key) => ({
+        mois:     shortMonth(key),
+        Recettes: revenueByMonth[key] ?? 0,
+        Dépenses: stats?.byMonth?.[key] ?? 0,
+      }));
+  }, [revenueByMonth, stats]);
+
+  // ── Catégories dépassant leur budget ──
+  const overBudget = useMemo(() => {
+    if (!stats) return new Set<ExpenseCategory>();
+    const over = new Set<ExpenseCategory>();
+    for (const cat of EXPENSE_CATEGORIES) {
+      const budget = budgetConfig[cat];
+      const spent  = stats.byCategory[cat] ?? 0;
+      if (budget && spent > budget) over.add(cat);
+    }
+    return over;
+  }, [stats, budgetConfig]);
 
   // ── Filtrage local ──
   const filteredExpenses = useMemo(() => {
@@ -190,17 +226,25 @@ export default function ExpensesPage() {
     });
   }, [expenses, filterCategory, searchQuery]);
 
-  // ── Répartition par catégorie (pour le tableau de bord) ──
+  // ── Répartition par catégorie ──
   const categoryBreakdown = useMemo(() => {
     const total = expenses.reduce((s, e) => s + e.amount, 0);
-    return EXPENSE_CATEGORIES.map((cat) => {
-      const amount = expenses
-        .filter((e) => e.category === cat)
-        .reduce((s, e) => s + e.amount, 0);
-      return { cat, amount, pct: total > 0 ? Math.round((amount / total) * 100) : 0 };
-    }).filter((r) => r.amount > 0)
+    return EXPENSE_CATEGORIES
+      .map((cat) => {
+        const amount  = expenses.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0);
+        const budget  = budgetConfig[cat] ?? 0;
+        const pct     = total > 0 ? Math.round((amount / total) * 100) : 0;
+        const budgetPct = budget > 0 ? Math.min(100, Math.round((amount / budget) * 100)) : null;
+        return { cat, amount, pct, budget, budgetPct };
+      })
+      .filter((r) => r.amount > 0)
       .sort((a, b) => b.amount - a.amount);
-  }, [expenses]);
+  }, [expenses, budgetConfig]);
+
+  // ── Dispatcher l'événement après chaque mutation ──
+  const dispatchExpensesUpdated = () => {
+    window.dispatchEvent(new CustomEvent("expenses:updated"));
+  };
 
   // ── Formulaire helpers ──
   const openCreate = () => {
@@ -212,32 +256,19 @@ export default function ExpensesPage() {
   const openEdit = (expense: Expense) => {
     setEditingExpense(expense);
     setForm({
-      amount:      String(expense.amount),
-      category:    expense.category,
-      description: expense.description,
-      method:      expense.method,
-      date:        expense.date.split("T")[0],
-      academicYear: expense.academicYear ?? "",
-      reference:   expense.reference   ?? "",
-      note:        expense.note        ?? "",
+      amount: String(expense.amount), category: expense.category,
+      description: expense.description, method: expense.method,
+      date: expense.date.split("T")[0], academicYear: expense.academicYear ?? "",
+      reference: expense.reference ?? "", note: expense.note ?? "",
     });
     setDialogOpen(true);
   };
 
   const handleSubmit = async () => {
     const amount = parseFloat(form.amount);
-    if (!form.amount || isNaN(amount) || amount <= 0) {
-      toast.error("Montant invalide");
-      return;
-    }
-    if (!form.description.trim()) {
-      toast.error("Description requise");
-      return;
-    }
-    if (!form.date) {
-      toast.error("Date requise");
-      return;
-    }
+    if (!form.amount || isNaN(amount) || amount <= 0) { toast.error("Montant invalide"); return; }
+    if (!form.description.trim())                      { toast.error("Description requise"); return; }
+    if (!form.date)                                    { toast.error("Date requise"); return; }
 
     const token = storage.getAuthItem("structura_token");
     if (!token) { toast.error("Non authentifié"); return; }
@@ -245,16 +276,12 @@ export default function ExpensesPage() {
     setSubmitting(true);
     try {
       const dto: CreateExpenseDto = {
-        amount,
-        category:    form.category,
-        description: form.description.trim(),
-        method:      form.method,
-        date:        form.date,
+        amount, category: form.category, description: form.description.trim(),
+        method: form.method, date: form.date,
         academicYear: form.academicYear || undefined,
-        reference:   form.reference.trim() || undefined,
-        note:        form.note.trim()      || undefined,
+        reference: form.reference.trim() || undefined,
+        note: form.note.trim() || undefined,
       };
-
       if (editingExpense) {
         await updateExpense(token, editingExpense.id, dto);
         toast.success("Dépense modifiée");
@@ -262,8 +289,8 @@ export default function ExpensesPage() {
         await createExpense(token, dto);
         toast.success("Dépense enregistrée");
       }
-
       setDialogOpen(false);
+      dispatchExpensesUpdated();
       loadExpenses();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erreur lors de l'enregistrement");
@@ -280,10 +307,60 @@ export default function ExpensesPage() {
       await deleteExpense(token, deleteTarget.id);
       toast.success("Dépense supprimée");
       setDeleteTarget(null);
+      dispatchExpensesUpdated();
       loadExpenses();
     } catch {
       toast.error("Erreur lors de la suppression");
     }
+  };
+
+  // ── Export Excel ──
+  const handleExportExcel = () => {
+    if (filteredExpenses.length === 0) { toast.error("Aucune dépense à exporter"); return; }
+    const rows = filteredExpenses.map((e) => ({
+      Date:            formatDate(e.date),
+      Description:     e.description,
+      Catégorie:       CATEGORY_LABELS[e.category],
+      "Montant (GNF)": e.amount,
+      Méthode:         METHOD_LABELS[e.method] ?? e.method,
+      Référence:       e.reference ?? "",
+      Note:            e.note ?? "",
+      "Enregistré par": e.recordedBy ?? "",
+      "Année scolaire": e.academicYear ?? "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 14 }, { wch: 40 }, { wch: 24 }, { wch: 16 },
+      { wch: 16 }, { wch: 16 }, { wch: 30 }, { wch: 20 }, { wch: 12 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Dépenses");
+    const filename = `depenses-${selectedYear || new Date().getFullYear()}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast.success(`Export Excel : ${filename}`);
+  };
+
+  // ── Budget config ──
+  const openBudgetDialog = () => {
+    const init: Partial<Record<ExpenseCategory, string>> = {};
+    for (const cat of EXPENSE_CATEGORIES) {
+      init[cat] = budgetConfig[cat] ? String(budgetConfig[cat]) : "";
+    }
+    setBudgetForm(init);
+    setBudgetDialogOpen(true);
+  };
+
+  const saveBudget = () => {
+    const next: Partial<Record<ExpenseCategory, number>> = {};
+    for (const cat of EXPENSE_CATEGORIES) {
+      const v = parseFloat(budgetForm[cat] ?? "");
+      if (!isNaN(v) && v > 0) next[cat] = v;
+    }
+    setBudgetConfig(next);
+    localStorage.setItem(BUDGET_KEY, JSON.stringify(next));
+    setBudgetDialogOpen(false);
+    toast.success("Budgets enregistrés");
   };
 
   // ── Accès restreint ──
@@ -296,10 +373,10 @@ export default function ExpensesPage() {
     );
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
-
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 max-w-6xl mx-auto">
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -309,24 +386,39 @@ export default function ExpensesPage() {
             <p className="text-xs text-muted-foreground">Gestion des charges de l'école</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button variant="ghost" size="icon"
             onClick={() => { setLoading(true); loadExpenses(); }}
-            disabled={loading}
-            title="Actualiser"
+            disabled={loading} title="Actualiser"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
+          {isDirector && (
+            <Button variant="outline" size="sm" onClick={openBudgetDialog} className="gap-1.5">
+              <Settings2 className="h-3.5 w-3.5" /> Budgets
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleExportExcel} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" /> Excel
+          </Button>
           {canCreate && (
             <Button onClick={openCreate} size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Nouvelle dépense
+              <Plus className="h-4 w-4" /> Nouvelle dépense
             </Button>
           )}
         </div>
       </div>
+
+      {/* ── Alerte budget dépassé ── */}
+      {overBudget.size > 0 && (
+        <div className="flex items-start gap-2 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-semibold">Budget dépassé : </span>
+            {[...overBudget].map((cat) => CATEGORY_LABELS[cat]).join(", ")}
+          </div>
+        </div>
+      )}
 
       {/* ── Cartes stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -388,6 +480,43 @@ export default function ExpensesPage() {
         </Card>
       </div>
 
+      {/* ── Graphique Recettes vs Dépenses ── */}
+      {chartData.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" /> Recettes vs Dépenses — par mois
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-2 pb-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="mois" fontSize={11} tick={{ fill: "#6b7280" }} />
+                <YAxis
+                  fontSize={10}
+                  tick={{ fill: "#6b7280" }}
+                  tickFormatter={(v) =>
+                    v >= 1_000_000
+                      ? `${(v / 1_000_000).toFixed(1)}M`
+                      : v >= 1_000
+                      ? `${(v / 1_000).toFixed(0)}k`
+                      : String(v)
+                  }
+                />
+                <Tooltip
+                  formatter={(value: number | undefined, name: string | undefined) => [formatCurrency(value ?? 0), name ?? ""]}
+                  contentStyle={{ fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Recettes" fill="#10b981" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="Dépenses" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Répartition par catégorie ── */}
       {categoryBreakdown.length > 0 && (
         <Card>
@@ -397,23 +526,51 @@ export default function ExpensesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="space-y-2">
-              {categoryBreakdown.map(({ cat, amount, pct }) => (
+            <div className="space-y-3">
+              {categoryBreakdown.map(({ cat, amount, pct, budget, budgetPct }) => (
                 <div key={cat} className="flex items-center gap-3">
                   <span className="text-base w-6 text-center">{CATEGORY_ICONS[cat]}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center mb-0.5">
-                      <span className="text-xs font-medium truncate">{CATEGORY_LABELS[cat]}</span>
+                      <span className="text-xs font-medium flex items-center gap-1.5 truncate">
+                        {CATEGORY_LABELS[cat]}
+                        {overBudget.has(cat) && (
+                          <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
+                        )}
+                      </span>
                       <span className="text-xs text-muted-foreground tabular-nums ml-2 shrink-0">
-                        {formatCurrency(amount)} ({pct}%)
+                        {formatCurrency(amount)}
+                        {budget > 0 && (
+                          <span className={`ml-1 ${overBudget.has(cat) ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                            / {formatCurrency(budget)}
+                          </span>
+                        )}
                       </span>
                     </div>
+                    {/* Barre % du total */}
                     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-primary/70 transition-all duration-500"
-                        style={{ width: `${pct}%` }}
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${pct}%`,
+                          background: overBudget.has(cat) ? "#ef4444" : "rgb(var(--primary) / 0.7)",
+                        }}
                       />
                     </div>
+                    {/* Barre budget si configuré */}
+                    {budgetPct !== null && (
+                      <div className="h-1 w-full rounded-full bg-muted/50 overflow-hidden mt-0.5">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            budgetPct >= 100 ? "bg-red-400" : budgetPct >= 80 ? "bg-amber-400" : "bg-emerald-400"
+                          }`}
+                          style={{ width: `${budgetPct}%` }}
+                        />
+                      </div>
+                    )}
+                    {budgetPct !== null && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{budgetPct}% du budget utilisé</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -473,12 +630,7 @@ export default function ExpensesPage() {
                   key={expense.id}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
                 >
-                  {/* Icône catégorie */}
-                  <span className="text-xl w-8 text-center shrink-0">
-                    {CATEGORY_ICONS[expense.category]}
-                  </span>
-
-                  {/* Infos */}
+                  <span className="text-xl w-8 text-center shrink-0">{CATEGORY_ICONS[expense.category]}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium truncate">{expense.description}</span>
@@ -488,6 +640,9 @@ export default function ExpensesPage() {
                       >
                         {CATEGORY_LABELS[expense.category]}
                       </Badge>
+                      {overBudget.has(expense.category) && (
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                      )}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                       <span>{formatDate(expense.date)}</span>
@@ -496,36 +651,24 @@ export default function ExpensesPage() {
                       {expense.recordedBy && <span>par {expense.recordedBy}</span>}
                     </div>
                     {expense.note && (
-                      <p className="text-xs text-muted-foreground/70 mt-0.5 italic truncate">
-                        {expense.note}
-                      </p>
+                      <p className="text-xs text-muted-foreground/70 mt-0.5 italic truncate">{expense.note}</p>
                     )}
                   </div>
-
-                  {/* Montant */}
                   <div className="text-right shrink-0">
                     <span className="text-sm font-bold text-red-600 tabular-nums">
                       -{formatCurrency(expense.amount)}
                     </span>
                   </div>
-
-                  {/* Actions */}
                   {(canEdit || canDelete) && (
                     <div className="flex items-center gap-1 shrink-0">
                       {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => openEdit(expense)}
-                        >
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(expense)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
                       {canDelete && (
                         <Button
-                          variant="ghost"
-                          size="icon"
+                          variant="ghost" size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
                           onClick={() => setDeleteTarget(expense)}
                         >
@@ -545,76 +688,42 @@ export default function ExpensesPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {editingExpense ? "Modifier la dépense" : "Nouvelle dépense"}
-            </DialogTitle>
+            <DialogTitle>{editingExpense ? "Modifier la dépense" : "Nouvelle dépense"}</DialogTitle>
           </DialogHeader>
-
           <div className="space-y-4">
-            {/* Montant + Catégorie */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="amount">Montant (GNF) *</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  min={1}
-                  placeholder="Ex: 150000"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                />
+                <Input id="amount" type="number" min={1} placeholder="Ex: 150000"
+                  value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="category">Catégorie *</Label>
-                <Select
-                  value={form.category}
-                  onValueChange={(v) => setForm((f) => ({ ...f, category: v as ExpenseCategory }))}
-                >
-                  <SelectTrigger id="category">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v as ExpenseCategory }))}>
+                  <SelectTrigger id="category"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {EXPENSE_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}
-                      </SelectItem>
+                      <SelectItem key={cat} value={cat}>{CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
-            {/* Description */}
             <div className="space-y-1.5">
               <Label htmlFor="description">Description *</Label>
-              <Input
-                id="description"
-                placeholder="Ex: Achat de craies et cahiers pour CP1"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              />
+              <Input id="description" placeholder="Ex: Achat de craies et cahiers pour CP1"
+                value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
             </div>
-
-            {/* Date + Méthode */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date *</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                />
+                <Input id="date" type="date" value={form.date}
+                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="method">Méthode de paiement</Label>
-                <Select
-                  value={form.method}
-                  onValueChange={(v) => setForm((f) => ({ ...f, method: v }))}
-                >
-                  <SelectTrigger id="method">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={form.method} onValueChange={(v) => setForm((f) => ({ ...f, method: v }))}>
+                  <SelectTrigger id="method"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="CASH">Espèces</SelectItem>
                     <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
@@ -624,48 +733,61 @@ export default function ExpensesPage() {
                 </Select>
               </div>
             </div>
-
-            {/* Référence + Année scolaire */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="reference">N° Référence / Reçu</Label>
-                <Input
-                  id="reference"
-                  placeholder="Ex: BON-2026-001"
-                  value={form.reference}
-                  onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
-                />
+                <Input id="reference" placeholder="Ex: BON-2026-001"
+                  value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="academicYear">Année scolaire</Label>
-                <Input
-                  id="academicYear"
-                  placeholder="Ex: 2025-2026"
-                  value={form.academicYear}
-                  onChange={(e) => setForm((f) => ({ ...f, academicYear: e.target.value }))}
-                />
+                <Input id="academicYear" placeholder="Ex: 2025-2026"
+                  value={form.academicYear} onChange={(e) => setForm((f) => ({ ...f, academicYear: e.target.value }))} />
               </div>
             </div>
-
-            {/* Note */}
             <div className="space-y-1.5">
               <Label htmlFor="note">Note (optionnel)</Label>
-              <Input
-                id="note"
-                placeholder="Commentaire libre..."
-                value={form.note}
-                onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-              />
+              <Input id="note" placeholder="Commentaire libre..."
+                value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
             </div>
           </div>
-
           <DialogFooter className="mt-2">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Annuler
-            </Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Annuler</Button>
             <Button onClick={handleSubmit} disabled={submitting}>
               {submitting ? "Enregistrement..." : editingExpense ? "Modifier" : "Enregistrer"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog budgets par catégorie ── */}
+      <Dialog open={budgetDialogOpen} onOpenChange={setBudgetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4" /> Configurer les budgets
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2 mb-2">
+            Définissez un budget annuel par catégorie. Une alerte s'affichera si les dépenses le dépassent.
+          </p>
+          <div className="space-y-3">
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <div key={cat} className="flex items-center gap-3">
+                <span className="text-base w-6 text-center shrink-0">{CATEGORY_ICONS[cat]}</span>
+                <span className="text-sm flex-1 min-w-0 truncate">{CATEGORY_LABELS[cat]}</span>
+                <Input
+                  type="number" min={0} placeholder="Pas de limite"
+                  className="w-36 h-8 text-sm"
+                  value={budgetForm[cat] ?? ""}
+                  onChange={(e) => setBudgetForm((f) => ({ ...f, [cat]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setBudgetDialogOpen(false)}>Annuler</Button>
+            <Button onClick={saveBudget}>Enregistrer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -676,18 +798,13 @@ export default function ExpensesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer cette dépense ?</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>{deleteTarget?.description}</strong> —{" "}
-              {deleteTarget ? formatCurrency(deleteTarget.amount) : ""}
-              <br />
-              Cette action est irréversible.
+              <strong>{deleteTarget?.description}</strong> — {deleteTarget ? formatCurrency(deleteTarget.amount) : ""}
+              <br />Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>
