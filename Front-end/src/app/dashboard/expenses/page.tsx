@@ -466,20 +466,58 @@ export default function ExpensesPage() {
 
       {/* ── Graphique Recettes vs Dépenses ── */}
       {chartData.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" /> Recettes vs Dépenses — par mois
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-2 pb-4">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="mois" fontSize={11} tick={{ fill: "#6b7280" }} />
+        <Card className="overflow-hidden">
+          {/* En-tête avec légende intégrée */}
+          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Recettes vs Dépenses</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Évolution mensuelle</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500 inline-block" />
+                <span className="text-muted-foreground">Recettes</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-sm bg-red-400 inline-block" />
+                <span className="text-muted-foreground">Dépenses</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Résumé chiffré au-dessus du graphique */}
+          <div className="grid grid-cols-2 divide-x border-b">
+            <div className="px-5 py-3">
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Total recettes</p>
+              <p className="text-base font-bold text-emerald-600 mt-0.5">
+                {formatCurrency(Object.values(revenueByMonth).reduce((s, v) => s + v, 0))}
+              </p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Total dépenses</p>
+              <p className="text-base font-bold text-red-500 mt-0.5">
+                {formatCurrency(stats?.totalAmount ?? 0)}
+              </p>
+            </div>
+          </div>
+
+          <CardContent className="px-3 pb-4 pt-4">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData} margin={{ top: 0, right: 8, left: 0, bottom: 0 }} barGap={3}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis
+                  dataKey="mois"
+                  fontSize={11}
+                  tick={{ fill: "#9ca3af" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <YAxis
                   fontSize={10}
-                  tick={{ fill: "#6b7280" }}
+                  tick={{ fill: "#9ca3af" }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={42}
                   tickFormatter={(v) =>
                     v >= 1_000_000
                       ? `${(v / 1_000_000).toFixed(1)}M`
@@ -489,12 +527,21 @@ export default function ExpensesPage() {
                   }
                 />
                 <Tooltip
-                  formatter={(value: number | undefined, name: string | undefined) => [formatCurrency(value ?? 0), name ?? ""]}
-                  contentStyle={{ fontSize: 12 }}
+                  cursor={{ fill: "rgba(0,0,0,0.04)", radius: 4 }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 10,
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                    padding: "10px 14px",
+                  }}
+                  formatter={(value: number | undefined, name: string | undefined) => [
+                    formatCurrency(value ?? 0),
+                    name ?? "",
+                  ]}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Recettes" fill="#10b981" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Dépenses" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="Recettes" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Bar dataKey="Dépenses" fill="#f87171" radius={[4, 4, 0, 0]} maxBarSize={32} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
