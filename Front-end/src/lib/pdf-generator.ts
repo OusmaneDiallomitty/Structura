@@ -968,8 +968,9 @@ function getMention(avg: number, scoreMax: number): string {
   return "Insuffisant";
 }
 
-function ordinal(n: number): string {
-  if (n === 1) return "1er";
+function ordinal(n: number, gender: string | null | undefined): string {
+  const isFemale = gender === "F";
+  if (n === 1) return isFemale ? "1ère" : "1er";
   return `${n}ème`;
 }
 
@@ -996,8 +997,8 @@ export function generateProclamationPDF(data: ProclamationData) {
   const composed  = data.students.filter((s) => s.totalSubjects > 0);
   const admitted  = composed.filter((s) => s.generalAverage >= data.passThreshold);
   const failed    = composed.filter((s) => s.generalAverage < data.passThreshold);
-  const girls     = data.students.filter((s) => s.gender === "F" || s.gender === "FEMALE");
-  const boys      = data.students.filter((s) => s.gender !== "F" && s.gender !== "FEMALE");
+  const girls     = data.students.filter((s) => s.gender === "F");
+  const boys      = data.students.filter((s) => s.gender === "M");
   const girlsComp = girls.filter((s) => s.totalSubjects > 0);
   const boysComp  = boys.filter((s) => s.totalSubjects > 0);
   const girlsAdm  = girlsComp.filter((s) => s.generalAverage >= data.passThreshold);
@@ -1093,6 +1094,12 @@ export function generateProclamationPDF(data: ProclamationData) {
   doc.text("Décision",   rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
   y += rankRowH;
 
+  // Pré-calculer les rangs partagés (ex aequo)
+  const rankCount: Record<number, number> = {};
+  for (const st of data.students) {
+    if (st.totalSubjects > 0) rankCount[st.rank] = (rankCount[st.rank] ?? 0) + 1;
+  }
+
   doc.setFont("helvetica", "normal");
   let page = 1;
 
@@ -1118,8 +1125,10 @@ export function generateProclamationPDF(data: ProclamationData) {
       doc.setFont("helvetica", "normal");
     }
 
-    const isAdmis = st.totalSubjects > 0 && st.generalAverage >= data.passThreshold;
-    const noComp  = st.totalSubjects === 0;
+    const isFemale = st.gender === "F";
+    const isAdmis  = st.totalSubjects > 0 && st.generalAverage >= data.passThreshold;
+    const noComp   = st.totalSubjects === 0;
+    const isExAeq  = !noComp && rankCount[st.rank] > 1;
 
     if (st.rank % 2 === 0) {
       doc.setFillColor(248, 250, 252);
@@ -1131,12 +1140,25 @@ export function generateProclamationPDF(data: ProclamationData) {
     doc.setTextColor(COLORS.dark);
     doc.setFontSize(7.5);
 
-    // Rang
+    // Rang (avec "Ex Æquo" si partagé)
     doc.setFont("helvetica", "bold");
-    doc.text(noComp ? "—" : ordinal(st.rank), rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+    if (noComp) {
+      doc.text("—", rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+    } else if (isExAeq) {
+      doc.setFontSize(6);
+      doc.text(`${ordinal(st.rank, st.gender)}`, rankX.rang + rankCols.rang / 2, y + 3, { align: "center" });
+      doc.setFontSize(5.5);
+      doc.setTextColor(100, 100, 100);
+      doc.text("Ex Æquo", rankX.rang + rankCols.rang / 2, y + 6.5, { align: "center" });
+      doc.setTextColor(COLORS.dark);
+      doc.setFontSize(7.5);
+    } else {
+      doc.text(ordinal(st.rank, st.gender), rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+    }
 
     // Nom
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
     const fullName = `${st.lastName.toUpperCase()} ${st.firstName}`;
     doc.text(fullName, rankX.nom + 2, y + 4.2);
 
@@ -1155,19 +1177,19 @@ export function generateProclamationPDF(data: ProclamationData) {
     doc.setFontSize(7);
     doc.text(noComp ? "N/A" : getMention(st.generalAverage, data.scoreMax), rankX.mention + rankCols.mention / 2, y + 4.2, { align: "center" });
 
-    // Décision
+    // Décision (accordée au genre)
     doc.setFontSize(7.5);
     if (noComp) {
       doc.setTextColor(150, 150, 150);
-      doc.text("Absent(e)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      doc.text(isFemale ? "Absente" : "Absent", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
     } else if (isAdmis) {
       doc.setTextColor(16, 160, 80);
       doc.setFont("helvetica", "bold");
-      doc.text("ADMIS(E)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      doc.text(isFemale ? "ADMISE" : "ADMIS", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
     } else {
       doc.setTextColor(180, 40, 40);
       doc.setFont("helvetica", "bold");
-      doc.text("REFUSÉ(E)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      doc.text(isFemale ? "REFUSÉE" : "REFUSÉ", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
     }
 
     y += rankRowH;

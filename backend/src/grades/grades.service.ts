@@ -750,9 +750,15 @@ export class GradesService {
       };
     });
 
-    const ranked = studentResults
-      .sort((a, b) => b.generalAverage - a.generalAverage)
-      .map((s, idx) => ({ ...s, rank: idx + 1 }));
+    // Tri décroissant puis rang ex aequo : même moyenne → même rang
+    const sorted = [...studentResults].sort((a, b) => b.generalAverage - a.generalAverage);
+    let currentRank = 1;
+    const ranked = sorted.map((s, idx) => {
+      if (idx > 0 && s.generalAverage < sorted[idx - 1].generalAverage) {
+        currentRank = idx + 1;
+      }
+      return { ...s, rank: currentRank };
+    });
 
     const classAverage =
       ranked.length > 0
