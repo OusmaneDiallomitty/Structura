@@ -3253,7 +3253,14 @@ export default function PaymentsPage() {
               <span className="text-xs font-normal text-muted-foreground">— {selectedTerm} {selectedYear}</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4">
+          <CardContent className="px-0 pb-3">
+            {/* En-tête colonnes */}
+            <div className="grid grid-cols-[1fr_80px_100px_56px] gap-2 px-4 pb-1.5 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+              <span>Classe</span>
+              <span className="text-center">Élèves</span>
+              <span className="text-right">Encaissé</span>
+              <span className="text-right">Taux</span>
+            </div>
             <div className="divide-y">
               {classes
                 .map((cls) => {
@@ -3270,60 +3277,44 @@ export default function PaymentsPage() {
                 .sort((a, b) => b!.rate - a!.rate)
                 .map((item) => {
                   const { cls, scope, paid, partial, pending, rate, collected } = item!;
-                  const color = rate >= 80 ? "emerald" : rate >= 50 ? "amber" : "red";
-                  const barClass = rate >= 80 ? "bg-emerald-500" : rate >= 50 ? "bg-amber-500" : "bg-red-500";
-                  const textClass = rate >= 80 ? "text-emerald-600" : rate >= 50 ? "text-amber-600" : "text-red-600";
-                  const badgeClass = rate >= 80
-                    ? "bg-emerald-100 text-emerald-700"
-                    : rate >= 50
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-red-100 text-red-600";
+                  const barClass   = rate >= 80 ? "bg-emerald-500" : rate >= 50 ? "bg-amber-500" : "bg-red-500";
+                  const rateClass  = rate >= 80 ? "text-emerald-600" : rate >= 50 ? "text-amber-600" : "text-red-600";
                   return (
-                    <div key={cls.id} className="py-3 first:pt-0 last:pb-0">
-                      {/* Ligne 1 : nom classe + taux */}
-                      <div className="flex items-center justify-between mb-2">
+                    <div key={cls.id} className="grid grid-cols-[1fr_80px_100px_56px] gap-2 items-center px-4 py-2.5 hover:bg-muted/40 transition-colors">
+
+                      {/* Col 1 : nom + barre */}
+                      <div className="min-w-0">
                         <button
                           onClick={() => setActiveClass(cls.id)}
-                          className="text-sm font-semibold hover:text-primary transition-colors text-left"
+                          className="text-xs font-medium hover:text-primary transition-colors text-left truncate w-full block"
+                          title={cls.displayName}
                         >
                           {cls.displayName}
                         </button>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeClass}`}>
-                          {rate}%
-                        </span>
-                      </div>
-
-                      {/* Barre de progression */}
-                      <div className="h-2 rounded-full bg-muted overflow-hidden mb-2">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${barClass}`}
-                          style={{ width: `${rate}%` }}
-                        />
-                      </div>
-
-                      {/* Ligne 2 : stats détaillées */}
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <div className="flex items-center gap-3">
-                          <span className="flex items-center gap-1">
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
-                            <span className="font-medium text-foreground">{paid}</span> payés
-                          </span>
-                          {partial > 0 && (
-                            <span className="flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />
-                              <span className="font-medium text-amber-600">{partial}</span> partiels
-                            </span>
-                          )}
-                          {pending > 0 && (
-                            <span className="flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full bg-muted-foreground/40 inline-block" />
-                              <span className="font-medium">{pending}</span> en attente
-                            </span>
-                          )}
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-1">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${barClass}`}
+                            style={{ width: `${rate}%` }}
+                          />
                         </div>
-                        <span className={`font-semibold ${textClass}`}>
-                          {formatCurrency(collected)}
-                        </span>
+                      </div>
+
+                      {/* Col 2 : compteurs élèves */}
+                      <div className="text-center text-[11px] leading-tight">
+                        {paid > 0 && <span className="text-emerald-600 font-semibold">{paid}✓</span>}
+                        {partial > 0 && <span className="text-amber-600 font-semibold ml-1">{partial}~</span>}
+                        {pending > 0 && <span className="text-muted-foreground ml-1">{pending}✗</span>}
+                        <span className="block text-[10px] text-muted-foreground">{scope.length} élèves</span>
+                      </div>
+
+                      {/* Col 3 : montant */}
+                      <div className="text-right text-xs font-semibold tabular-nums text-emerald-600">
+                        {formatCurrency(collected)}
+                      </div>
+
+                      {/* Col 4 : taux */}
+                      <div className={`text-right text-xs font-bold tabular-nums ${rateClass}`}>
+                        {rate}%
                       </div>
                     </div>
                   );
