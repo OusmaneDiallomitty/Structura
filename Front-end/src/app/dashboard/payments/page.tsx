@@ -1600,7 +1600,7 @@ export default function PaymentsPage() {
     payments.forEach((p) => {
       if (p.studentId !== student.id) return;
       if (p.academicYear && p.academicYear !== academicYr) return;
-      if (p.status !== "paid" && p.status !== "partial") return;
+      if (p.status !== "paid") return; // partial = pas complet, reste sélectionnable dans le dialog
       if (!p.term) return;
       if (p.term.includes(",")) {
         p.term.split(",").map((s) => s.trim()).forEach((mo) => alreadyPaid.add(mo));
