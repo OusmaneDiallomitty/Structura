@@ -1290,8 +1290,12 @@ export default function PaymentsPage() {
     });
 
     const uniqueStudents = new Set(todayPayments.map(p => p.studentId)).size;
+    const countPartial     = todayPayments.filter(p => p.status === "partial").length;
+    const countCompletion  = todayPayments.filter(p => p.status === "paid" && p.description?.startsWith("Complément")).length;
+    const byCompletion     = todayPayments.filter(p => p.status === "paid" && p.description?.startsWith("Complément")).reduce((s, p) => s + p.amount, 0);
+    const byPartial        = todayPayments.filter(p => p.status === "partial").reduce((s, p) => s + p.amount, 0);
 
-    return { payments: todayPayments, total, byCash, byMobile, byTransfer, count: todayPayments.length, uniqueStudents, byClass };
+    return { payments: todayPayments, total, byCash, byMobile, byTransfer, count: todayPayments.length, uniqueStudents, byClass, countPartial, countCompletion, byCompletion, byPartial };
   }, [payments, students, classes]);
 
   const unsyncedCount = payments.filter((p) => p.needsSync).length;
@@ -2964,34 +2968,67 @@ export default function PaymentsPage() {
                   <TrendingUp className="h-4 w-4 text-emerald-600" />
                   Caisse du jour — {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  {todayReport.count} paiement{todayReport.count > 1 ? "s" : ""} · {todayReport.uniqueStudents} élève{todayReport.uniqueStudents > 1 ? "s" : ""} · {todayReport.byClass.length} classe{todayReport.byClass.length > 1 ? "s" : ""}
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>{todayReport.count} paiement{todayReport.count > 1 ? "s" : ""}</span>
+                  <span className="text-muted-foreground/30">·</span>
+                  <span>{todayReport.uniqueStudents} élève{todayReport.uniqueStudents > 1 ? "s" : ""}</span>
+                  <span className="text-muted-foreground/30">·</span>
+                  <span>{todayReport.byClass.length} classe{todayReport.byClass.length > 1 ? "s" : ""}</span>
+                  {todayReport.countCompletion > 0 && (
+                    <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">
+                      {todayReport.countCompletion} complément{todayReport.countCompletion > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {todayReport.countPartial > 0 && (
+                    <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                      {todayReport.countPartial} partiel{todayReport.countPartial > 1 ? "s" : ""}
+                    </span>
+                  )}
                 </DialogDescription>
               </DialogHeader>
 
-              {/* Récap méthodes */}
-              <div className="px-6 py-3 border-b bg-white shrink-0">
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-center">
-                    <div className="text-[10px] text-emerald-600 font-semibold uppercase mb-1">Total</div>
-                    <div className="text-sm font-bold text-emerald-700 tabular-nums">{formatCurrency(todayReport.total)}</div>
+              {/* Récap total + méthodes */}
+              <div className="px-6 py-3 border-b bg-white shrink-0 space-y-2.5">
+                {/* Ligne 1 : Total encaissé (toujours visible) */}
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-2.5">
+                  <div>
+                    <div className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide">Total encaissé</div>
+                    <div className="text-xs text-emerald-600/70 mt-0.5">
+                      {todayReport.count} paiement{todayReport.count > 1 ? "s" : ""} · {todayReport.uniqueStudents} élève{todayReport.uniqueStudents > 1 ? "s" : ""}
+                    </div>
                   </div>
+                  <div className="text-lg font-bold text-emerald-700 tabular-nums">{formatCurrency(todayReport.total)}</div>
+                </div>
+                {/* Ligne 2 : Ventilation par type (compléments, partiels, méthodes) */}
+                <div className="flex flex-wrap gap-2">
                   {todayReport.byCash > 0 && (
-                    <div className="rounded-xl bg-slate-50 border p-2.5 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase mb-1">Espèces</div>
-                      <div className="text-sm font-bold tabular-nums">{formatCurrency(todayReport.byCash)}</div>
+                    <div className="flex-1 min-w-[80px] rounded-lg bg-slate-50 border px-2.5 py-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-semibold uppercase">Espèces</div>
+                      <div className="text-xs font-bold tabular-nums mt-0.5">{formatCurrency(todayReport.byCash)}</div>
                     </div>
                   )}
                   {todayReport.byMobile > 0 && (
-                    <div className="rounded-xl bg-blue-50 border border-blue-100 p-2.5 text-center">
-                      <div className="text-[10px] text-blue-600 font-semibold uppercase mb-1">Mobile</div>
-                      <div className="text-sm font-bold text-blue-700 tabular-nums">{formatCurrency(todayReport.byMobile)}</div>
+                    <div className="flex-1 min-w-[80px] rounded-lg bg-blue-50 border border-blue-100 px-2.5 py-1.5 text-center">
+                      <div className="text-[9px] text-blue-600 font-semibold uppercase">Mobile</div>
+                      <div className="text-xs font-bold text-blue-700 tabular-nums mt-0.5">{formatCurrency(todayReport.byMobile)}</div>
                     </div>
                   )}
                   {todayReport.byTransfer > 0 && (
-                    <div className="rounded-xl bg-violet-50 border border-violet-100 p-2.5 text-center">
-                      <div className="text-[10px] text-violet-600 font-semibold uppercase mb-1">Virement</div>
-                      <div className="text-sm font-bold text-violet-700 tabular-nums">{formatCurrency(todayReport.byTransfer)}</div>
+                    <div className="flex-1 min-w-[80px] rounded-lg bg-violet-50 border border-violet-100 px-2.5 py-1.5 text-center">
+                      <div className="text-[9px] text-violet-600 font-semibold uppercase">Virement</div>
+                      <div className="text-xs font-bold text-violet-700 tabular-nums mt-0.5">{formatCurrency(todayReport.byTransfer)}</div>
+                    </div>
+                  )}
+                  {todayReport.byCompletion > 0 && (
+                    <div className="flex-1 min-w-[80px] rounded-lg bg-indigo-50 border border-indigo-100 px-2.5 py-1.5 text-center">
+                      <div className="text-[9px] text-indigo-600 font-semibold uppercase">Compléts</div>
+                      <div className="text-xs font-bold text-indigo-700 tabular-nums mt-0.5">{formatCurrency(todayReport.byCompletion)}</div>
+                    </div>
+                  )}
+                  {todayReport.byPartial > 0 && (
+                    <div className="flex-1 min-w-[80px] rounded-lg bg-amber-50 border border-amber-100 px-2.5 py-1.5 text-center">
+                      <div className="text-[9px] text-amber-600 font-semibold uppercase">Partiels</div>
+                      <div className="text-xs font-bold text-amber-700 tabular-nums mt-0.5">{formatCurrency(todayReport.byPartial)}</div>
                     </div>
                   )}
                 </div>
@@ -3037,8 +3074,9 @@ export default function PaymentsPage() {
                           {/* Détail des paiements de l'élève */}
                           <div className="space-y-1">
                             {stu.payments.map((p) => {
-                              const isInsc    = p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription");
-                              const isPartial = p.status === "partial";
+                              const isInsc       = p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription");
+                              const isPartial    = p.status === "partial";
+                              const isCompletion = p.status === "paid" && p.description?.startsWith("Complément");
 
                               // Formatage du terme : lisible et conserve l'info d'année
                               const termLabel = (() => {
@@ -3073,22 +3111,30 @@ export default function PaymentsPage() {
                               return (
                                 <div key={p.id} className={cn(
                                   "flex items-center justify-between gap-2 text-xs rounded-md px-2 py-1",
-                                  isPartial && "bg-amber-50/60"
+                                  isPartial    && "bg-amber-50/60",
+                                  isCompletion && "bg-indigo-50/50"
                                 )}>
                                   <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                     {/* Badge catégorie */}
                                     <span className={cn(
                                       "text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0",
-                                      isPartial  ? "bg-amber-100 text-amber-700"  :
-                                      isInsc     ? "bg-violet-100 text-violet-700" :
-                                                   "bg-blue-100 text-blue-700"
+                                      isPartial    ? "bg-amber-100 text-amber-700"   :
+                                      isCompletion ? "bg-indigo-100 text-indigo-700" :
+                                      isInsc       ? "bg-violet-100 text-violet-700" :
+                                                     "bg-blue-100 text-blue-700"
                                     )}>
-                                      {isPartial  ? "PARTIEL" :
-                                       isInsc     ? (p.term?.startsWith("Inscription") ? "INSC" : "RÉINSC") :
-                                                    "SCOL"}
+                                      {isPartial    ? "PARTIEL"  :
+                                       isCompletion ? "COMPLT"   :
+                                       isInsc       ? (p.term?.startsWith("Inscription") ? "INSC" : "RÉINSC") :
+                                                      "SCOL"}
                                     </span>
-                                    {/* Terme */}
-                                    <span className="text-foreground/80 truncate font-medium">{termLabel}</span>
+                                    {/* Terme + mention "soldé" pour les compléments */}
+                                    <span className="text-foreground/80 truncate font-medium">
+                                      {termLabel}
+                                      {isCompletion && (
+                                        <span className="ml-1 text-[9px] font-bold text-indigo-500">· soldé</span>
+                                      )}
+                                    </span>
                                     <span className="text-muted-foreground/30 shrink-0">·</span>
                                     {/* Méthode */}
                                     <span className="text-muted-foreground shrink-0">{formatMethod(p.method)}</span>
@@ -3103,9 +3149,10 @@ export default function PaymentsPage() {
                                   {/* Montant */}
                                   <span className={cn(
                                     "font-bold tabular-nums shrink-0",
-                                    isPartial  ? "text-amber-700"  :
-                                    isInsc     ? "text-violet-700"  :
-                                                 "text-emerald-700"
+                                    isPartial    ? "text-amber-700"  :
+                                    isCompletion ? "text-indigo-700" :
+                                    isInsc       ? "text-violet-700" :
+                                                   "text-emerald-700"
                                   )}>
                                     {formatCurrency(p.amount)}
                                   </span>
