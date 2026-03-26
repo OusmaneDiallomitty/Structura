@@ -1073,13 +1073,13 @@ export default function PaymentsPage() {
         return true;
       });
 
-      const totalPaid    = studentPayments.filter((p) => p.status === "paid").reduce((s, p) => s + p.amount, 0);
+      const totalPaid    = studentPayments.filter((p) => p.status === "paid" || p.status === "partial").reduce((s, p) => s + p.amount, 0);
       const remaining    = expectedFee > 0 ? Math.max(0, expectedFee - totalPaid) : 0;
       const progressPct  = expectedFee > 0 ? Math.min(100, Math.round((totalPaid / expectedFee) * 100)) : 0;
 
       // Paiements de l'élève sur toute l'année (sans filtre de période)
       const yearPaidAny = payments.some(
-        (p) => p.studentId === student.id && p.academicYear === selectedYear && p.status === "paid"
+        (p) => p.studentId === student.id && p.academicYear === selectedYear && (p.status === "paid" || p.status === "partial")
       );
 
       let status: PaymentStatus = "unpaid";
@@ -1109,7 +1109,7 @@ export default function PaymentsPage() {
 
       // Totaux sur l'année complète (indépendants du filtre de période → pour les reçus historiques)
       const yearAllPaid     = payments.filter(
-        (p) => p.studentId === student.id && p.academicYear === selectedYear && p.status === "paid",
+        (p) => p.studentId === student.id && p.academicYear === selectedYear && (p.status === "paid" || p.status === "partial"),
       );
       const yearTotalPaid   = yearAllPaid.reduce((s, p) => s + p.amount, 0);
       const yearExpectedFee = monthlyFee * Math.max(1, schoolCalendar.durationMonths);
@@ -1794,7 +1794,7 @@ export default function PaymentsPage() {
     const prevYearPaid = payments
       .filter((p) => p.studentId === selectedStudentForPayment.id &&
                      p.academicYear === paymentForm.academicYear &&
-                     p.status === "paid")
+                     (p.status === "paid" || p.status === "partial"))
       .reduce((s, p) => s + p.amount, 0);
     const receiptTotalPaid = prevYearPaid + amount;
     const receiptRemaining = Math.max(0, receiptFullYearFee - receiptTotalPaid);
@@ -4440,7 +4440,7 @@ export default function PaymentsPage() {
               const yearTotalPaid = payments
                 .filter((p) => p.studentId === selectedStudentForPayment.id &&
                                p.academicYear === paymentForm.academicYear &&
-                               p.status === "paid")
+                               (p.status === "paid" || p.status === "partial"))
                 .reduce((s, p) => s + p.amount, 0);
               const yearRemaining   = Math.max(0, fullYearFee - yearTotalPaid);
               const isFullYearPaid  = fullYearFee > 0 && yearTotalPaid >= fullYearFee;
