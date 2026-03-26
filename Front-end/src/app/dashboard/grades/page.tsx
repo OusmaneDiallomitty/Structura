@@ -10,7 +10,7 @@ import {
   BookOpen, Save, Loader2, RefreshCw, Lock, Unlock,
   Users, GraduationCap, ChevronRight, AlertTriangle,
   CheckCircle, BarChart3, FileText, X, Settings2, Plus, Trash2,
-  Download, Printer, Archive,
+  Download, Printer, Archive, Award,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ import { syncQueue } from "@/lib/sync-queue";
 import { getSubjectsForLevel } from "@/lib/subjects-config";
 import { formatClassName } from "@/lib/class-helpers";
 import { generateBulletinPDF, printBulletinPDF, generateAllBulletinsPDF, printAllBulletinsPDF, type BulletinData } from "@/lib/bulletin-pdf";
+import { generateProclamationPDF, type ProclamationData } from "@/lib/pdf-generator";
 import type { BackendClass } from "@/lib/api/classes.service";
 import type { BackendStudent } from "@/types";
 
@@ -1320,6 +1321,33 @@ function GradesPageInner() {
     } finally {
       setIsGeneratingPDF(false);
     }
+  }, [bulletinReport, selectedTerm, academicYear, user]);
+
+  // ── Proclamation PDF ──────────────────────────────────────────────────────
+  const generateProclamation = useCallback(() => {
+    if (!bulletinReport) return;
+    const cls = bulletinReport.class;
+    const className = cls ? formatClassName(cls.name, cls.section) : "Classe";
+    const passThreshold = bulletinReport.passThreshold ?? 10;
+    const scoreMax      = bulletinReport.scoreMax      ?? 20;
+    const data: ProclamationData = {
+      schoolName:    user?.schoolName ?? "École",
+      className,
+      term:          selectedTerm,
+      academicYear:  academicYear ?? "",
+      passThreshold,
+      scoreMax,
+      classAverage:  bulletinReport.classAverage,
+      students: bulletinReport.students.map((s) => ({
+        rank:           s.rank,
+        firstName:      s.student.firstName,
+        lastName:       s.student.lastName,
+        gender:         s.student.gender,
+        generalAverage: s.generalAverage,
+        totalSubjects:  s.totalSubjects,
+      })),
+    };
+    generateProclamationPDF(data);
   }, [bulletinReport, selectedTerm, academicYear, user]);
 
   // Collect all subjects from bulletin
@@ -2833,6 +2861,15 @@ function GradesPageInner() {
                             <Printer className="w-4 h-4 mr-2" />
                           )}
                           Imprimer tout
+                        </Button>
+                        <Button
+                          onClick={generateProclamation}
+                          variant="outline"
+                          className="border-amber-500 text-amber-700 hover:bg-amber-50"
+                          title="Générer la proclamation des résultats"
+                        >
+                          <Award className="w-4 h-4 mr-2" />
+                          Proclamation
                         </Button>
                       </>
                     )}

@@ -766,6 +766,9 @@ export class GradesService {
       students: ranked,
       classAverage,
       totalStudents: ranked.length,
+      gradeMode: isPrimary ? 'PRIMARY' : 'SECONDARY',
+      scoreMax: isPrimary ? 10 : 20,
+      passThreshold: isPrimary ? 5 : 10,
     };
 
     await this.cache.set(cacheKey, result, 120);

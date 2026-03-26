@@ -106,6 +106,9 @@ export interface ClassReport {
   students: ClassReportStudent[];
   classAverage: number;
   totalStudents: number;
+  gradeMode?: string;
+  scoreMax?: number;
+  passThreshold?: number;
 }
 
 export interface TrimesterLock {

@@ -928,10 +928,252 @@ export function generateSchoolCertificate(data: {
   doc.setFontSize(8);
   doc.text("CACHET", 50, yPos + 10, { align: "center" });
   doc.text("DE L'ÉCOLE", 50, yPos + 15, { align: "center" });
-  
+
   // Footer
   addFooter(doc, 1);
-  
+
   // Télécharger
   doc.save(`certificat-${data.studentName.replace(/\s+/g, "-")}.pdf`);
+}
+
+// ─── Proclamation des résultats ───────────────────────────────────────────────
+
+export interface ProclamationStudent {
+  rank: number;
+  firstName: string;
+  lastName: string;
+  gender: string | null | undefined;
+  generalAverage: number;
+  totalSubjects: number;
+}
+
+export interface ProclamationData {
+  schoolName: string;
+  className: string;
+  term: string;
+  academicYear: string;
+  passThreshold: number;
+  scoreMax: number;
+  students: ProclamationStudent[];
+  classAverage: number;
+}
+
+function getMention(avg: number, scoreMax: number): string {
+  const ratio = avg / scoreMax;
+  if (ratio >= 0.9) return "Excellent";
+  if (ratio >= 0.8) return "Très bien";
+  if (ratio >= 0.7) return "Bien";
+  if (ratio >= 0.6) return "Assez bien";
+  if (ratio >= 0.5) return "Passable";
+  return "Insuffisant";
+}
+
+function ordinal(n: number): string {
+  if (n === 1) return "1er";
+  return `${n}ème`;
+}
+
+export function generateProclamationPDF(data: ProclamationData) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.width;   // 297
+  const pageH = doc.internal.pageSize.height;  // 210
+  const margin = 12;
+  const contentW = pageW - margin * 2;
+
+  // ── HEADER ────────────────────────────────────────────────────────────────
+  doc.setFillColor(COLORS.primary);
+  doc.rect(0, 0, pageW, 32, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.schoolName, pageW / 2, 12, { align: "center" });
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`PROCLAMATION DES RÉSULTATS — ${data.term.toUpperCase()}`, pageW / 2, 21, { align: "center" });
+  doc.text(`Classe : ${data.className}   |   Année scolaire : ${data.academicYear}`, pageW / 2, 28, { align: "center" });
+
+  // ── STATISTIQUES (en haut, sous le header) ────────────────────────────────
+  const composed  = data.students.filter((s) => s.totalSubjects > 0);
+  const admitted  = composed.filter((s) => s.generalAverage >= data.passThreshold);
+  const failed    = composed.filter((s) => s.generalAverage < data.passThreshold);
+  const girls     = data.students.filter((s) => s.gender === "F" || s.gender === "FEMALE");
+  const boys      = data.students.filter((s) => s.gender !== "F" && s.gender !== "FEMALE");
+  const girlsComp = girls.filter((s) => s.totalSubjects > 0);
+  const boysComp  = boys.filter((s) => s.totalSubjects > 0);
+  const girlsAdm  = girlsComp.filter((s) => s.generalAverage >= data.passThreshold);
+  const boysAdm   = boysComp.filter((s) => s.generalAverage >= data.passThreshold);
+  const rate      = composed.length > 0 ? Math.round((admitted.length / composed.length) * 100) : 0;
+  const girlsRate = girlsComp.length > 0 ? Math.round((girlsAdm.length / girlsComp.length) * 100) : 0;
+  const boysRate  = boysComp.length > 0  ? Math.round((boysAdm.length  / boysComp.length)  * 100) : 0;
+
+  let y = 38;
+
+  // Tableau statistiques
+  const statCols = [60, 225 / 3, 225 / 3, 225 / 3];
+  const statX = [margin, margin + statCols[0], margin + statCols[0] + statCols[1], margin + statCols[0] + statCols[1] + statCols[2]];
+  const rowH = 7;
+
+  // En-tête stats
+  doc.setFillColor(COLORS.primary);
+  doc.rect(margin, y, contentW, rowH, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.text("",             statX[0] + 2, y + 5);
+  doc.text("Total",        statX[1] + statCols[1] / 2, y + 5, { align: "center" });
+  doc.text("Filles",       statX[2] + statCols[2] / 2, y + 5, { align: "center" });
+  doc.text("Garçons",      statX[3] + statCols[3] / 2, y + 5, { align: "center" });
+
+  const statRows = [
+    ["Inscrits",                    data.students.length, girls.length, boys.length],
+    ["Ont composé",                 composed.length,      girlsComp.length, boysComp.length],
+    [`Ont la moyenne (≥${data.passThreshold})`, admitted.length, girlsAdm.length, boysAdm.length],
+    ["N'ont pas la moyenne",        failed.length,        girlsComp.length - girlsAdm.length, boysComp.length - boysAdm.length],
+    ["Taux de réussite",            `${rate}%`,           `${girlsRate}%`, `${boysRate}%`],
+  ] as [string, string | number, string | number, string | number][];
+
+  doc.setTextColor(COLORS.dark);
+  doc.setFont("helvetica", "normal");
+
+  statRows.forEach((row, i) => {
+    const rowY = y + rowH + i * rowH;
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, rowY, contentW, rowH, "F");
+    }
+    doc.setDrawColor(220, 220, 220);
+    doc.rect(margin, rowY, contentW, rowH);
+    doc.setFontSize(7.5);
+    doc.setTextColor(COLORS.dark);
+    doc.setFont("helvetica", i === 4 ? "bold" : "normal");
+    doc.text(String(row[0]), statX[0] + 2, rowY + 5);
+    doc.text(String(row[1]), statX[1] + statCols[1] / 2, rowY + 5, { align: "center" });
+    doc.text(String(row[2]), statX[2] + statCols[2] / 2, rowY + 5, { align: "center" });
+    doc.text(String(row[3]), statX[3] + statCols[3] / 2, rowY + 5, { align: "center" });
+  });
+
+  // Moyenne de classe à droite des stats
+  const statsBottom = y + rowH + statRows.length * rowH;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.primary);
+  doc.text(`Moyenne de classe : ${data.classAverage.toFixed(2)}/${data.scoreMax}`, pageW - margin, statsBottom + 5, { align: "right" });
+
+  // ── CLASSEMENT ────────────────────────────────────────────────────────────
+  y = statsBottom + 10;
+
+  // Titre
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+  doc.text("CLASSEMENT PAR ORDRE DE MÉRITE", margin, y);
+  y += 5;
+
+  // Colonnes classement
+  const rankCols = { rang: 14, nom: 90, moy: 25, mention: 40, decision: 35 };
+  const rankX = {
+    rang:     margin,
+    nom:      margin + rankCols.rang,
+    moy:      margin + rankCols.rang + rankCols.nom,
+    mention:  margin + rankCols.rang + rankCols.nom + rankCols.moy,
+    decision: margin + rankCols.rang + rankCols.nom + rankCols.moy + rankCols.mention,
+  };
+  const rankRowH = 6;
+
+  // En-tête classement
+  doc.setFillColor(31, 41, 55);
+  doc.rect(margin, y, contentW, rankRowH, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("Rang",       rankX.rang     + rankCols.rang     / 2, y + 4.2, { align: "center" });
+  doc.text("Nom & Prénom",rankX.nom     + 2,                      y + 4.2);
+  doc.text("Moy.",       rankX.moy      + rankCols.moy      / 2, y + 4.2, { align: "center" });
+  doc.text("Mention",    rankX.mention  + rankCols.mention  / 2, y + 4.2, { align: "center" });
+  doc.text("Décision",   rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+  y += rankRowH;
+
+  doc.setFont("helvetica", "normal");
+  let page = 1;
+
+  for (const st of data.students) {
+    // Nouvelle page si besoin
+    if (y + rankRowH > pageH - 14) {
+      addFooter(doc, page);
+      doc.addPage();
+      page++;
+      y = 12;
+      // Répéter en-tête
+      doc.setFillColor(31, 41, 55);
+      doc.rect(margin, y, contentW, rankRowH, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.text("Rang",        rankX.rang     + rankCols.rang     / 2, y + 4.2, { align: "center" });
+      doc.text("Nom & Prénom",rankX.nom      + 2,                      y + 4.2);
+      doc.text("Moy.",        rankX.moy      + rankCols.moy      / 2, y + 4.2, { align: "center" });
+      doc.text("Mention",     rankX.mention  + rankCols.mention  / 2, y + 4.2, { align: "center" });
+      doc.text("Décision",    rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+      y += rankRowH;
+      doc.setFont("helvetica", "normal");
+    }
+
+    const isAdmis = st.totalSubjects > 0 && st.generalAverage >= data.passThreshold;
+    const noComp  = st.totalSubjects === 0;
+
+    if (st.rank % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentW, rankRowH, "F");
+    }
+    doc.setDrawColor(230, 230, 230);
+    doc.rect(margin, y, contentW, rankRowH);
+
+    doc.setTextColor(COLORS.dark);
+    doc.setFontSize(7.5);
+
+    // Rang
+    doc.setFont("helvetica", "bold");
+    doc.text(noComp ? "—" : ordinal(st.rank), rankX.rang + rankCols.rang / 2, y + 4.2, { align: "center" });
+
+    // Nom
+    doc.setFont("helvetica", "normal");
+    const fullName = `${st.lastName.toUpperCase()} ${st.firstName}`;
+    doc.text(fullName, rankX.nom + 2, y + 4.2);
+
+    // Moyenne
+    if (!noComp) {
+      doc.setTextColor(isAdmis ? 16 : 180, isAdmis ? 160 : 40, isAdmis ? 80 : 40);
+    } else {
+      doc.setTextColor(150, 150, 150);
+    }
+    doc.setFont("helvetica", "bold");
+    doc.text(noComp ? "—" : `${st.generalAverage.toFixed(2)}/${data.scoreMax}`, rankX.moy + rankCols.moy / 2, y + 4.2, { align: "center" });
+
+    // Mention
+    doc.setTextColor(COLORS.dark);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(noComp ? "N/A" : getMention(st.generalAverage, data.scoreMax), rankX.mention + rankCols.mention / 2, y + 4.2, { align: "center" });
+
+    // Décision
+    doc.setFontSize(7.5);
+    if (noComp) {
+      doc.setTextColor(150, 150, 150);
+      doc.text("Absent(e)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+    } else if (isAdmis) {
+      doc.setTextColor(16, 160, 80);
+      doc.setFont("helvetica", "bold");
+      doc.text("ADMIS(E)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+    } else {
+      doc.setTextColor(180, 40, 40);
+      doc.setFont("helvetica", "bold");
+      doc.text("REFUSÉ(E)", rankX.decision + rankCols.decision / 2, y + 4.2, { align: "center" });
+    }
+
+    y += rankRowH;
+  }
+
+  addFooter(doc, page);
+  const safeClass = data.className.replace(/[^a-zA-Z0-9]/g, "-");
+  doc.save(`proclamation-${safeClass}-${data.term.replace(/\s+/g, "-")}.pdf`);
 }
