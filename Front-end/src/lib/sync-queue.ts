@@ -20,6 +20,14 @@ class SyncAuthError extends Error {
   }
 }
 
+/** Conflit 409 : donnée déjà enregistrée côté serveur — supprimer silencieusement */
+class SyncConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SyncConflictError";
+  }
+}
+
 export interface SyncAction {
   id?: number;
   type: "student" | "payment" | "attendance" | "grade" | "class" | "evaluation" | "composition";
@@ -103,6 +111,16 @@ class SyncQueue {
             }
             failCount++;
             console.error(`🔑 Action supprimée (auth error): ${error.message}`);
+            continue;
+          }
+
+          // Conflit 409 → déjà enregistré côté serveur, supprimer silencieusement
+          if (error instanceof SyncConflictError) {
+            if (action.id) {
+              await offlineDB.delete(STORES.SYNC_QUEUE, action.id);
+            }
+            successCount++; // compté comme succès : la donnée est bien en base
+            console.warn(`🔄 Action ignorée (conflit/doublon): ${error.message}`);
             continue;
           }
 
@@ -270,6 +288,10 @@ class SyncQueue {
       if (this.isAuthError(err)) {
         throw new SyncAuthError(`Unauthorized: ${err.message}`);
       }
+      // 409 Conflict → donnée déjà en base
+      if (this.isConflictError(err)) {
+        throw new SyncConflictError(err.message ?? "Conflit");
+      }
       throw err;
     }
   }
@@ -284,6 +306,12 @@ class SyncQueue {
   private isAuthError(err: any): boolean {
     const msg = (err?.message ?? "").toLowerCase();
     return msg.includes("401") || msg.includes("unauthorized") || msg.includes("non autorisé");
+  }
+
+  /** Détecte une erreur 409 Conflict / doublon */
+  private isConflictError(err: any): boolean {
+    const msg = (err?.message ?? "").toLowerCase();
+    return msg.includes("409") || msg.includes("conflict") || msg.includes("déjà enregistré") || msg.includes("already");
   }
 
   /**

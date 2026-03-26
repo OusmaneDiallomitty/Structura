@@ -34,10 +34,14 @@ export function OfflineBanner() {
     setIsSyncing(true);
     await syncQueue.process();
     setIsSyncing(false);
-    
-    // Mettre à jour le compteur
     const count = await syncQueue.getPendingCount();
     setPendingCount(count);
+  };
+
+  // Vider la queue (cas bloqué)
+  const handleClear = async () => {
+    await syncQueue.clear();
+    setPendingCount(0);
   };
 
   // Ne rien afficher si en ligne et rien à synchroniser
@@ -76,16 +80,26 @@ export function OfflineBanner() {
         </div>
 
         {isOnline && pendingCount > 0 && (
-          <button
-            onClick={handleSync}
-            disabled={isSyncing}
-            className="flex items-center gap-1 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-md transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={cn("h-3 w-3", isSyncing && "animate-spin")} />
-            <span className="text-xs">
-              {isSyncing ? "Synchronisation..." : "Synchroniser"}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-md transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3 w-3", isSyncing && "animate-spin")} />
+              <span className="text-xs">
+                {isSyncing ? "Synchronisation..." : "Synchroniser"}
+              </span>
+            </button>
+            <button
+              onClick={handleClear}
+              disabled={isSyncing}
+              className="flex items-center gap-1 px-3 py-1 bg-white/10 hover:bg-white/20 rounded-md transition-colors disabled:opacity-50 text-white/70 hover:text-white"
+              title="Vider la file d'attente"
+            >
+              <span className="text-xs">Vider</span>
+            </button>
+          </div>
         )}
       </div>
     </div>
