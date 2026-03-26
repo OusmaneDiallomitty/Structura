@@ -106,6 +106,12 @@ export interface PaymentReceiptData {
   schoolLogo?: string;
   /** Liste ordonnée des mois couverts par ce paiement, ex: ["Octobre 2026", "Novembre 2026"] */
   months?: string[];
+  /**
+   * Montant réellement payé PAR mois — dictionnaire { "Octobre 2026": 120000, "Novembre 2026": 60000 }.
+   * Plus robuste qu'un tableau indexé (pas de risque de décalage si indexOf échoue).
+   * Utilisé pour les paiements mixtes (certains mois complets, dernier partiel).
+   */
+  monthAmounts?: Record<string, number>;
   /** Frais mensuel unitaire pour remplir la colonne "Frais mensuel" */
   monthlyFee?: number;
   /** Code devise actif (ex: "GNF", "XOF", "EUR"). Défaut : "GNF". */
@@ -115,6 +121,20 @@ export interface PaymentReceiptData {
    * "REÇU DE PAIEMENT" → "REÇU DE CONTRIBUTION", supprime le récapitulatif annuel, etc.
    */
   isContribution?: boolean;
+  /**
+   * Catégorie du paiement — adapte le titre et le récapitulatif :
+   * - "inscription"    → "REÇU D'INSCRIPTION", pas de récap scolarité annuelle
+   * - "reinscription"  → "REÇU DE RÉINSCRIPTION", pas de récap scolarité annuelle
+   * - "scolarite"      → comportement par défaut (récap annuel affiché)
+   * - undefined        → comportement par défaut
+   */
+  paymentCategory?: "scolarite" | "inscription" | "reinscription";
+  /**
+   * Lignes supplémentaires affichées dans le tableau (paiement combiné).
+   * Ex : [{ label: "Frais de réinscription 2026-2027", amount: 50000 }]
+   * Le TOTAL inclut ces montants en plus de `amount`.
+   */
+  extraLines?: { label: string; amount: number }[];
   /**
    * Décomposition par trimestre — active le rendu groupé.
    * Envoyé quand le paiement couvre des mois de trimestres différents
@@ -207,15 +227,35 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.setFont("helvetica", "bold");
   doc.text(data.schoolName, textX, 20, { align: "center" });
 
-  // Badge "REÇU DE PAIEMENT" ou "REÇU DE CONTRIBUTION" — rectangle centré
-  const badgeW = data.isContribution ? 72 : 62; const badgeH = 8;
+  // Badge titre — adapté selon la catégorie
+  const badgeTitles: Record<string, string> = {
+    inscription:   "RECU D'INSCRIPTION",
+    reinscription: "RECU DE REINSCRIPTION",
+    contribution:  "RECU DE CONTRIBUTION",
+    default:       "RECU DE PAIEMENT",
+  };
+  const badgeTitle = data.isContribution
+    ? badgeTitles.contribution
+    : data.paymentCategory === "inscription"
+    ? badgeTitles.inscription
+    : data.paymentCategory === "reinscription"
+    ? badgeTitles.reinscription
+    : badgeTitles.default;
+  const badgeW = badgeTitle.length > 20 ? 80 : 62; const badgeH = 8;
   const badgeX = textX - badgeW / 2;
-  doc.setFillColor(data.isContribution ? 16 : 59, data.isContribution ? 185 : 130, data.isContribution ? 129 : 246);
+  const isInscReceipt = data.paymentCategory === "inscription" || data.paymentCategory === "reinscription";
+  if (isInscReceipt) {
+    doc.setFillColor(139, 92, 246); // violet pour inscription
+  } else if (data.isContribution) {
+    doc.setFillColor(16, 185, 129);
+  } else {
+    doc.setFillColor(59, 130, 246);
+  }
   doc.roundedRect(badgeX, 25, badgeW, badgeH, 2, 2, "F");
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.text(data.isContribution ? "REÇU DE CONTRIBUTION" : "REÇU DE PAIEMENT", textX, 30.5, { align: "center" });
+  doc.text(badgeTitle, textX, 30.5, { align: "center" });
 
   if (data.schoolAddress || data.schoolPhone) {
     const contact = [data.schoolAddress, data.schoolPhone].filter(Boolean).join("  •  ");
@@ -275,7 +315,11 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.text(meta, ML + 5, 88);
 
   // Mode de paiement + type (coin droit)
-  const payType = data.term?.startsWith("Annuel")
+  const payType = data.paymentCategory === "inscription"
+    ? "Inscription"
+    : data.paymentCategory === "reinscription"
+    ? "Reinscription"
+    : data.term?.startsWith("Annuel")
     ? "Annuel"
     : data.term?.startsWith("Trimestre")
     ? "Trimestriel"
@@ -287,7 +331,7 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   doc.setTextColor(100, 116, 139);
   doc.text(`Mode : ${data.paymentMethod}`, MR - 2, 73, { align: "right" });
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(59, 130, 246);
+  doc.setTextColor(isInscReceipt ? 139 : 59, isInscReceipt ? 92 : 130, isInscReceipt ? 246 : 246);
   doc.text(`Type : ${payType}`, MR - 2, 80, { align: "right" });
 
   // Badge SCOLARITÉ COMPLÈTE
@@ -304,8 +348,14 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   let yPos = 100;
 
   const months   = data.months ?? [];
-  const perMonth = data.monthlyFee
-    ?? (months.length > 0 ? Math.round(data.amount / months.length) : data.amount);
+  // Montant réellement payé par mois (peut être inférieur à monthlyFee pour un paiement partiel)
+  const perMonth = months.length > 0
+    ? Math.round(data.amount / months.length)
+    : data.amount;
+  // Frais mensuel attendu (pour détecter les paiements partiels)
+  const expectedPerMonth = data.monthlyFee ?? perMonth;
+  // monthAmounts : montants individuels par mois (paiement mixte complet+partiel)
+  const monthAmounts = data.monthAmounts ?? null;
 
   // Positions des colonnes
   // Col1 (Mois)   : ML       → ML+95   (95 mm)
@@ -317,11 +367,18 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   const ROW_H = 8;
 
   // Helper : dessine une ligne de mois (mutualisé)
+  // Utilise monthAmounts[month] (dictionnaire) pour un lookup robuste par nom de mois.
   const drawMonthRow = (month: string, indented: boolean, rowIndex: number) => {
     if (rowIndex % 2 === 0) {
       doc.setFillColor(248, 250, 252);
       doc.rect(ML, yPos, TW, ROW_H, "F");
     }
+    // Montant pour ce mois : dictionnaire en priorité, sinon perMonth global
+    const rowAmount = (monthAmounts && monthAmounts[month] !== undefined)
+      ? monthAmounts[month]
+      : perMonth;
+    const rowIsPartial = rowAmount < expectedPerMonth;
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(31, 41, 55);
@@ -329,13 +386,23 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.setTextColor(31, 41, 55);
-    doc.text(fmt(perMonth), C3 - 4, yPos + 5.5, { align: "right" });
-    doc.setFillColor(209, 250, 229);
-    doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
-    doc.setTextColor(16, 185, 129);
-    doc.text("Paye", (C3 + MR) / 2, yPos + 5.5, { align: "center" });
+    doc.text(fmt(rowAmount), C3 - 4, yPos + 5.5, { align: "right" });
+    // Badge : PARTIEL (amber) ou PAYE (vert)
+    if (rowIsPartial) {
+      doc.setFillColor(254, 243, 199);
+      doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(180, 83, 9);
+      doc.text("Partiel", (C3 + MR) / 2, yPos + 5.5, { align: "center" });
+    } else {
+      doc.setFillColor(209, 250, 229);
+      doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(16, 185, 129);
+      doc.text("Paye", (C3 + MR) / 2, yPos + 5.5, { align: "center" });
+    }
     yPos += ROW_H;
   };
 
@@ -444,8 +511,56 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
     yPos += ROW_H;
   }
 
+  // Lignes supplémentaires (paiement combiné : inscription + scolarité)
+  const extraLines = data.extraLines ?? [];
+  if (extraLines.length > 0) {
+    extraLines.forEach((line, i) => {
+      if (i % 2 === 0) {
+        doc.setFillColor(245, 243, 255); // violet très léger
+        doc.rect(ML, yPos, TW, ROW_H, "F");
+      }
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(109, 40, 217); // violet-700
+      doc.text(`+ ${line.label}`, C1 + 4, yPos + 5.5);
+      doc.setFont("helvetica", "bold");
+      doc.text(fmt(line.amount), C3 - 4, yPos + 5.5, { align: "right" });
+      doc.setFillColor(237, 233, 254); // violet-100
+      doc.roundedRect(C3 + 1, yPos + 1.5, MR - C3 - 1, ROW_H - 3, 1, 1, "F");
+      doc.setFontSize(7);
+      doc.setTextColor(109, 40, 217);
+      doc.text("Paye", (C3 + MR) / 2, yPos + 5.5, { align: "center" });
+      yPos += ROW_H;
+    });
+  }
+
+  // Ligne note "reste à payer" — affichée pour chaque mois partiel (via monthAmounts ou paiement global partiel)
+  const partialNotes: { month: string; remain: number }[] = [];
+  if (monthAmounts && months.length > 0) {
+    // Dictionnaire : lookup par nom de mois (robuste)
+    months.forEach((month) => {
+      const paid = monthAmounts[month] ?? perMonth;
+      if (paid < expectedPerMonth) {
+        partialNotes.push({ month, remain: expectedPerMonth - paid });
+      }
+    });
+  } else if (perMonth < expectedPerMonth && months.length > 0) {
+    partialNotes.push({ month: months[months.length - 1], remain: expectedPerMonth - perMonth });
+  }
+  if (partialNotes.length > 0) {
+    doc.setFillColor(255, 251, 235);
+    doc.rect(ML, yPos, TW, (ROW_H - 1) * partialNotes.length, "F");
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.setTextColor(180, 83, 9);
+    partialNotes.forEach((note) => {
+      doc.text(`${note.month} — Reste a regler : ${fmt(note.remain)}  (mensuel : ${fmt(expectedPerMonth)})`, C1 + 4, yPos + 4.5);
+      yPos += ROW_H - 1;
+    });
+  }
+
   // Ligne séparatrice avant le total
-  doc.setDrawColor(59, 130, 246);
+  doc.setDrawColor(isInscReceipt ? 139 : 59, isInscReceipt ? 92 : 130, 246);
   doc.setLineWidth(0.5);
   doc.line(ML, yPos, MR, yPos);
   yPos += 0.5;
@@ -459,15 +574,18 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   const totalMonthCount = data.trimestreBreakdown
     ? data.trimestreBreakdown.reduce((s, g) => s + g.paidMonths.length, 0)
     : months.length;
+  const extraTotal = extraLines.reduce((s, l) => s + l.amount, 0);
+  const grandTotal = data.amount + extraTotal;
   const totalLabel = totalMonthCount > 1
     ? `TOTAL  (${totalMonthCount} mois)`
     : "TOTAL";
   doc.text(totalLabel, C1 + 4, yPos + 6);
-  doc.text(fmt(data.amount), MR - 4, yPos + 6, { align: "right" });
+  doc.text(fmt(grandTotal), MR - 4, yPos + 6, { align: "right" });
   yPos += ROW_H + 7;
 
   // ─────────────── RÉCAPITULATIF ─────────────────────────
-  if (data.expectedFee && data.expectedFee > 0 && data.totalPaid !== undefined) {
+  // Pour inscription/réinscription : pas de récapitulatif scolarité annuelle
+  if (data.expectedFee && data.expectedFee > 0 && data.totalPaid !== undefined && !isInscReceipt) {
     // En mode contribution, on n'affiche pas de "récapitulatif annuel" : just un résumé simple
     if (data.isContribution) {
       // Bloc résumé compact pour contribution

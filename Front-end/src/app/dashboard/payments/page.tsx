@@ -80,6 +80,7 @@ import { useSubscription } from "@/hooks/use-subscription";
 import { UpgradeBadge } from "@/components/shared/UpgradeBadge";
 import * as storage from "@/lib/storage";
 import { getPayments, createPayment, deletePayment } from "@/lib/api/payments.service";
+import { getExpenseStats } from "@/lib/api/expenses.service";
 import { getStudents } from "@/lib/api/students.service";
 import { getClasses } from "@/lib/api/classes.service";
 import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
@@ -123,6 +124,8 @@ interface FeeConfig {
   globalFee: number;
   byLevel: Record<string, number>;   // { "Primaire": 150000 }
   byClass: Record<string, number>;   // { "classId": 150000 }
+  inscriptionFee?: number;       // Frais d'inscription (nouveaux élèves)
+  reinscriptionFee?: number;     // Frais de réinscription (élèves existants)
 }
 
 interface ClassInfo {
@@ -656,6 +659,9 @@ export default function PaymentsPage() {
   const [statusFilter,  setStatusFilter]  = useState("all");
   const [selectedYear,  setSelectedYear]  = useState(getCachedOrGuessedYear);
 
+  // Dépenses — pour le widget Solde Net
+  const [expensesTotal, setExpensesTotal] = useState<number | null>(null);
+
   // Fréquence et période — initialisées depuis le cache localStorage
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>(() => {
     if (typeof window === "undefined") return "monthly";
@@ -703,7 +709,20 @@ export default function PaymentsPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // État post-paiement : vue succès avec choix du reçu
+  // Montant personnalisé (paiement partiel)
+  const [customAmountStr, setCustomAmountStr] = useState<string>("");
+
+  // Inscription / Réinscription
+  const [inscriptionDialogOpen, setInscriptionDialogOpen] = useState(false);
+  const [inscriptionStudent,    setInscriptionStudent]    = useState<BackendStudent | null>(null);
+  const [inscriptionType,       setInscriptionType]       = useState<"inscription" | "reinscription">("reinscription");
+  const [inscriptionMethod,     setInscriptionMethod]     = useState<"CASH"|"MOBILE_MONEY"|"BANK_TRANSFER"|"CHECK">("CASH");
+  const [inscriptionSaving,     setInscriptionSaving]     = useState(false);
+
+  // Rapport du jour
+  const [todayReportOpen, setTodayReportOpen] = useState(false);
+
+// État post-paiement : vue succès avec choix du reçu
   // "form"    → saisie normale  |  "success" → affichage du résultat
   const [dialogMode,        setDialogMode]        = useState<"form" | "success">("form");
   const [pendingReceiptData, setPendingReceiptData] = useState<PaymentReceiptData | null>(null);
@@ -716,8 +735,14 @@ export default function PaymentsPage() {
   const [isFeeDialogOpen,  setIsFeeDialogOpen]  = useState(false);
   const [draftFeeConfig,   setDraftFeeConfig]   = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
-  // Calendrier scolaire fixé : Septembre, 9 mois (non configurable)
-  const schoolCalendar = DEFAULT_SCHOOL_CALENDAR;
+  // Calendrier scolaire — initialisé depuis le cache localStorage, mis à jour depuis l'API
+  const [schoolCalendar, setSchoolCalendar] = useState<SchoolCalendar>(() => {
+    if (typeof window === "undefined") return DEFAULT_SCHOOL_CALENDAR;
+    try {
+      const s = localStorage.getItem(SCHOOL_CALENDAR_KEY);
+      return s ? JSON.parse(s) : DEFAULT_SCHOOL_CALENDAR;
+    } catch { return DEFAULT_SCHOOL_CALENDAR; }
+  });
 
   // ── Dialog "Ajouter / Éditer un poste de frais" (école publique) ─────────
   const [isFeeItemDialogOpen,  setIsFeeItemDialogOpen]  = useState(false);
@@ -779,6 +804,7 @@ export default function PaymentsPage() {
       const f = (freq as PaymentFrequency) || "monthly";
       setPaymentFrequency(f);
       setSelectedTerm(getCurrentPeriod(f));
+      if (cal?.startMonth && typeof cal.durationMonths === "number") setSchoolCalendar(cal);
       if (sType === "public" || sType === "private") setSchoolType(sType);
       if (Array.isArray(items)) setFeeItems(items);
     };
@@ -808,13 +834,14 @@ export default function PaymentsPage() {
           applyConfig(
             config.feeConfig as FeeConfig | null,
             config.paymentFrequency,
-            null,
+            config.schoolCalendar as SchoolCalendar | null,
             config.schoolType,
             config.feeItems as import("@/lib/api/fees.service").FeeItem[] | null,
           );
           // Mettre en cache pour le mode hors ligne
           if (config.feeConfig)           localStorage.setItem(CLASS_FEES_KEY,      JSON.stringify(config.feeConfig));
           localStorage.setItem(PAYMENT_FREQ_KEY, config.paymentFrequency || "monthly");
+          if (config.schoolCalendar)      localStorage.setItem(SCHOOL_CALENDAR_KEY, JSON.stringify(config.schoolCalendar));
           if (config.schoolType)          localStorage.setItem(SCHOOL_TYPE_KEY, config.schoolType);
           if (config.feeItems?.length)    localStorage.setItem(FEE_ITEMS_KEY,   JSON.stringify(config.feeItems));
         })
@@ -852,6 +879,16 @@ export default function PaymentsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
+
+  // ── Dépenses — chargement pour le widget Solde Net ────────────────────────
+  useEffect(() => {
+    if (!isOnline) return;
+    const token = storage.getAuthItem("structura_token");
+    if (!token) return;
+    getExpenseStats(token, selectedYear)
+      .then((s) => setExpensesTotal(s.totalAmount))
+      .catch(() => {}); // silencieux — widget optionnel
+  }, [isOnline, selectedYear]);
 
   const handleFrequencyChange = (freq: PaymentFrequency) => {
     setPaymentFrequency(freq);
@@ -1121,6 +1158,129 @@ export default function PaymentsPage() {
     [studentSummaries]
   );
 
+  // ── Bilan annuel global — jamais filtré par période ou classe ─────────────
+  const annualStats = useMemo(() => {
+    // Attendu : somme des frais annuels de scolarité sur tous les élèves
+    const expected = studentSummaries.reduce((s, x) => s + x.yearExpectedFee, 0);
+    // Encaissé : paiements paid/partial de scolarité pour l'année sélectionnée
+    const collected = payments
+      .filter((p) => {
+        if (p.academicYear !== selectedYear) return false;
+        if (p.status !== "paid" && p.status !== "partial") return false;
+        if (p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription")) return false;
+        return true;
+      })
+      .reduce((s, p) => s + p.amount, 0);
+    const remaining   = Math.max(0, expected - collected);
+    const progressPct = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
+    const fullyPaid   = studentSummaries.filter((s) => s.yearRemaining === 0 && s.yearTotalPaid > 0).length;
+    const withDebt    = studentSummaries.filter((s) => s.yearRemaining > 0).length;
+    return { expected, collected, remaining, progressPct, fullyPaid, withDebt, total: studentSummaries.length };
+  }, [studentSummaries, payments, selectedYear]);
+
+  /**
+   * Statut inscription/réinscription par élève pour l'année sélectionnée.
+   * Retourne un objet { type, paid, term } par studentId.
+   */
+  const inscriptionStatusMap = useMemo(() => {
+    const map: Record<string, { type: "inscription" | "reinscription"; paid: boolean; term: string }> = {};
+    payments.forEach((p) => {
+      if (p.status !== "paid") return;
+      if (!p.term) return;
+      const isInsc  = p.term.startsWith("Inscription");
+      const isReinsc = p.term.startsWith("Réinscription");
+      if (!isInsc && !isReinsc) return;
+      // On garde uniquement le paiement de l'année sélectionnée
+      if (p.academicYear && p.academicYear !== selectedYear) return;
+      map[p.studentId] = {
+        type: isInsc ? "inscription" : "reinscription",
+        paid: true,
+        term: p.term,
+      };
+    });
+    return map;
+  }, [payments, selectedYear]);
+
+/** Paiements enregistrés aujourd'hui */
+  const todayReport = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0]; // "2026-03-26"
+
+    // ── Inclure paid ET partial (un versement partiel est quand même de l'argent encaissé)
+    const todayPayments = payments.filter((p) => {
+      if (p.status !== "paid" && p.status !== "partial") return false;
+      const paidDate = p.paidDate || p.createdAt;
+      if (!paidDate) return false;
+      return paidDate.startsWith(today);
+    });
+
+    const total      = todayPayments.reduce((s, p) => s + p.amount, 0);
+    const byCash     = todayPayments.filter(p => p.method === "cash").reduce((s, p) => s + p.amount, 0);
+    const byMobile   = todayPayments.filter(p => p.method === "mobile_money").reduce((s, p) => s + p.amount, 0);
+    const byTransfer = todayPayments.filter(p => ["bank_transfer","check"].includes(p.method ?? "")).reduce((s, p) => s + p.amount, 0);
+
+    // ── Groupement par classe → par élève (trié chronologiquement à l'intérieur)
+    const LEVEL_ORDER = ["Maternelle", "Primaire", "Collège", "Lycée"];
+    type StuEntry = {
+      studentId:    string;
+      studentName:  string;
+      matricule:    string;
+      payments:     Payment[];
+      studentTotal: number;
+    };
+    type ClsEntry = {
+      classId:    string;
+      className:  string;
+      level:      string;
+      students:   StuEntry[];
+      classTotal: number;
+    };
+    const classMap = new Map<string, ClsEntry>();
+
+    // Trier par heure croissante pour que le rapport reflète l'ordre de passage
+    const sorted = [...todayPayments].sort((a, b) => {
+      const ta = new Date(a.paidDate || a.createdAt || 0).getTime();
+      const tb = new Date(b.paidDate || b.createdAt || 0).getTime();
+      return ta - tb;
+    });
+
+    for (const p of sorted) {
+      const stu = students.find(s => s.id === p.studentId);
+      const cls = classes.find(c => c.id === (stu?.classId ?? ""));
+      const classId   = stu?.classId ?? "__unknown__";
+      const className = cls?.displayName ?? stu?.class?.name ?? "Classe inconnue";
+      const level     = cls?.virtualLevel ?? "";
+
+      if (!classMap.has(classId)) classMap.set(classId, { classId, className, level, students: [], classTotal: 0 });
+      const ce = classMap.get(classId)!;
+      ce.classTotal += p.amount;
+
+      let se = ce.students.find(s => s.studentId === p.studentId);
+      if (!se) {
+        se = {
+          studentId:   p.studentId,
+          studentName: stu ? `${stu.firstName} ${stu.lastName}` : (p.studentName ?? "Élève"),
+          matricule:   stu?.matricule ?? "",
+          payments:    [],
+          studentTotal: 0,
+        };
+        ce.students.push(se);
+      }
+      se.payments.push(p);
+      se.studentTotal += p.amount;
+    }
+
+    const byClass = Array.from(classMap.values()).sort((a, b) => {
+      const la = LEVEL_ORDER.indexOf(a.level);
+      const lb = LEVEL_ORDER.indexOf(b.level);
+      if (la !== lb) return (la < 0 ? 99 : la) - (lb < 0 ? 99 : lb);
+      return a.className.localeCompare(b.className, "fr");
+    });
+
+    const uniqueStudents = new Set(todayPayments.map(p => p.studentId)).size;
+
+    return { payments: todayPayments, total, byCash, byMobile, byTransfer, count: todayPayments.length, uniqueStudents, byClass };
+  }, [payments, students, classes]);
+
   const unsyncedCount = payments.filter((p) => p.needsSync).length;
 
   // ── Groupes par virtualLevel pour la config frais ────────────────────────
@@ -1153,7 +1313,11 @@ export default function PaymentsPage() {
       } else if (p.term.startsWith("Annuel")) {
         getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar).forEach((m) => paidMonths.add(m));
       } else {
-        paidMonths.add(p.term);
+        paidMonths.add(p.term!);
+        // Normaliser les anciens termes sans année ("Mars" → "Mars 2026")
+        const allSchool = getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar);
+        const yearQualified = allSchool.find(m => m.split(" ")[0] === p.term!.trim());
+        if (yearQualified) paidMonths.add(yearQualified);
       }
     });
     return paidMonths;
@@ -1290,12 +1454,52 @@ export default function PaymentsPage() {
     return monthlyFee * dialogTrimestreMonths.size;
   }, [selectedStudentForPayment, dialogTrimestreMonths, classes, feeConfig]);
 
+  /** Montant effectivement envoyé : personnalisé si saisi, sinon calculé automatiquement */
+  const effectiveAmount = useMemo(() => {
+    if (customAmountStr) {
+      const parsed = Number(customAmountStr.replace(/\s/g, "").replace(/,/g, "."));
+      return isNaN(parsed) || parsed <= 0 ? 0 : parsed;
+    }
+    return computedDialogAmount;
+  }, [customAmountStr, computedDialogAmount]);
+
   // Synchronise le montant calculé vers paymentForm (pour l'envoi backend)
   useEffect(() => {
     if (isDialogOpen) {
       setPaymentForm((prev) => ({ ...prev, amount: String(computedDialogAmount) }));
     }
   }, [computedDialogAmount, isDialogOpen]);
+
+  /** Frais mensuel de l'élève en cours dans le dialog (pour l'aperçu distribution) */
+  const dialogMonthlyFee = useMemo(() => {
+    if (!selectedStudentForPayment) return 0;
+    const cls = classes.find((c) => c.id === selectedStudentForPayment.classId);
+    const vLevel = cls?.virtualLevel ?? cls?.level ?? "";
+    return getStudentFee(selectedStudentForPayment.classId, vLevel, feeConfig);
+  }, [selectedStudentForPayment, classes, feeConfig]);
+
+  /** Distribution par mois (paiement mixte : certains complets, dernier partiel) */
+  const dialogMonthDistribution = useMemo(() => {
+    if (!effectiveAmount || dialogMonthlyFee <= 0 || dialogTrimestreMonths.size === 0) return [];
+    const selectedMonths = dialogSchoolMonths.filter((m) => dialogTrimestreMonths.has(m));
+    const dist: { month: string; amount: number; isPartial: boolean }[] = [];
+    let remaining = effectiveAmount;
+    for (const month of selectedMonths) {
+      if (remaining >= dialogMonthlyFee) {
+        dist.push({ month, amount: dialogMonthlyFee, isPartial: false });
+        remaining -= dialogMonthlyFee;
+      } else if (remaining > 0) {
+        dist.push({ month, amount: remaining, isPartial: true });
+        remaining = 0;
+      }
+    }
+    return dist;
+  }, [effectiveAmount, dialogMonthlyFee, dialogTrimestreMonths, dialogSchoolMonths]);
+
+  const dialogHasMixedPayment = useMemo(
+    () => dialogMonthDistribution.some((d) => d.isPartial) && dialogMonthDistribution.some((d) => !d.isPartial),
+    [dialogMonthDistribution]
+  );
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -1315,6 +1519,8 @@ export default function PaymentsPage() {
       byClass: Object.fromEntries(
         Object.entries(draftFeeConfig.byClass).map(([k, v]) => [k, roundFee(v)])
       ),
+      inscriptionFee:   draftFeeConfig.inscriptionFee   ? roundFee(draftFeeConfig.inscriptionFee)   : undefined,
+      reinscriptionFee: draftFeeConfig.reinscriptionFee ? roundFee(draftFeeConfig.reinscriptionFee) : undefined,
     };
     const hasLevelFee = Object.values(rounded.byLevel).some((v) => v > 0);
     const hasClassFee = Object.values(rounded.byClass).some((v) => v > 0);
@@ -1377,6 +1583,8 @@ export default function PaymentsPage() {
     const academicYr = selectedYear;
 
     // Calculer les mois déjà payés pour cet élève (inline, avant le setState)
+    // allMonths défini AVANT la boucle pour permettre la normalisation des anciens termes
+    const allMonths = getSchoolMonthsWithYear(academicYr, schoolCalendar);
     const alreadyPaid = new Set<string>();
     payments.forEach((p) => {
       if (p.studentId !== student.id) return;
@@ -1390,19 +1598,19 @@ export default function PaymentsPage() {
       } else if (p.term.startsWith("Annuel")) {
         getSchoolMonthsWithYear(academicYr, schoolCalendar).forEach((mo) => alreadyPaid.add(mo));
       } else {
-        alreadyPaid.add(p.term);
+        alreadyPaid.add(p.term!);
+        // Normaliser les anciens termes sans année ("Mars" → "Mars 2026")
+        const yearQualified = allMonths.find(m => m.split(" ")[0] === p.term!.trim());
+        if (yearQualified) alreadyPaid.add(yearQualified);
       }
     });
 
-    // Pré-sélectionner le mois courant s'il n'est pas payé, sinon le premier mois impayé
-    const curMonth  = getCurrentMonthWithYear();
-    const allMonths = getSchoolMonthsWithYear(academicYr, schoolCalendar);
-    const initMonth =
-      allMonths.includes(curMonth) && !alreadyPaid.has(curMonth)
-        ? curMonth
-        : allMonths.find((mo) => !alreadyPaid.has(mo)) ?? null;
+    // Toujours pré-sélectionner le premier mois impayé (contrainte séquentielle)
+    // Jamais sauter des mois même si le mois courant est plus loin dans le calendrier
+    const initMonth = allMonths.find((mo) => !alreadyPaid.has(mo)) ?? null;
     setDialogTrimestreMonths(initMonth ? new Set([initMonth]) : new Set());
 
+    setCustomAmountStr("");
     setPaymentForm({
       amount: "", method: "CASH", description: "Frais de scolarité",
       term: selectedTerm, academicYear: academicYr,
@@ -1410,8 +1618,80 @@ export default function PaymentsPage() {
     setIsDialogOpen(true);
   };
 
+  const openInscriptionDialog = (student: BackendStudent) => {
+    setInscriptionStudent(student);
+    // Détection automatique non modifiable :
+    // - Élève avec AU MOINS UN paiement enregistré → élève de l'école → réinscription
+    // - Aucun paiement → nouvel élève → inscription
+    const hasAnyPayment = payments.some(
+      (p) => p.studentId === student.id && p.status === "paid"
+    );
+    setInscriptionType(hasAnyPayment ? "reinscription" : "inscription");
+    setInscriptionMethod("CASH");
+    setInscriptionDialogOpen(true);
+  };
+
+  const confirmInscriptionPayment = async () => {
+    if (!inscriptionStudent) return;
+    const fee = inscriptionType === "inscription"
+      ? (feeConfig.inscriptionFee || 0)
+      : (feeConfig.reinscriptionFee || 0);
+    if (fee <= 0) {
+      toast.error("Frais non configurés", {
+        description: "Le directeur doit configurer les frais d'inscription dans la configuration.",
+      });
+      return;
+    }
+    // Vérifier doublon
+    const term = `${inscriptionType === "inscription" ? "Inscription" : "Réinscription"} ${selectedYear}`;
+    const alreadyExists = payments.some(
+      (p) => p.studentId === inscriptionStudent.id && p.term === term && p.status === "paid"
+    );
+    if (alreadyExists) {
+      toast.error(`${inscriptionType === "inscription" ? "L'inscription" : "La réinscription"} a déjà été enregistrée pour ${selectedYear}.`);
+      return;
+    }
+    const token = storage.getAuthItem("structura_token");
+    if (!token) { toast.error("Session expirée."); return; }
+    setInscriptionSaving(true);
+    // Optimiste
+    const tempId = `temp-${crypto.randomUUID()}`;
+    const tempPayment: Payment = {
+      id: tempId, studentId: inscriptionStudent.id,
+      studentName: `${inscriptionStudent.firstName} ${inscriptionStudent.lastName}`,
+      amount: fee, currency: getActiveCurrency(),
+      method: inscriptionMethod.toLowerCase() as Payment["method"],
+      status: "paid", paidDate: new Date().toISOString(),
+      description: inscriptionType === "inscription" ? "Frais d'inscription" : "Frais de réinscription",
+      academicYear: selectedYear, term,
+      createdAt: new Date().toISOString(),
+    };
+    queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [tempPayment, ...prev]);
+    setInscriptionDialogOpen(false);
+    setInscriptionSaving(false);
+    toast.success(`${inscriptionType === "inscription" ? "Inscription" : "Réinscription"} enregistrée — ${formatCurrency(fee)}`);
+    try {
+      const created = await createPayment(token, {
+        studentId: inscriptionStudent.id, amount: fee,
+        method: inscriptionMethod, currency: getActiveCurrency(), status: "paid",
+        description: tempPayment.description, academicYear: selectedYear, term,
+        paidDate: new Date().toISOString(),
+      });
+      const realPayment = mapBackendPayment(created);
+      queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+        prev.map((p) => (p.id === tempId ? realPayment : p))
+      );
+      offlineDB.add(STORES.PAYMENTS, realPayment).catch(() => {});
+    } catch (err: any) {
+      queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+        prev.filter((p) => p.id !== tempId)
+      );
+      toast.error("Erreur lors de l'enregistrement", { description: err.message });
+    }
+  };
+
   const confirmPayment = async () => {
-    if (!selectedStudentForPayment || computedDialogAmount <= 0) return;
+    if (!selectedStudentForPayment || effectiveAmount <= 0) return;
 
     // Garde niveau 2 : doublons / sauts (normalement déjà bloqués par l'UI)
     if (isDuplicateForDialog) {
@@ -1445,7 +1725,7 @@ export default function PaymentsPage() {
 
     setIsSubmitting(true);
     const token  = storage.getAuthItem("structura_token");
-    const amount = computedDialogAmount;
+    const amount = effectiveAmount;
 
     // Calculer les totaux pour le reçu (avant la mise à jour de l'état)
     const receiptCls = classes.find((c) => c.id === selectedStudentForPayment.classId);
@@ -1463,6 +1743,27 @@ export default function PaymentsPage() {
     // Mois sélectionnés dans l'ordre du calendrier scolaire
     const receiptMonths = getMonthsWithYear(paymentForm.academicYear, schoolCalendar)
       .filter((m) => dialogTrimestreMonths.has(m));
+
+    // ── Distribution par mois (paiement mixte : certains complets, dernier partiel) ──
+    // Ex : 2 mois à 120k, parent donne 180k → Oct=120k(complet) + Nov=60k(partiel)
+    const monthDistribution: { month: string; amount: number; isPartial: boolean }[] = [];
+    if (receiptMonths.length > 0 && receiptMonthlyFee > 0) {
+      let remaining = amount;
+      for (const month of receiptMonths) {
+        if (remaining >= receiptMonthlyFee) {
+          monthDistribution.push({ month, amount: receiptMonthlyFee, isPartial: false });
+          remaining -= receiptMonthlyFee;
+        } else if (remaining > 0) {
+          monthDistribution.push({ month, amount: remaining, isPartial: true });
+          remaining = 0;
+        }
+      }
+    }
+    const hasMixedPayment = monthDistribution.some((d) => d.isPartial) && monthDistribution.some((d) => !d.isPartial);
+    // Dictionnaire { "Octobre 2026": 120000, "Novembre 2026": 60000 } — lookup robuste par nom
+    const receiptMonthAmounts: Record<string, number> | undefined = monthDistribution.length > 0
+      ? Object.fromEntries(monthDistribution.map((d) => [d.month, d.amount]))
+      : undefined;
 
     // ── Construit les données du reçu sans déclencher le PDF ────────────────
     const buildReceiptData = (newPayment: Payment): PaymentReceiptData => ({
@@ -1485,6 +1786,7 @@ export default function PaymentsPage() {
       schoolAddress:      "",
       months:             receiptMonths,
       monthlyFee:         receiptMonthlyFee,
+      monthAmounts:       receiptMonthAmounts,
       currency:           getActiveCurrency(),
       trimestreBreakdown: buildTrimestreBreakdown(
         dialogTrimestreMonths,
@@ -1493,19 +1795,64 @@ export default function PaymentsPage() {
       ),
     });
 
-    // ── UI optimiste : paiement temporaire visible immédiatement ─────────────
+    // ── Calcul des termes pour paiement mixte (complets + partiel) ──────────
+    const now = new Date().toISOString();
+    const fullMonths = monthDistribution.filter((d) => !d.isPartial).map((d) => d.month);
+    const partialEntry = monthDistribution.find((d) => d.isPartial) ?? null;
+
+    // Terme principal : mois complets seulement (si mixte), sinon tous les mois
+    // Si les mois complets forment exactement un trimestre → utiliser son nom
+    const mainTerm = (() => {
+      if (!hasMixedPayment) return computedDialogTerm;
+      if (fullMonths.length === 0) return computedDialogTerm;
+      const groups = getCalendarTrimestreGroups(paymentForm.academicYear, schoolCalendar);
+      for (const g of groups) {
+        if (
+          g.monthsWithYear.length === fullMonths.length &&
+          g.monthsWithYear.every((m) => fullMonths.includes(m))
+        ) return g.trimestre;
+      }
+      // Si tous les mois scolaires sont complets → Annuel
+      const allSch = getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar);
+      if (allSch.length === fullMonths.length && allSch.every((m) => fullMonths.includes(m))) {
+        return `Annuel ${paymentForm.academicYear}`;
+      }
+      return fullMonths.join(", ");
+    })();
+    const mainAmount = hasMixedPayment
+      ? fullMonths.length * receiptMonthlyFee
+      : amount;
+
+    // ── UI optimiste : paiement(s) temporaire(s) visible(s) immédiatement ────
     const tempId = `temp-${crypto.randomUUID()}`;
     const tempPayment: Payment = {
       id: tempId, studentId: selectedStudentForPayment.id,
       studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
-      amount, currency: getActiveCurrency(),
+      amount: mainAmount, currency: getActiveCurrency(),
       method: paymentForm.method.toLowerCase() as Payment["method"],
-      status: "paid", paidDate: new Date().toISOString(),
+      status: "paid", paidDate: now,
       description:  paymentForm.description,
-      academicYear: paymentForm.academicYear, term: computedDialogTerm,
-      createdAt: new Date().toISOString(),
+      academicYear: paymentForm.academicYear, term: mainTerm,
+      createdAt: now,
     };
-    queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) => [tempPayment, ...prev]);
+
+    // Paiement partiel du mois suivant (si paiement mixte)
+    const tempPartialId = hasMixedPayment && partialEntry ? `temp-${crypto.randomUUID()}` : null;
+    const tempPartialPayment: Payment | null = (tempPartialId && partialEntry) ? {
+      id: tempPartialId, studentId: selectedStudentForPayment.id,
+      studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
+      amount: partialEntry.amount, currency: getActiveCurrency(),
+      method: paymentForm.method.toLowerCase() as Payment["method"],
+      status: "partial", paidDate: now,
+      description:  paymentForm.description,
+      academicYear: paymentForm.academicYear, term: partialEntry.month,
+      createdAt: now,
+    } : null;
+
+    const allTempPayments = [tempPayment, tempPartialPayment].filter(Boolean) as Payment[];
+    queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+      [...allTempPayments, ...prev]
+    );
     setPendingReceiptData(buildReceiptData(tempPayment));
     setDialogMode("success");
     setIsSubmitting(false);
@@ -1517,43 +1864,73 @@ export default function PaymentsPage() {
       offlineDB.add(STORES.PAYMENTS, offlinePayment).catch(() => {});
       syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...offlinePayment } }).catch(() => {});
       queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
-        prev.map((p) => (p.id === tempId ? offlinePayment : p))
+        prev.map((p) => (p.id === tempId ? { ...offlinePayment } : p))
       );
       toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
       return;
     }
 
     try {
+      // Paiement principal (mois complets, ou tout si pas de mixte)
       const created = await createPayment(token, {
         studentId:    selectedStudentForPayment.id,
-        amount, method: paymentForm.method, currency: getActiveCurrency(), status: "paid",
+        amount:       mainAmount,
+        method:       paymentForm.method,
+        currency:     getActiveCurrency(),
+        status:       "paid",
         description:  paymentForm.description,
-        academicYear: paymentForm.academicYear, term: computedDialogTerm,
-        paidDate: new Date().toISOString(),
+        academicYear: paymentForm.academicYear,
+        term:         mainTerm,
+        paidDate:     now,
       });
       const realPayment = mapBackendPayment(created);
-      // Remplacer le paiement temporaire par le vrai (avec receiptNumber)
       queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
         prev.map((p) => (p.id === tempId ? realPayment : p))
       );
       offlineDB.add(STORES.PAYMENTS, realPayment).catch(() => {});
       markReceiptDone(realPayment.receiptNumber || realPayment.id);
       setPendingReceiptData(buildReceiptData(realPayment));
+
+      // Paiement partiel du mois suivant (si paiement mixte) — fire-and-forget
+      if (tempPartialPayment && tempPartialId && partialEntry) {
+        createPayment(token, {
+          studentId:    selectedStudentForPayment.id,
+          amount:       partialEntry.amount,
+          method:       paymentForm.method,
+          currency:     getActiveCurrency(),
+          status:       "partial",
+          description:  paymentForm.description,
+          academicYear: paymentForm.academicYear,
+          term:         partialEntry.month,
+          paidDate:     now,
+        }).then((createdPartial) => {
+          const realPartial = mapBackendPayment(createdPartial);
+          queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+            prev.map((p) => (p.id === tempPartialId ? realPartial : p))
+          );
+          offlineDB.add(STORES.PAYMENTS, realPartial).catch(() => {});
+        }).catch(() => {
+          queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
+            prev.filter((p) => p.id !== tempPartialId)
+          );
+        });
+      }
+
     } catch (error: any) {
       const isNetworkFailure = !navigator.onLine || error.message === "Failed to fetch";
+      const allTempIds = [tempId, tempPartialId].filter(Boolean);
       if (isNetworkFailure) {
-        // Connexion coupée en cours d'appel → garder le paiement en offline
-        const offlinePayment = { ...tempPayment, needsSync: true };
-        offlineDB.add(STORES.PAYMENTS, offlinePayment).catch(() => {});
-        syncQueue.add({ type: "payment", action: "create", data: { _tempId: tempId, ...offlinePayment } }).catch(() => {});
-        queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
-          prev.map((p) => (p.id === tempId ? offlinePayment : p))
-        );
-        toast.info("Paiement enregistré — il sera envoyé au serveur dès la reconnexion.");
+        // Connexion coupée → garder tous les paiements en offline
+        allTempPayments.forEach((tp) => {
+          const op = { ...tp, needsSync: true };
+          offlineDB.add(STORES.PAYMENTS, op).catch(() => {});
+          syncQueue.add({ type: "payment", action: "create", data: { _tempId: tp.id, ...op } }).catch(() => {});
+        });
+        toast.info("Paiements enregistrés — ils seront envoyés au serveur dès la reconnexion.");
       } else {
-        // Erreur serveur → rollback
+        // Erreur serveur → rollback complet
         queryClient.setQueryData<Payment[]>(PAYMENTS_QUERY_KEY(user?.tenantId), (prev = []) =>
-          prev.filter((p) => p.id !== tempId)
+          prev.filter((p) => !allTempIds.includes(p.id))
         );
         setDialogMode("form");
         setIsSubmitting(false);
@@ -1583,7 +1960,33 @@ export default function PaymentsPage() {
     // Dériver la liste de mois depuis le term du paiement archivé
     const payAcadYear = payment.academicYear || selectedYear;
     const payTerm     = payment.term || selectedTerm;
-    const regenMonths: string[] = (() => {
+
+    // Détecter inscription / réinscription
+    const isInscPayment   = payTerm.startsWith("Inscription");
+    const isReinscPayment = payTerm.startsWith("Réinscription");
+    const isInscOrReinsc  = isInscPayment || isReinscPayment;
+
+    // ── Chercher un paiement partiel lié (paiement mixte complet+partiel) ──────
+    // Critères : même élève, même année scolaire, statut "partial",
+    // paidDate dans une fenêtre de ±2 minutes (robuste si le serveur génère son propre timestamp)
+    const linkedPartial = !isInscOrReinsc ? (() => {
+      if (!payment.paidDate) return null;
+      const refTime = new Date(payment.paidDate).getTime();
+      if (isNaN(refTime)) return null;
+      return payments.find((p) => {
+        if (p.id === payment.id) return false;
+        if (p.studentId !== payment.studentId) return false;
+        if (p.status !== "partial") return false;
+        if (p.academicYear !== payAcadYear) return false;
+        if (!p.paidDate) return false;
+        const diff = Math.abs(new Date(p.paidDate).getTime() - refTime);
+        return diff <= 2 * 60 * 1000; // ±2 minutes
+      }) ?? null;
+    })() : null;
+
+    // Mois du paiement principal
+    const mainMonths: string[] = (() => {
+      if (isInscOrReinsc) return [];
       if (!payTerm) return [];
       if (payTerm.startsWith("Annuel")) return getSchoolMonthsWithYear(payAcadYear, schoolCalendar);
       if (payTerm.startsWith("Trimestre")) {
@@ -1593,36 +1996,55 @@ export default function PaymentsPage() {
       if (payTerm.includes(",")) return payTerm.split(",").map((s) => s.trim());
       return [payTerm];
     })();
-    // Utiliser les totaux annuels (pas les totaux de la période filtrée)
-    // → évite le faux "Scolarité intégralement réglée" quand seulement T1 est payé
-    const regenMonthlyFee =
+
+    // Fusionner avec le mois partiel lié si présent
+    const regenMonths = linkedPartial?.term
+      ? [...mainMonths, linkedPartial.term]
+      : mainMonths;
+
+    // Montants par mois (pour affichage correct sur le reçu)
+    const regenMonthlyFee = isInscOrReinsc ? undefined :
       summary.yearExpectedFee && schoolCalendar.durationMonths > 0
         ? Math.round(summary.yearExpectedFee / schoolCalendar.durationMonths)
         : undefined;
+
+    // Dictionnaire montant par mois pour réimpression (lookup robuste par nom)
+    const regenMonthAmounts: Record<string, number> | undefined = (linkedPartial && regenMonthlyFee)
+      ? Object.fromEntries([
+          ...mainMonths.map((m) => [m, regenMonthlyFee] as [string, number]),
+          [linkedPartial.term, linkedPartial.amount] as [string, number],
+        ])
+      : undefined;
+
+    // Montant total : principal + partiel lié
+    const regenTotalAmount = payment.amount + (linkedPartial?.amount ?? 0);
 
     await generatePaymentReceipt({
       receiptNumber:      payment.receiptNumber || `REC-${Date.now()}`,
       studentName:        `${summary.student.firstName} ${summary.student.lastName}`,
       studentMatricule:   summary.student.matricule,
       className:          summary.className,
-      amount:             payment.amount,
-      totalPaid:          summary.yearTotalPaid,
-      expectedFee:        summary.yearExpectedFee,
-      remaining:          summary.yearRemaining,
+      amount:             regenTotalAmount,
+      // Pour inscription/réinscription : pas de récap scolarité annuelle
+      totalPaid:          isInscOrReinsc ? undefined : summary.yearTotalPaid,
+      expectedFee:        isInscOrReinsc ? undefined : summary.yearExpectedFee,
+      remaining:          isInscOrReinsc ? undefined : summary.yearRemaining,
       date:               payment.paidDate || new Date().toISOString(),
       paymentMethod:      formatMethod(payment.method),
-      description:        payment.description || "Frais de scolarité",
+      description:        payment.description || (isInscOrReinsc ? payTerm : "Frais de scolarité"),
       academicYear:       payAcadYear,
-      term:               payTerm,
+      term:               regenMonths.length > 1 ? regenMonths.join(", ") : (payTerm || regenMonths[0] || ""),
       schoolName:         user?.schoolName || "Structura",
       schoolLogo:         user?.schoolLogo ?? undefined,
       schoolPhone:        "",
       schoolAddress:      "",
       months:             regenMonths,
       monthlyFee:         regenMonthlyFee,
+      monthAmounts:       regenMonthAmounts,
       currency:           getActiveCurrency(),
-      // Recalcule la décomposition depuis le terme sauvegardé (réimpression)
-      trimestreBreakdown: buildTrimestreBreakdown(
+      paymentCategory:    isInscPayment ? "inscription" : isReinscPayment ? "reinscription" : "scolarite",
+      // Recalcule la décomposition depuis les mois fusionnés (avec partiel inclus)
+      trimestreBreakdown: isInscOrReinsc ? undefined : buildTrimestreBreakdown(
         new Set(regenMonths),
         payAcadYear,
         schoolCalendar,
@@ -2441,6 +2863,302 @@ export default function PaymentsPage() {
         </div>
       </div>
 
+      {/* ── Rapport du jour ── */}
+      {todayReport.count > 0 && canViewAmounts && (
+        <>
+          {/* ── Bannière déclencheur ── */}
+          <button
+            type="button"
+            className="w-full rounded-xl border bg-emerald-50/60 border-emerald-200 flex items-center justify-between px-4 py-3 text-left hover:bg-emerald-50 transition-colors"
+            onClick={() => setTodayReportOpen(true)}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                <TrendingUp className="h-4 w-4 text-emerald-700" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-emerald-900">
+                  Aujourd&apos;hui — {todayReport.count} paiement{todayReport.count > 1 ? "s" : ""}
+                </p>
+                <p className="text-xs text-emerald-700">
+                  {todayReport.uniqueStudents} élève{todayReport.uniqueStudents > 1 ? "s" : ""} · {todayReport.byClass.length} classe{todayReport.byClass.length > 1 ? "s" : ""} · {formatCurrency(todayReport.total)} encaissés
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-emerald-700">{formatCurrency(todayReport.total)}</span>
+              <span className="text-[10px] text-emerald-600 border border-emerald-300 rounded px-1.5 py-0.5 bg-white">Voir →</span>
+            </div>
+          </button>
+
+          {/* ── Dialog bilan structuré ── */}
+          <Dialog open={todayReportOpen} onOpenChange={setTodayReportOpen}>
+            <DialogContent className="sm:max-w-[620px] p-0 gap-0 flex flex-col max-h-[88vh]">
+
+              {/* En-tête */}
+              <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0 bg-emerald-50/40">
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp className="h-4 w-4 text-emerald-600" />
+                  Caisse du jour — {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  {todayReport.count} paiement{todayReport.count > 1 ? "s" : ""} · {todayReport.uniqueStudents} élève{todayReport.uniqueStudents > 1 ? "s" : ""} · {todayReport.byClass.length} classe{todayReport.byClass.length > 1 ? "s" : ""}
+                </DialogDescription>
+              </DialogHeader>
+
+              {/* Récap méthodes */}
+              <div className="px-6 py-3 border-b bg-white shrink-0">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-center">
+                    <div className="text-[10px] text-emerald-600 font-semibold uppercase mb-1">Total</div>
+                    <div className="text-sm font-bold text-emerald-700 tabular-nums">{formatCurrency(todayReport.total)}</div>
+                  </div>
+                  {todayReport.byCash > 0 && (
+                    <div className="rounded-xl bg-slate-50 border p-2.5 text-center">
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase mb-1">Espèces</div>
+                      <div className="text-sm font-bold tabular-nums">{formatCurrency(todayReport.byCash)}</div>
+                    </div>
+                  )}
+                  {todayReport.byMobile > 0 && (
+                    <div className="rounded-xl bg-blue-50 border border-blue-100 p-2.5 text-center">
+                      <div className="text-[10px] text-blue-600 font-semibold uppercase mb-1">Mobile</div>
+                      <div className="text-sm font-bold text-blue-700 tabular-nums">{formatCurrency(todayReport.byMobile)}</div>
+                    </div>
+                  )}
+                  {todayReport.byTransfer > 0 && (
+                    <div className="rounded-xl bg-violet-50 border border-violet-100 p-2.5 text-center">
+                      <div className="text-[10px] text-violet-600 font-semibold uppercase mb-1">Virement</div>
+                      <div className="text-sm font-bold text-violet-700 tabular-nums">{formatCurrency(todayReport.byTransfer)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Liste groupée par classe */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                {todayReport.byClass.map((cls) => (
+                  <div key={cls.classId} className="rounded-xl border overflow-hidden">
+
+                    {/* En-tête classe */}
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b">
+                      <div className="flex items-center gap-2">
+                        <GraduationCap className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="font-semibold text-sm">{cls.className}</span>
+                        {cls.level && (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                            {cls.level}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold text-emerald-700 tabular-nums">{formatCurrency(cls.classTotal)}</span>
+                    </div>
+
+                    {/* Élèves de la classe */}
+                    <div className="divide-y">
+                      {cls.students.map((stu) => (
+                        <div key={stu.studentId} className="px-4 py-2.5">
+
+                          {/* Nom + total élève — toujours affiché */}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-semibold text-sm truncate">{stu.studentName}</span>
+                              {stu.matricule && (
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">{stu.matricule}</span>
+                              )}
+                            </div>
+                            <span className="text-sm font-bold text-emerald-700 tabular-nums shrink-0">
+                              {formatCurrency(stu.studentTotal)}
+                            </span>
+                          </div>
+
+                          {/* Détail des paiements de l'élève */}
+                          <div className="space-y-1">
+                            {stu.payments.map((p) => {
+                              const isInsc    = p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription");
+                              const isPartial = p.status === "partial";
+
+                              // Formatage du terme : lisible et conserve l'info d'année
+                              const termLabel = (() => {
+                                if (!p.term) return p.description ?? "Paiement";
+                                if (p.term.includes(",")) {
+                                  // "Septembre 2026, Octobre 2026, Novembre 2026, Décembre 2026"
+                                  // → "Sep–Déc 2026" si même année, sinon "Sep 2026 · Jan 2027 · …"
+                                  const parts = p.term.split(",").map(m => m.trim());
+                                  const years  = [...new Set(parts.map(m => m.split(" ")[1]))];
+                                  if (years.length === 1) {
+                                    // Plage compact : "Sep – Déc 2026"
+                                    const first = MONTH_SHORT[parts[0].split(" ")[0]] ?? parts[0].split(" ")[0];
+                                    const last  = MONTH_SHORT[parts[parts.length - 1].split(" ")[0]] ?? parts[parts.length - 1].split(" ")[0];
+                                    return first === last ? `${first} ${years[0]}` : `${first} – ${last} ${years[0]}`;
+                                  }
+                                  // Années différentes : liste courte
+                                  return parts.map(m => {
+                                    const [mn, yr] = m.split(" ");
+                                    return `${MONTH_SHORT[mn] ?? mn} ${yr}`;
+                                  }).join(" · ");
+                                }
+                                return p.term;
+                              })();
+
+                              // Heure du paiement
+                              const timeStr = (() => {
+                                const raw = p.paidDate || p.createdAt;
+                                if (!raw) return null;
+                                return new Date(raw).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+                              })();
+
+                              return (
+                                <div key={p.id} className={cn(
+                                  "flex items-center justify-between gap-2 text-xs rounded-md px-2 py-1",
+                                  isPartial && "bg-amber-50/60"
+                                )}>
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                    {/* Badge catégorie */}
+                                    <span className={cn(
+                                      "text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0",
+                                      isPartial  ? "bg-amber-100 text-amber-700"  :
+                                      isInsc     ? "bg-violet-100 text-violet-700" :
+                                                   "bg-blue-100 text-blue-700"
+                                    )}>
+                                      {isPartial  ? "PARTIEL" :
+                                       isInsc     ? (p.term?.startsWith("Inscription") ? "INSC" : "RÉINSC") :
+                                                    "SCOL"}
+                                    </span>
+                                    {/* Terme */}
+                                    <span className="text-foreground/80 truncate font-medium">{termLabel}</span>
+                                    <span className="text-muted-foreground/30 shrink-0">·</span>
+                                    {/* Méthode */}
+                                    <span className="text-muted-foreground shrink-0">{formatMethod(p.method)}</span>
+                                    {/* Heure */}
+                                    {timeStr && (
+                                      <>
+                                        <span className="text-muted-foreground/30 shrink-0">·</span>
+                                        <span className="text-muted-foreground/60 shrink-0 tabular-nums">{timeStr}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  {/* Montant */}
+                                  <span className={cn(
+                                    "font-bold tabular-nums shrink-0",
+                                    isPartial  ? "text-amber-700"  :
+                                    isInsc     ? "text-violet-700"  :
+                                                 "text-emerald-700"
+                                  )}>
+                                    {formatCurrency(p.amount)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
+      {/* ── Bilan Annuel Global (jamais filtré par période) ── */}
+      {canViewAmounts && studentSummaries.length > 0 && (
+        <Card className="border border-border/60 bg-gradient-to-r from-background to-muted/20">
+          <CardContent className="px-4 py-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Titre + progression */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                    Bilan Annuel — {selectedYear}
+                  </span>
+                  <span className="text-xs font-bold text-foreground tabular-nums">
+                    {annualStats.progressPct}%
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${annualStats.progressPct}%`,
+                      background:
+                        annualStats.progressPct >= 80
+                          ? "linear-gradient(90deg,#10b981,#34d399)"
+                          : annualStats.progressPct >= 50
+                          ? "linear-gradient(90deg,#f59e0b,#fbbf24)"
+                          : "linear-gradient(90deg,#ef4444,#f87171)",
+                    }}
+                  />
+                </div>
+              </div>
+              {/* 3 stat pills */}
+              <div className="flex gap-3 shrink-0 text-xs">
+                <div className="flex flex-col items-center px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="font-bold text-emerald-600 tabular-nums">{formatCurrency(annualStats.collected)}</span>
+                  <span className="text-muted-foreground mt-0.5">Encaissé</span>
+                </div>
+                <div className="flex flex-col items-center px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <span className="font-bold text-red-600 tabular-nums">{formatCurrency(annualStats.remaining)}</span>
+                  <span className="text-muted-foreground mt-0.5">Restant</span>
+                </div>
+                <div className="flex flex-col items-center px-3 py-1.5 rounded-lg bg-muted/60 border border-border/60">
+                  <span className="font-bold text-foreground tabular-nums">{formatCurrency(annualStats.expected)}</span>
+                  <span className="text-muted-foreground mt-0.5">Attendu</span>
+                </div>
+              </div>
+            </div>
+            {/* Compteurs élèves */}
+            <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                {annualStats.fullyPaid} élève{annualStats.fullyPaid > 1 ? "s" : ""} à jour
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                {annualStats.withDebt} avec solde dû
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/40" />
+                {annualStats.total} total
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Widget Solde Net (recettes scolarité − dépenses) ── */}
+      {canViewAmounts && expensesTotal !== null && annualStats.collected > 0 && (
+        <Card className="border border-border/60">
+          <CardContent className="px-4 py-3">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <DollarSign className="h-3.5 w-3.5 text-primary" />
+                Solde Net — {selectedYear}
+              </span>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="flex flex-col items-end">
+                  <span className="text-emerald-600 font-bold tabular-nums">{formatCurrency(annualStats.collected)}</span>
+                  <span className="text-muted-foreground">Recettes</span>
+                </span>
+                <span className="text-muted-foreground font-bold text-base">−</span>
+                <span className="flex flex-col items-end">
+                  <span className="text-red-600 font-bold tabular-nums">{formatCurrency(expensesTotal)}</span>
+                  <span className="text-muted-foreground">Dépenses</span>
+                </span>
+                <span className="text-muted-foreground font-bold text-base">=</span>
+                <span className="flex flex-col items-end">
+                  <span className={`font-bold tabular-nums text-base ${annualStats.collected - expensesTotal >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {formatCurrency(annualStats.collected - expensesTotal)}
+                  </span>
+                  <span className="text-muted-foreground">Solde</span>
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Statistiques ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Total encaissé — directeur et comptable uniquement */}
@@ -2958,24 +3676,50 @@ export default function PaymentsPage() {
 
                   {/* Action principale */}
                   <TableCell className="py-3 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    {canCreatePayment && (
-                      <Button
-                        size="sm"
-                        className={cn(
-                          "h-8 text-xs font-semibold gap-1.5 shadow-sm",
-                          summary.status === "paid"
-                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                            : summary.status === "partial"
-                            ? "bg-amber-500 hover:bg-amber-600 text-white"
-                            : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                        )}
-                        onClick={() => openPaymentDialog(summary.student)}
-                        title="Enregistrer un paiement pour cet élève"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        {summary.status === "paid" ? "Ajouter" : "Paiement"}
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-1 flex-wrap">
+                      {(feeConfig.inscriptionFee || feeConfig.reinscriptionFee) && (() => {
+                        const insc = inscriptionStatusMap[summary.student.id];
+                        if (insc?.paid) {
+                          // Déjà payé : badge vert non-cliquable
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {insc.type === "inscription" ? "Inscrit" : "Réinscrit"}
+                            </span>
+                          );
+                        }
+                        // Pas encore payé : bouton cliquable
+                        return canCreatePayment ? (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={() => openInscriptionDialog(summary.student)}
+                            title="Enregistrer inscription / réinscription"
+                          >
+                            <GraduationCap className="h-3.5 w-3.5" />
+                            Inscrire
+                          </Button>
+                        ) : null;
+                      })()}
+                      {canCreatePayment && (
+                        <Button
+                          size="sm"
+                          className={cn(
+                            "h-8 text-xs font-semibold gap-1.5 shadow-sm",
+                            summary.status === "paid"
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                              : summary.status === "partial"
+                              ? "bg-amber-500 hover:bg-amber-600 text-white"
+                              : "bg-primary hover:bg-primary/90 text-primary-foreground"
+                          )}
+                          onClick={() => openPaymentDialog(summary.student)}
+                          title="Enregistrer un paiement pour cet élève"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {summary.status === "paid" ? "Ajouter" : "Paiement"}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -2998,9 +3742,85 @@ export default function PaymentsPage() {
                 new Date(a.paidDate || a.createdAt || 0).getTime()
               )
           : [];
-        const yearTotalPaid = allYearPayments.filter(p => p.status === "paid").reduce((acc, p) => acc + p.amount, 0);
+
         const monthlyFeeForDrawer = s ? getStudentFee(s.student.classId, s.level ?? "", feeConfig) : 0;
-        const fullYearFee = monthlyFeeForDrawer * schoolCalendar.durationMonths;
+        const fullYearFee         = monthlyFeeForDrawer * schoolCalendar.durationMonths;
+
+        // Séparation inscription / scolarité
+        const isInscOrReinscTerm = (term?: string | null) =>
+          !!(term?.startsWith("Inscription") || term?.startsWith("Réinscription"));
+        const inscPayments      = allYearPayments.filter((p) => isInscOrReinscTerm(p.term));
+        const scolaritePayments = allYearPayments.filter((p) => !isInscOrReinscTerm(p.term));
+
+        // Bilan annuel scolarité (paid + partial)
+        const yearScolaritePaid = scolaritePayments.reduce((acc, p) => acc + p.amount, 0);
+        const yearRemaining     = Math.max(0, fullYearFee - yearScolaritePaid);
+        const progressPct       = fullYearFee > 0
+          ? Math.min(100, Math.round((yearScolaritePaid / fullYearFee) * 100))
+          : 0;
+
+        // Calendrier par mois (statut réel)
+        const drawerSchoolMonths = getSchoolMonthsWithYear(selectedYear, schoolCalendar);
+        const drawerMonthMap: Record<string, { status: "paid" | "partial" | "unpaid"; paidAmount: number }> = {};
+        for (const m of drawerSchoolMonths) {
+          drawerMonthMap[m] = { status: "unpaid", paidAmount: 0 };
+        }
+
+        /**
+         * Normalise les termes sans année ("Février" → "Février 2027") pour
+         * qu'ils correspondent aux clés de drawerMonthMap.
+         * Gère aussi les cas où expandTermToMonths retourne des mois déjà qualifiés.
+         */
+        const normalizeCovered = (raw: string[]): string[] =>
+          raw.map((m) => {
+            if (drawerMonthMap[m] !== undefined) return m; // déjà qualifié et présent
+            // Tenter la correspondance par nom de mois sans année
+            const match = drawerSchoolMonths.find((sm) => sm.split(" ")[0] === m.trim());
+            return match ?? m;
+          });
+
+        for (const p of scolaritePayments) {
+          if (!p.term) continue;
+          const rawCovered = expandTermToMonths(p.term, selectedYear, schoolCalendar);
+          const covered    = normalizeCovered(rawCovered);
+          // Montant réel par mois (pour les paiements multi-mois : diviser)
+          const perMonthAmount = covered.length > 1
+            ? Math.round(p.amount / covered.length)
+            : p.amount;
+          if (p.status === "paid") {
+            for (const m of covered) {
+              if (drawerMonthMap[m]) drawerMonthMap[m] = { status: "paid", paidAmount: perMonthAmount };
+            }
+          } else if (p.status === "partial") {
+            for (const m of covered) {
+              if (drawerMonthMap[m] && drawerMonthMap[m].status !== "paid") {
+                drawerMonthMap[m] = { status: "partial", paidAmount: p.amount };
+              }
+            }
+          }
+        }
+
+        // Mois à régulariser (partiels + non payés)
+        const toRegularize = drawerSchoolMonths
+          .map((m) => ({ month: m, ...drawerMonthMap[m] }))
+          .filter((m) => m.status !== "paid");
+
+        // Chips mois couverts par un paiement (pour l'historique)
+        const getPaymentMonthChips = (p: Payment): string[] => {
+          if (!p.term) return [];
+          if (p.term.startsWith("Annuel")) return ["Année complète"];
+          return expandTermToMonths(p.term, selectedYear, schoolCalendar);
+        };
+
+        // Formater une date de paiement
+        const formatPaymentDate = (p: Payment): string => {
+          const raw = p.paidDate || p.createdAt;
+          if (!raw) return "—";
+          return new Date(raw).toLocaleString("fr-FR", {
+            day: "2-digit", month: "short", year: "numeric",
+            hour: "2-digit", minute: "2-digit",
+          });
+        };
 
         return (
           <Sheet open={!!drawerStudent} onOpenChange={(open) => { if (!open) setDrawerStudent(null); }}>
@@ -3035,216 +3855,371 @@ export default function PaymentsPage() {
 
               {/* Corps scrollable */}
               <div className="flex-1 overflow-y-auto">
-
-                {/* Résumé pour la période filtrée */}
-                {s && (
-                  <div className="px-6 py-4 border-b space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                      Vue : {selectedTerm} · {selectedYear}
-                    </p>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-center">
-                        <div className="text-xs text-emerald-700 font-medium mb-0.5">Versé</div>
-                        <div className="text-sm font-bold text-emerald-700">{formatCurrency(s.totalPaid)}</div>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 border px-3 py-2 text-center">
-                        <div className="text-xs text-muted-foreground font-medium mb-0.5">Attendu</div>
-                        <div className="text-sm font-bold">{formatCurrency(s.expectedFee)}</div>
-                      </div>
-                      <div className={cn(
-                        "rounded-lg border px-3 py-2 text-center",
-                        s.remaining > 0 ? "bg-red-50 border-red-100" : "bg-emerald-50 border-emerald-100"
-                      )}>
-                        <div className="text-xs font-medium mb-0.5 text-muted-foreground">Reste</div>
-                        <div className={cn("text-sm font-bold", s.remaining > 0 ? "text-red-600" : "text-emerald-600")}>
-                          {formatCurrency(s.remaining)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <StatusBadge status={s.status} />
-                      <span className="text-xs text-muted-foreground">
-                        {s.status === "paid"
-                          ? "Intégralement réglé"
-                          : s.status === "partial"
-                          ? `${formatCurrency(s.totalPaid)} versé`
-                          : "Aucun versement enregistré"}
-                      </span>
-                    </div>
-                    {/* Récap annuel si différent de la vue filtrée */}
-                    {fullYearFee > 0 && (
-                      <div className="text-xs text-muted-foreground border-t pt-2">
-                        Année complète {selectedYear} :&nbsp;
-                        <span className="font-semibold text-foreground">{formatCurrency(yearTotalPaid)}</span>
-                        &nbsp;/&nbsp;{formatCurrency(fullYearFee)}
-                        {yearTotalPaid >= fullYearFee && (
-                          <Badge className="ml-2 bg-emerald-500/10 text-emerald-700 border-emerald-200 border text-[10px] py-0">
-                            Scolarité complète
+                {s ? (
+                  <>
+                    {/* ─── 1. Bilan annuel scolarité ─── */}
+                    <div className="px-6 py-5 border-b space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                          Bilan scolarité {selectedYear}
+                        </p>
+                        {progressPct >= 100 && (
+                          <Badge className="bg-emerald-500/10 text-emerald-700 border border-emerald-200 text-[10px] py-0 px-2">
+                            Scolarité complète ✓
                           </Badge>
                         )}
                       </div>
-                    )}
-                  </div>
-                )}
 
-                {/* ── Mini-timeline des mois scolaires ── */}
-                {s && schoolCalendar.durationMonths > 0 && (() => {
-                  const tlMonths = getSchoolMonthsWithYear(selectedYear, schoolCalendar);
-                  const tlPaid = new Set(
-                    allYearPayments
-                      .filter((p) => p.status === "paid")
-                      .flatMap((p) => {
-                        if (!p.term) return [];
-                        if (p.term.startsWith("Annuel")) return tlMonths;
-                        if (p.term.startsWith("Trimestre"))
-                          return getMonthsWithYearForTrimestre(p.term, selectedYear, schoolCalendar);
-                        if (p.term.includes(",")) return p.term.split(",").map((x) => x.trim());
-                        return [p.term];
-                      })
-                  );
-                  return (
-                    <div className="px-6 py-3 border-b">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-                        Calendrier {selectedYear}
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {tlMonths.map((m) => {
-                          const short = MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3);
-                          const paid  = tlPaid.has(m);
-                          return (
+                      {/* Barre de progression */}
+                      {fullYearFee > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{formatCurrency(yearScolaritePaid)} versés</span>
+                            <span className="font-semibold">{progressPct}%</span>
+                          </div>
+                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
                             <div
-                              key={m}
-                              title={m}
                               className={cn(
-                                "flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-md text-[9px] font-bold border min-w-[30px]",
-                                paid
-                                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-                                  : "bg-muted/30 border-dashed border-muted-foreground/25 text-muted-foreground/60"
+                                "h-full rounded-full transition-all duration-500",
+                                progressPct >= 100 ? "bg-emerald-500" :
+                                progressPct >= 60  ? "bg-blue-500"    :
+                                progressPct >= 30  ? "bg-amber-500"   : "bg-red-400"
                               )}
-                            >
-                              {short}
-                              {paid
-                                ? <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                : <div className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground/25" />}
-                            </div>
-                          );
-                        })}
+                              style={{ width: `${Math.max(progressPct, 2)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3 stats */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-center">
+                          <div className="text-[10px] text-emerald-600 font-semibold uppercase mb-1">Versé</div>
+                          <div className="text-sm font-bold text-emerald-700 tabular-nums">{formatCurrency(yearScolaritePaid)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border p-3 text-center">
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase mb-1">Attendu</div>
+                          <div className="text-sm font-bold text-slate-700 tabular-nums">{formatCurrency(fullYearFee)}</div>
+                        </div>
+                        <div className={cn(
+                          "rounded-xl border p-3 text-center",
+                          yearRemaining > 0 ? "bg-red-50 border-red-100" : "bg-emerald-50 border-emerald-100"
+                        )}>
+                          <div className={cn("text-[10px] font-semibold uppercase mb-1",
+                            yearRemaining > 0 ? "text-red-500" : "text-emerald-600")}>Reste</div>
+                          <div className={cn("text-sm font-bold tabular-nums",
+                            yearRemaining > 0 ? "text-red-600" : "text-emerald-700")}>
+                            {formatCurrency(yearRemaining)}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  );
-                })()}
 
-                {/* Historique complet de l'année */}
-                <div className="px-6 py-4 space-y-2">
-                  <div className="flex items-center gap-2 mb-3">
-                    <History className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                      Historique {selectedYear}
-                    </p>
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {allYearPayments.length} paiement{allYearPayments.length > 1 ? "s" : ""}
-                    </span>
-                  </div>
-
-                  {allYearPayments.length === 0 ? (
-                    <div className="py-8 text-center text-muted-foreground border rounded-lg border-dashed">
-                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">Aucun paiement enregistré pour {selectedYear}</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {allYearPayments.map((p) => {
-                        const tKey = p.receiptNumber || p.id;
-                        const printed = generatedReceipts.has(tKey);
-                        const dateStr = (() => {
-                          const raw = p.paidDate || p.createdAt;
-                          if (!raw) return "—";
-                          return new Date(raw).toLocaleString("fr-FR", {
-                            day: "2-digit", month: "short", year: "numeric",
-                            hour: "2-digit", minute: "2-digit",
-                          });
-                        })();
-                        const isPaid = p.status === "paid";
-                        return (
-                          <div
-                            key={p.id}
-                            className={cn(
-                              "rounded-lg border px-3 py-2.5 transition-colors",
-                              isPaid ? "bg-card hover:bg-muted/30" : "bg-amber-50/40 border-amber-100"
-                            )}
-                          >
-                            {/* Ligne 1 : indicateur + terme + montant + boutons */}
-                            <div className="flex items-center gap-2">
-                              {/* Dot statut */}
-                              <div className={cn(
-                                "w-2 h-2 rounded-full shrink-0",
-                                isPaid ? "bg-emerald-500" : "bg-amber-400"
-                              )} />
-                              {/* Terme + date */}
-                              <div className="min-w-0 flex-1">
-                                <span className="font-semibold text-sm truncate block">
-                                  {p.term || p.description || "Frais de scolarité"}
+                    {/* ─── 2. Calendrier scolaire mensuel ─── */}
+                    {drawerSchoolMonths.length > 0 && (
+                      <div className="px-6 py-4 border-b">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                          Calendrier scolaire {selectedYear}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {drawerSchoolMonths.map((m) => {
+                            const info  = drawerMonthMap[m];
+                            const short = MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3);
+                            return (
+                              <div
+                                key={m}
+                                title={m}
+                                className={cn(
+                                  "flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 border text-center",
+                                  info.status === "paid"    ? "bg-emerald-50 border-emerald-200" :
+                                  info.status === "partial" ? "bg-amber-50 border-amber-200"     :
+                                                              "bg-muted/20 border-dashed border-muted-foreground/20"
+                                )}
+                              >
+                                <span className={cn("text-[11px] font-bold",
+                                  info.status === "paid"    ? "text-emerald-700" :
+                                  info.status === "partial" ? "text-amber-700"   :
+                                                              "text-muted-foreground/40"
+                                )}>
+                                  {short}
                                 </span>
+                                <span className={cn("text-[10px] font-medium leading-tight tabular-nums",
+                                  info.status === "paid"    ? "text-emerald-600" :
+                                  info.status === "partial" ? "text-amber-600"   :
+                                                              "text-muted-foreground/30"
+                                )}>
+                                  {info.status === "paid"    ? formatCurrency(info.paidAmount) :
+                                   info.status === "partial" ? formatCurrency(info.paidAmount) :
+                                   "—"}
+                                </span>
+                                {info.status === "paid" ? (
+                                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                                ) : info.status === "partial" ? (
+                                  <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                ) : (
+                                  <div className="h-3 w-3 rounded-full border-2 border-dashed border-muted-foreground/20" />
+                                )}
                               </div>
-                              {/* Montant */}
-                              <span className={cn(
-                                "font-bold text-sm shrink-0",
-                                isPaid ? "text-emerald-600" : "text-amber-600"
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-4 mt-3 text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" /> Payé
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5 text-amber-500" /> Partiel
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <div className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground/30" /> Non payé
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ─── 3. À régulariser ─── */}
+                    {toRegularize.length > 0 && (
+                      <div className="px-6 py-4 border-b">
+                        <div className="flex items-center gap-2 mb-3">
+                          <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          <p className="text-[10px] font-semibold text-red-600 uppercase tracking-widest">
+                            À régulariser — {formatCurrency(yearRemaining)}
+                          </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          {toRegularize.map(({ month, status, paidAmount }) => {
+                            const missing = monthlyFeeForDrawer > 0
+                              ? (status === "partial" ? monthlyFeeForDrawer - paidAmount : monthlyFeeForDrawer)
+                              : 0;
+                            return (
+                              <div key={month} className={cn(
+                                "flex items-start justify-between rounded-lg px-3 py-2 border",
+                                status === "partial"
+                                  ? "bg-amber-50/60 border-amber-100"
+                                  : "bg-red-50/40 border-red-100"
                               )}>
-                                {formatCurrency(p.amount)}
-                              </span>
-                              {/* Actions reçu */}
-                              {isPaid && s && (
-                                <div className="flex items-center gap-0 shrink-0">
-                                  <Button size="sm" variant="ghost"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                                    title="Aperçu du reçu"
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-sm">{month}</span>
+                                    {status === "partial" && (
+                                      <span className="text-[9px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                                        PARTIEL
+                                      </span>
+                                    )}
+                                  </div>
+                                  {status === "partial" && monthlyFeeForDrawer > 0 && (
+                                    <div className="text-[11px] text-muted-foreground">
+                                      {formatCurrency(paidAmount)} versé / {formatCurrency(monthlyFeeForDrawer)} attendu
+                                    </div>
+                                  )}
+                                </div>
+                                {missing > 0 && (
+                                  <span className={cn("font-bold text-sm shrink-0 mt-0.5",
+                                    status === "partial" ? "text-amber-600" : "text-red-600")}>
+                                    {formatCurrency(missing)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ─── 4. Inscription / Réinscription ─── */}
+                    {inscPayments.length > 0 && (
+                      <div className="px-6 py-4 border-b">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                          Frais d'inscription
+                        </p>
+                        <div className="space-y-2">
+                          {inscPayments.map((p) => {
+                            const isInsc  = p.term?.startsWith("Inscription");
+                            const tKey    = p.receiptNumber || p.id;
+                            const printed = generatedReceipts.has(tKey);
+                            return (
+                              <div key={p.id} className="rounded-xl border border-violet-100 bg-violet-50/30 p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className={cn(
+                                    "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                                    isInsc
+                                      ? "bg-blue-100 text-blue-700"
+                                      : "bg-violet-100 text-violet-700"
+                                  )}>
+                                    {isInsc ? "INSCRIPTION" : "RÉINSCRIPTION"}
+                                  </span>
+                                  <span className="font-bold text-sm ml-auto">{formatCurrency(p.amount)}</span>
+                                  <span className="text-xs text-muted-foreground">{formatMethod(p.method)}</span>
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {formatPaymentDate(p)}
+                                  {p.receiptNumber && (
+                                    <span className="ml-2 font-mono opacity-60">{p.receiptNumber}</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-1.5 mt-2.5 pt-2 border-t border-violet-100">
+                                  <Button size="sm" variant="outline"
+                                    className="flex-1 h-7 text-[11px] gap-1 border-violet-200 text-violet-700 hover:bg-violet-100"
                                     onClick={() => handleGenerateReceipt(s, p, "preview")}
                                   >
-                                    <Eye className="h-3 w-3" />
+                                    <Eye className="h-3 w-3" /> Aperçu
                                   </Button>
-                                  <Button size="sm" variant="ghost"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                                    title="Imprimer"
+                                  <Button size="sm" variant="outline"
+                                    className="flex-1 h-7 text-[11px] gap-1 border-violet-200 text-violet-700 hover:bg-violet-100"
                                     onClick={() => handleGenerateReceipt(s, p, "print")}
                                   >
-                                    <Printer className="h-3 w-3" />
+                                    <Printer className="h-3 w-3" /> Imprimer
                                   </Button>
-                                  <Button size="sm" variant="ghost"
-                                    className={cn("h-6 w-6 p-0",
-                                      printed ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground"
+                                  <Button size="sm" variant="outline"
+                                    className={cn("flex-1 h-7 text-[11px] gap-1",
+                                      printed
+                                        ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                                        : "border-violet-200 text-violet-700 hover:bg-violet-100"
                                     )}
-                                    title={printed ? "Re-télécharger" : "Télécharger PDF"}
                                     onClick={() => handleGenerateReceipt(s, p, "download")}
                                   >
                                     <Download className="h-3 w-3" />
+                                    {printed ? "Re-dl" : "PDF"}
                                   </Button>
                                 </div>
-                              )}
-                            </div>
-                            {/* Ligne 2 : méta-données compactes */}
-                            <div className="flex items-center gap-2 mt-1 ml-4 text-[11px] text-muted-foreground">
-                              <span>{formatMethod(p.method)}</span>
-                              <span className="text-muted-foreground/40">·</span>
-                              <span>{dateStr}</span>
-                              {p.receiptNumber && (
-                                <>
-                                  <span className="text-muted-foreground/40">·</span>
-                                  <span className="font-mono">{p.receiptNumber}</span>
-                                </>
-                              )}
-                              {p.needsSync && (
-                                <Badge variant="outline" className="text-[9px] py-0 px-1 text-amber-600 border-amber-300 ml-auto">
-                                  hors ligne
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ─── 5. Historique scolarité ─── */}
+                    <div className="px-6 py-4 pb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <History className="h-3.5 w-3.5 text-muted-foreground" />
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                          Historique scolarité
+                        </p>
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {scolaritePayments.length} transaction{scolaritePayments.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      {scolaritePayments.length === 0 ? (
+                        <div className="py-10 text-center text-muted-foreground border rounded-xl border-dashed">
+                          <FileText className="h-8 w-8 mx-auto mb-2 opacity-25" />
+                          <p className="text-sm">Aucun paiement de scolarité pour {selectedYear}</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {scolaritePayments.map((p) => {
+                            const tKey      = p.receiptNumber || p.id;
+                            const printed   = generatedReceipts.has(tKey);
+                            const isPaid    = p.status === "paid";
+                            const chips     = getPaymentMonthChips(p);
+                            return (
+                              <div
+                                key={p.id}
+                                className={cn(
+                                  "rounded-xl border p-3",
+                                  isPaid ? "bg-card border-border" : "bg-amber-50/40 border-amber-200"
+                                )}
+                              >
+                                {/* Ligne 1 : badge + montant */}
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0",
+                                    isPaid ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+                                  )}>
+                                    {isPaid ? "SCOLARITÉ" : "PARTIEL"}
+                                  </span>
+                                  <span className={cn(
+                                    "font-bold text-sm ml-auto tabular-nums shrink-0",
+                                    isPaid ? "text-emerald-600" : "text-amber-600"
+                                  )}>
+                                    {formatCurrency(p.amount)}
+                                  </span>
+                                </div>
+
+                                {/* Chips mois couverts */}
+                                {chips.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    {chips.slice(0, 9).map((chip) => (
+                                      <span key={chip} className={cn(
+                                        "text-[10px] px-1.5 py-0.5 rounded-md font-medium",
+                                        isPaid ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-700"
+                                      )}>
+                                        {/* "Septembre 2026" → "Septembre", "Année complète" → tel quel */}
+                                        {chip.includes(" ") && !chip.startsWith("Année")
+                                          ? chip.split(" ")[0]
+                                          : chip}
+                                      </span>
+                                    ))}
+                                    {chips.length > 9 && (
+                                      <span className="text-[10px] text-muted-foreground self-center">+{chips.length - 9}</span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Méta : méthode · date · n° reçu */}
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-2 text-[11px] text-muted-foreground">
+                                  <span className="font-medium">{formatMethod(p.method)}</span>
+                                  <span className="opacity-30">·</span>
+                                  <span>{formatPaymentDate(p)}</span>
+                                  {p.receiptNumber && (
+                                    <>
+                                      <span className="opacity-30">·</span>
+                                      <span className="font-mono">{p.receiptNumber}</span>
+                                    </>
+                                  )}
+                                  {p.needsSync && (
+                                    <Badge variant="outline" className="text-[9px] py-0 px-1 text-amber-600 border-amber-300 ml-auto">
+                                      hors ligne
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                {/* Infos partiel */}
+                                {!isPaid && monthlyFeeForDrawer > 0 && (
+                                  <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5 border border-amber-100">
+                                    {formatCurrency(p.amount)} versé · Reste {formatCurrency(Math.max(0, monthlyFeeForDrawer - p.amount))}
+                                  </div>
+                                )}
+
+                                {/* Actions reçu */}
+                                {isPaid && (
+                                  <div className="flex gap-1.5 mt-2.5 pt-2 border-t border-border/50">
+                                    <Button size="sm" variant="outline"
+                                      className="flex-1 h-7 text-[11px] gap-1"
+                                      onClick={() => handleGenerateReceipt(s, p, "preview")}
+                                    >
+                                      <Eye className="h-3 w-3" /> Aperçu
+                                    </Button>
+                                    <Button size="sm" variant="outline"
+                                      className="flex-1 h-7 text-[11px] gap-1"
+                                      onClick={() => handleGenerateReceipt(s, p, "print")}
+                                    >
+                                      <Printer className="h-3 w-3" /> Imprimer
+                                    </Button>
+                                    <Button size="sm" variant="outline"
+                                      className={cn("flex-1 h-7 text-[11px] gap-1",
+                                        printed && "border-amber-200 text-amber-600 hover:bg-amber-50"
+                                      )}
+                                      onClick={() => handleGenerateReceipt(s, p, "download")}
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      {printed ? "Re-dl" : "PDF"}
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-muted-foreground py-20">
+                    Chargement…
+                  </div>
+                )}
               </div>
 
               {/* ── Footer fixe : bouton toujours visible ── */}
@@ -3740,32 +4715,60 @@ export default function PaymentsPage() {
                 Sélectionnez un ou plusieurs mois pour continuer
               </div>
             ) : (
-              <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 space-y-2">
+              <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] text-muted-foreground mb-0.5">Montant à encaisser</p>
-                    <p className="text-2xl font-bold text-primary">{formatCurrency(computedDialogAmount)}</p>
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Frais attendu</p>
+                    <p className="text-lg font-bold text-foreground">{formatCurrency(computedDialogAmount)}</p>
                   </div>
                   <div className="text-right text-xs text-muted-foreground space-y-0.5">
                     <p className="font-semibold text-foreground">{computedDialogTerm}</p>
-                    <p>{dialogTrimestreMonths.size} mois sélectionné{dialogTrimestreMonths.size > 1 ? "s" : ""}</p>
+                    <p>{dialogTrimestreMonths.size} mois</p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground border-t border-primary/10 pt-1.5">
-                  {getMonthsWithYear(paymentForm.academicYear, schoolCalendar)
-                    .filter((m) => dialogTrimestreMonths.has(m))
-                    .map((m) => MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3))
-                    .join(" · ")}
-                </p>
-                <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-                  <Check className="h-3 w-3" />
-                  Calculé automatiquement · montant non modifiable
+                {/* Champ montant personnalisé */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-foreground">
+                    Montant reçu du parent
+                    {effectiveAmount < computedDialogAmount && effectiveAmount > 0 && !dialogHasMixedPayment && (
+                      <span className="ml-2 text-amber-600 font-normal">
+                        · Partiel — reste {formatCurrency(computedDialogAmount - effectiveAmount)}
+                      </span>
+                    )}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      placeholder={String(computedDialogAmount)}
+                      value={customAmountStr}
+                      onChange={(e) => setCustomAmountStr(e.target.value)}
+                      className="h-9 pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                      {getActiveCurrency()}
+                    </span>
+                  </div>
+                  {effectiveAmount > computedDialogAmount && (
+                    <p className="text-xs text-amber-600">⚠ Le montant dépasse le frais attendu pour la période.</p>
+                  )}
+                  {customAmountStr === "" ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      Entrez le montant exact remis par le parent.
+                      {dialogTrimestreMonths.size > 1 && ` Si inférieur à ${formatCurrency(computedDialogAmount)}, la répartition par mois se fait automatiquement.`}
+                    </p>
+                  ) : (
+                    effectiveAmount > 0 && effectiveAmount < computedDialogAmount && !dialogHasMixedPayment && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Le reste ({formatCurrency(computedDialogAmount - effectiveAmount)}) sera à payer lors du prochain passage.
+                      </p>
+                    )
+                  )}
                 </div>
               </div>
             )}
 
             {/* ── Méthode de paiement ── */}
-            {computedDialogAmount > 0 && !isDuplicateForDialog && (
+            {effectiveAmount > 0 && !isDuplicateForDialog && (
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Méthode de paiement</Label>
                 <Select
@@ -3775,10 +4778,69 @@ export default function PaymentsPage() {
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="CASH">Espèces</SelectItem>
+                    <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
+                    <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
+                    <SelectItem value="CHECK">Chèque</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             )}
+
+            {/* ── Aperçu distribution par mois (toujours visible quand ≥ 2 mois ou partiel) ── */}
+            {effectiveAmount > 0 && !isDuplicateForDialog && dialogMonthDistribution.length > 0 && (
+              dialogMonthDistribution.some((d) => d.isPartial) || dialogMonthDistribution.length > 1
+            ) && (
+              <div className={cn(
+                "rounded-lg border p-3 space-y-2",
+                dialogHasMixedPayment
+                  ? "border-amber-200 bg-amber-50"
+                  : dialogMonthDistribution.some((d) => d.isPartial)
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-emerald-200 bg-emerald-50"
+              )}>
+                <div className="flex items-center justify-between">
+                  <p className={cn(
+                    "text-[10px] font-semibold uppercase tracking-wide",
+                    dialogMonthDistribution.some((d) => d.isPartial) ? "text-amber-800" : "text-emerald-800"
+                  )}>
+                    {dialogHasMixedPayment
+                      ? "Répartition — mois complets + dernier partiel"
+                      : dialogMonthDistribution.some((d) => d.isPartial)
+                        ? "Paiement partiel"
+                        : `${dialogMonthDistribution.length} mois — tout complet`}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground">
+                    {dialogMonthDistribution.filter((d) => !d.isPartial).length} complet
+                    {dialogMonthDistribution.some((d) => d.isPartial) && " + 1 partiel"}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {dialogMonthDistribution.map((d) => (
+                    <div key={d.month} className="flex items-center justify-between py-0.5">
+                      <span className="text-xs text-foreground">{d.month}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold">{formatCurrency(d.amount)}</span>
+                        {d.isPartial ? (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-800">
+                            Partiel · reste {formatCurrency(dialogMonthlyFee - d.amount)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                            Complet
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {dialogMonthDistribution.some((d) => d.isPartial) && (
+                  <p className="text-[10px] text-amber-700 pt-1 border-t border-amber-200">
+                    Le mois partiel sera disponible pour un prochain paiement.
+                  </p>
+                )}
+              </div>
+            )}
+
 
           </div>
 
@@ -3791,7 +4853,7 @@ export default function PaymentsPage() {
               onClick={confirmPayment}
               disabled={
                 isSubmitting ||
-                computedDialogAmount <= 0 ||
+                effectiveAmount <= 0 ||
                 isDuplicateForDialog ||
                 dialogTrimestreMonths.size === 0
               }
@@ -3801,13 +4863,89 @@ export default function PaymentsPage() {
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</>
                 : <>
                     <DollarSign className="h-4 w-4" />
-                    {computedDialogAmount > 0
-                      ? `Confirmer · ${formatCurrency(computedDialogAmount)}`
+                    {effectiveAmount > 0
+                      ? `Confirmer · ${formatCurrency(effectiveAmount)}`
                       : "Confirmer le paiement"}
                   </>}
             </Button>
           </DialogFooter>
           </>)}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Inscription / Réinscription ── */}
+      <Dialog open={inscriptionDialogOpen} onOpenChange={setInscriptionDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{inscriptionType === "inscription" ? "Frais d'inscription" : "Frais de réinscription"}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {inscriptionStudent && `${inscriptionStudent.firstName} ${inscriptionStudent.lastName} · ${selectedYear}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Identité + détection auto */}
+            {inscriptionStudent && (
+              <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                <div>
+                  <p className="text-sm font-semibold">{inscriptionStudent.firstName} {inscriptionStudent.lastName}</p>
+                  <p className="text-xs text-muted-foreground">{selectedYear}</p>
+                </div>
+                <span className={cn(
+                  "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                  inscriptionType === "inscription"
+                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : "bg-violet-50 text-violet-700 border-violet-200"
+                )}>
+                  {inscriptionType === "inscription" ? "Nouvel élève" : "Élève existant"}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between p-3 bg-muted/40 rounded-lg">
+              <span className="text-sm text-muted-foreground">Montant</span>
+              <span className="font-bold text-lg">
+                {formatCurrency(
+                  inscriptionType === "inscription"
+                    ? (feeConfig.inscriptionFee || 0)
+                    : (feeConfig.reinscriptionFee || 0)
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
+              <div className="flex-1">
+                <p className="text-xs font-medium text-muted-foreground">Type détecté automatiquement</p>
+                <p className="text-sm font-semibold mt-0.5">
+                  {inscriptionType === "inscription" ? "Inscription" : "Réinscription"}
+                </p>
+              </div>
+              <span className={cn(
+                "text-[10px] font-semibold px-2.5 py-1 rounded-full border",
+                inscriptionType === "inscription"
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-violet-50 text-violet-700 border-violet-200"
+              )}>
+                {inscriptionType === "inscription" ? "Nouvel élève" : "Élève de l'école"}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Méthode de paiement</Label>
+              <Select value={inscriptionMethod} onValueChange={(v) => setInscriptionMethod(v as typeof inscriptionMethod)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Espèces</SelectItem>
+                  <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
+                  <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
+                  <SelectItem value="CHECK">Chèque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInscriptionDialogOpen(false)}>Annuler</Button>
+            <Button onClick={confirmInscriptionPayment} disabled={inscriptionSaving} className="gap-2">
+              {inscriptionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Confirmer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -4009,6 +5147,35 @@ export default function PaymentsPage() {
                       placeholder="0"
                     />
                     <span className="text-sm font-medium text-muted-foreground">{getActiveCurrency()}/mois</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Frais fixes (inscription / réinscription) ── */}
+            {classes.length > 0 && (
+              <div className="pt-2 border-t space-y-3">
+                <p className="text-sm font-semibold">Frais fixes (par élève, par an)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Frais d&apos;inscription</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={draftFeeConfig.inscriptionFee || ""}
+                      onChange={(e) => setDraftFeeConfig(prev => ({ ...prev, inscriptionFee: Number(e.target.value) }))}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Nouveaux élèves</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Frais de réinscription</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={draftFeeConfig.reinscriptionFee || ""}
+                      onChange={(e) => setDraftFeeConfig(prev => ({ ...prev, reinscriptionFee: Number(e.target.value) }))}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Élèves existants</p>
                   </div>
                 </div>
               </div>

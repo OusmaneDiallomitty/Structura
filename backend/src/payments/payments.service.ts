@@ -56,6 +56,8 @@ export class PaymentsService {
     /**
      * Expand un terme de paiement en liste de mois avec année.
      * Gère : mois unique, CSV, Trimestre X, Annuel X-Y.
+     * Normalise aussi les anciens termes sans année ("Février" → "Février 2026")
+     * pour éviter que ces termes contournent silencieusement la validation séquentielle.
      */
     private expandTermToMonths(
         term: string,
@@ -68,9 +70,16 @@ export class PaymentsService {
             return trimestreGroups.find((g) => g.trimestre === term)?.months ?? [];
         }
         if (term.includes(',')) {
-            return term.split(',').map((s) => s.trim());
+            return term.split(',').map((s) => {
+                const raw = s.trim();
+                // Normaliser "Février" → "Février 2026" si le terme est sans année
+                const qualified = schoolMonths.find((m) => m.split(' ')[0] === raw);
+                return qualified ?? raw;
+            });
         }
-        return [term]; // mois unique ex: "Octobre 2025"
+        // Mois unique : si le terme n'a pas d'année ("Février"), le qualifier avec l'année scolaire
+        const qualified = schoolMonths.find((m) => m.split(' ')[0] === term.trim());
+        return [qualified ?? term];
     }
 
     /**

@@ -88,6 +88,7 @@ model Tenant {
   compositions          Composition[]
   subjectCoefficients   SubjectCoefficient[]
   payments              Payment[]
+  expenses              Expense[]
   students              Student[]
   users                 User[]
   subscriptionHistory   SubscriptionHistory[]
@@ -310,6 +311,32 @@ model Payment {
   @@index([tenantId, createdAt(sort: Desc)])  // Requêtes revenus mensuels + paiements récents
   @@index([tenantId, status])                 // Filtrage paiements en attente / payés
   @@map("payments")
+}
+
+/// Dépenses de l'école — gestion comptable interne (scolarité ≠ dépenses)
+model Expense {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  amount       Float
+  currency     String   @default("GNF")
+  category     String   // PEDAGOGY | INFRASTRUCTURE | HR | ACTIVITIES | GENERAL | OTHER
+  description  String
+  method       String   @default("CASH") // CASH | MOBILE_MONEY | BANK_TRANSFER | CHECK
+  date         DateTime // Date réelle de la dépense
+  academicYear String?  // "2025-2026" — lié à une année scolaire
+  reference    String?  // Numéro de reçu / bon de caisse
+  note         String?  // Commentaire libre
+  recordedBy   String?  // Nom de l'utilisateur qui a enregistré
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, date(sort: Desc)])
+  @@index([tenantId, category])
+  @@index([tenantId, academicYear])
+  @@map("expenses")
 }
 
 /// Évaluations mensuelles (notes de cours) — secondaire uniquement

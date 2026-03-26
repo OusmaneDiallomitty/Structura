@@ -11,6 +11,7 @@ import {
   GraduationCap,
   UserCheck,
   DollarSign,
+  Wallet,
   FileText,
   UsersRound,
   Settings,
@@ -78,6 +79,12 @@ const navigation: NavItem[] = [
     href: "/dashboard/payments",
     icon: DollarSign,
     permission: { resource: "payments", action: "view" },
+  },
+  {
+    title: "Dépenses",
+    href: "/dashboard/expenses",
+    icon: Wallet,
+    permission: { resource: "expenses", action: "view" },
   },
   {
     title: "Notes",

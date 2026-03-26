@@ -41,6 +41,12 @@ const FORBIDDEN_MESSAGES: Record<string, Record<string, string>> = {
     edit:   "Vous n'avez pas la permission de modifier des membres de l'équipe.",
     delete: "Vous n'avez pas la permission de retirer des membres de l'équipe.",
   },
+  expenses: {
+    view:   "Vous n'avez pas accès aux dépenses.",
+    create: "Vous n'avez pas la permission d'enregistrer des dépenses.",
+    edit:   "Vous n'avez pas la permission de modifier des dépenses.",
+    delete: "Vous n'avez pas la permission de supprimer des dépenses.",
+  },
   reports: {
     view:   "Vous n'avez pas accès aux rapports.",
     export: "Vous n'avez pas la permission d'exporter des rapports.",
@@ -51,6 +57,7 @@ const FORBIDDEN_MESSAGES: Record<string, Record<string, string>> = {
 const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boolean>>> = {
   DIRECTOR: {
     payments:   { view: true, create: true, edit: true, delete: true },
+    expenses:   { view: true, create: true, edit: true, delete: true },
     students:   { view: true, create: true, edit: true, delete: true },
     classes:    { view: true, create: true, edit: true, delete: true },
     attendance: { view: true, create: true, edit: true, delete: true },
@@ -60,6 +67,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
   },
   ACCOUNTANT: {
     payments:   { view: true, create: true, edit: true, delete: false },
+    expenses:   { view: true, create: true, edit: true, delete: false },
     students:   { view: true, create: false, edit: false, delete: false },
     classes:    { view: true, create: false, edit: false, delete: false },
     attendance: { view: true, create: false, edit: false, delete: false },
@@ -69,6 +77,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
   },
   TEACHER: {
     payments:   { view: false, create: false, edit: false, delete: false },
+    expenses:   { view: false, create: false, edit: false, delete: false },
     students:   { view: true, create: true, edit: true, delete: false },
     classes:    { view: true, create: false, edit: false, delete: false },
     attendance: { view: true, create: true, edit: true, delete: false },
@@ -78,6 +87,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
   },
   SUPERVISOR: {
     payments:   { view: false, create: false, edit: false, delete: false },
+    expenses:   { view: false, create: false, edit: false, delete: false },
     students:   { view: true, create: false, edit: false, delete: false },
     classes:    { view: true, create: false, edit: false, delete: false },
     attendance: { view: true, create: true, edit: true, delete: false },
@@ -87,6 +97,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, boo
   },
   SECRETARY: {
     payments:   { view: true, create: true, edit: false, delete: false },
+    expenses:   { view: true, create: false, edit: false, delete: false },
     students:   { view: true, create: true, edit: true, delete: false },
     classes:    { view: true, create: false, edit: false, delete: false },
     attendance: { view: true, create: false, edit: false, delete: false },
