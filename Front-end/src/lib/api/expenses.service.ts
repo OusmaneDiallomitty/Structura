@@ -49,6 +49,16 @@ export const CATEGORY_ICONS: Record<ExpenseCategory, string> = {
   OTHER:          '📋',
 };
 
+/** Description courte affichée sous le nom de chaque catégorie */
+export const CATEGORY_DESCRIPTIONS: Record<ExpenseCategory, string> = {
+  PEDAGOGY:       'Livres, cahiers, fournitures, matériel de classe',
+  INFRASTRUCTURE: 'Réparations, électricité, eau, entretien du bâtiment',
+  HR:             'Salaires, primes, formations du personnel',
+  ACTIVITIES:     'Sorties scolaires, événements, cérémonies',
+  GENERAL:        'Internet, téléphone, frais bancaires, divers',
+  OTHER:          'Toute dépense ne rentrant pas dans les autres catégories',
+};
+
 export interface Expense {
   id:          string;
   tenantId:    string;

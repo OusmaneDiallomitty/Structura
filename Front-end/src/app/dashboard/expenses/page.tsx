@@ -14,7 +14,7 @@ import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "sonner";
 import {
   getExpenses, getExpenseStats, createExpense, updateExpense, deleteExpense,
-  EXPENSE_CATEGORIES, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_ICONS,
+  EXPENSE_CATEGORIES, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_DESCRIPTIONS,
   type Expense, type CreateExpenseDto, type ExpenseStats, type ExpenseCategory,
 } from "@/lib/api/expenses.service";
 import { getPayments } from "@/lib/api/payments.service";
@@ -687,7 +687,15 @@ export default function ExpensesPage() {
                   <SelectTrigger id="category"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {EXPENSE_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}</SelectItem>
+                      <SelectItem key={cat} value={cat}>
+                        <div className="flex items-start gap-2 py-0.5">
+                          <span className="shrink-0">{CATEGORY_ICONS[cat]}</span>
+                          <div>
+                            <p className="font-medium leading-tight">{CATEGORY_LABELS[cat]}</p>
+                            <p className="text-[11px] text-muted-foreground leading-tight">{CATEGORY_DESCRIPTIONS[cat]}</p>
+                          </div>
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -755,17 +763,23 @@ export default function ExpensesPage() {
           <p className="text-xs text-muted-foreground -mt-2 mb-2">
             Définissez un budget annuel par catégorie. Une alerte s'affichera si les dépenses le dépassent.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {EXPENSE_CATEGORIES.map((cat) => (
-              <div key={cat} className="flex items-center gap-3">
-                <span className="text-base w-6 text-center shrink-0">{CATEGORY_ICONS[cat]}</span>
-                <span className="text-sm flex-1 min-w-0 truncate">{CATEGORY_LABELS[cat]}</span>
-                <Input
-                  type="number" min={0} placeholder="Pas de limite"
-                  className="w-36 h-8 text-sm"
-                  value={budgetForm[cat] ?? ""}
-                  onChange={(e) => setBudgetForm((f) => ({ ...f, [cat]: e.target.value }))}
-                />
+              <div key={cat} className="flex items-start gap-3 py-2 border-b last:border-0">
+                <span className="text-lg w-7 text-center shrink-0 mt-0.5">{CATEGORY_ICONS[cat]}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-tight">{CATEGORY_LABELS[cat]}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{CATEGORY_DESCRIPTIONS[cat]}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <Input
+                    type="number" min={0} placeholder="Sans limite"
+                    className="w-36 h-8 text-sm"
+                    value={budgetForm[cat] ?? ""}
+                    onChange={(e) => setBudgetForm((f) => ({ ...f, [cat]: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">GNF / an</p>
+                </div>
               </div>
             ))}
           </div>
