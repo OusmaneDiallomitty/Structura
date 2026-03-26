@@ -312,6 +312,8 @@ function GradesPageInner() {
   const [configClassId, setConfigClassId] = useState("");
   const [configSubjects, setConfigSubjects] = useState<Array<{name: string; coefficient: number; enabled: boolean}>>([]);
   const [configSaving, setConfigSaving] = useState(false);
+  // Suivi des classes déjà configurées (classId → nombre de matières actives) — session uniquement
+  const [configuredMap, setConfiguredMap] = useState<Record<string, number>>({});
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectCoeff, setNewSubjectCoeff] = useState(1);
 
@@ -744,13 +746,18 @@ function GradesPageInner() {
 
   // Sync configSubjects depuis query data (puis éditable localement)
   useEffect(() => {
-    if (!configSubjectsData) return;
-    setConfigSubjects(configSubjectsData.map((s) => ({
+    if (!configSubjectsData || !configClassId) return;
+    const mapped = configSubjectsData.map((s) => ({
       name: s.name,
       coefficient: s.coefficient != null ? s.coefficient : 1,
       enabled: true,
-    })));
-  }, [configSubjectsData]);
+    }));
+    setConfigSubjects(mapped);
+    // Mémoriser que cette classe a N matières configurées
+    if (configSubjectsData.length > 0) {
+      setConfiguredMap((prev) => ({ ...prev, [configClassId]: configSubjectsData.length }));
+    }
+  }, [configSubjectsData, configClassId]);
 
   const termMonths = getTermMonths(startMonth, durationMonths, selectedTerm);
 
@@ -1180,6 +1187,8 @@ function GradesPageInner() {
       await saveClassSubjects(token, configClassId, activeSubjects);
       const cls = classes.find((c) => c.id === configClassId);
       toast.success(`Matières de ${cls?.name ?? "la classe"} enregistrées`);
+      // Mémoriser le nombre de matières configurées pour afficher le badge
+      setConfiguredMap((prev) => ({ ...prev, [configClassId]: activeSubjects.length }));
       queryClient.invalidateQueries({ queryKey: ["config-subjects", user?.tenantId, configClassId] });
       queryClient.invalidateQueries({ queryKey: ["class-subjects", user?.tenantId, configClassId] });
       // Fermer le panel après enregistrement
@@ -3107,42 +3116,98 @@ function GradesPageInner() {
                     <>
                       {classesLoading && classes.length === 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {[1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+                          {[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
                         </div>
                       ) : classes.length === 0 ? (
                         <EmptyState message="Aucune classe disponible" />
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {classes.map((c) => (
-                            <button
-                              key={c.id}
-                              onClick={() => {
-                                setConfigClassId(c.id);
-                                setConfigSubjects([]);
-                                // Le chargement est déclenché automatiquement par la query (enabled: !!configClassId)
-                              }}
-                              className="text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-sm transition-all group"
-                            >
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <p className="font-semibold text-gray-800 group-hover:text-indigo-700 transition-colors">
-                                    {formatClassName(c.name, c.section)}
-                                  </p>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <p className="text-xs text-gray-400">{c.level}</p>
-                                    {(c.gradeMode === 'PRIMARY' || ['Primaire', 'Maternelle'].includes(c.level ?? '') || /^(CP|CE|CM)\d/i.test(c.name ?? '')) && (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">
-                                        /10
-                                      </span>
-                                    )}
-                                  </div>
+                      ) : (() => {
+                        // ── Tri : par cycle puis par numéro d'année dans le nom ──
+                        const CYCLE_ORDER: Record<string, number> = { Maternelle: 0, Primaire: 1, Collège: 2, Lycée: 3 };
+                        const yearNum = (name: string) => { const m = name.match(/\d+/); return m ? parseInt(m[0]) : 99; };
+                        const sorted = [...classes].sort((a, b) => {
+                          const ca = CYCLE_ORDER[a.level ?? ""] ?? 4;
+                          const cb = CYCLE_ORDER[b.level ?? ""] ?? 4;
+                          if (ca !== cb) return ca - cb;
+                          return yearNum(a.name) - yearNum(b.name);
+                        });
+                        // ── Grouper par cycle ──
+                        const groups: { cycle: string; items: typeof sorted }[] = [];
+                        for (const c of sorted) {
+                          const cycle = c.level ?? "Autre";
+                          const g = groups.find((g) => g.cycle === cycle);
+                          if (g) g.items.push(c);
+                          else groups.push({ cycle, items: [c] });
+                        }
+                        // Résumé global
+                        const totalConfigured = Object.keys(configuredMap).filter(id => classes.some(c => c.id === id)).length;
+                        return (
+                          <div className="space-y-5">
+                            {/* Barre de progression globale */}
+                            <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+                              <span>
+                                <span className="font-semibold text-foreground">{totalConfigured}</span> / {classes.length} classe{classes.length > 1 ? "s" : ""} configurée{classes.length > 1 ? "s" : ""}
+                              </span>
+                              {totalConfigured === classes.length && classes.length > 0 && (
+                                <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                                  <CheckCircle className="h-3.5 w-3.5" /> Tout est configuré
+                                </span>
+                              )}
+                            </div>
+
+                            {groups.map(({ cycle, items }) => (
+                              <div key={cycle}>
+                                {/* En-tête cycle */}
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{cycle}</span>
+                                  <div className="flex-1 h-px bg-border" />
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {items.filter(c => configuredMap[c.id] > 0).length}/{items.length}
+                                  </span>
                                 </div>
-                                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 mt-0.5 transition-colors" />
+
+                                {/* Grille classes */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {items.map((c) => {
+                                    const count = configuredMap[c.id];
+                                    const isConfigured = count !== undefined && count > 0;
+                                    const isPrimary = c.gradeMode === "PRIMARY" || ["Primaire","Maternelle"].includes(c.level ?? "") || /^(CP|CE|CM)\d/i.test(c.name ?? "");
+                                    return (
+                                      <button
+                                        key={c.id}
+                                        onClick={() => { setConfigClassId(c.id); setConfigSubjects([]); }}
+                                        className={`text-left px-4 py-3 rounded-xl border transition-all group flex items-center justify-between gap-2 ${
+                                          isConfigured
+                                            ? "border-emerald-200 bg-emerald-50/50 hover:border-emerald-400 hover:shadow-sm"
+                                            : "border-dashed border-gray-200 bg-white hover:border-indigo-400 hover:shadow-sm"
+                                        }`}
+                                      >
+                                        <div className="min-w-0">
+                                          <p className={`text-sm font-semibold truncate transition-colors ${isConfigured ? "text-gray-800 group-hover:text-emerald-700" : "text-gray-700 group-hover:text-indigo-700"}`}>
+                                            {formatClassName(c.name, c.section)}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 mt-0.5">
+                                            {isPrimary && (
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">/10</span>
+                                            )}
+                                            {isConfigured ? (
+                                              <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-0.5">
+                                                <CheckCircle className="h-3 w-3" /> {count} matière{count > 1 ? "s" : ""}
+                                              </span>
+                                            ) : (
+                                              <span className="text-[11px] text-gray-400">Non configuré</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <ChevronRight className={`w-4 h-4 shrink-0 transition-colors ${isConfigured ? "text-emerald-300 group-hover:text-emerald-500" : "text-gray-300 group-hover:text-indigo-500"}`} />
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </>
                   )}
 
