@@ -1577,7 +1577,7 @@ export default function PaymentsPage() {
     setDrawerStudent(summary);
   };
 
-  const openPaymentDialog = (student: BackendStudent) => {
+  const openPaymentDialog = (student: BackendStudent, preselect?: { month: string; remaining: number }) => {
     // Bloquer si les frais ne sont pas configurés
     const cls = classes.find((c) => c.id === student.classId);
     const vLevel = cls?.virtualLevel ?? cls?.level ?? "";
@@ -1619,11 +1619,19 @@ export default function PaymentsPage() {
     // Toujours pré-sélectionner le premier mois impayé (contrainte séquentielle)
     // Jamais sauter des mois même si le mois courant est plus loin dans le calendrier
     const initMonth = allMonths.find((mo) => !alreadyPaid.has(mo)) ?? null;
-    setDialogTrimestreMonths(initMonth ? new Set([initMonth]) : new Set());
 
-    setCustomAmountStr("");
+    if (preselect) {
+      // Mode "Compléter un partiel" : forcer le mois + montant restant
+      setDialogTrimestreMonths(new Set([preselect.month]));
+      setCustomAmountStr(String(preselect.remaining));
+    } else {
+      setDialogTrimestreMonths(initMonth ? new Set([initMonth]) : new Set());
+      setCustomAmountStr("");
+    }
+
     setPaymentForm({
-      amount: "", method: "CASH", description: "Frais de scolarité",
+      amount: "", method: "CASH",
+      description: preselect ? `Complément ${preselect.month}` : "Frais de scolarité",
       term: selectedTerm, academicYear: academicYr,
     });
     setIsDialogOpen(true);
@@ -1771,6 +1779,8 @@ export default function PaymentsPage() {
       }
     }
     const hasMixedPayment = monthDistribution.some((d) => d.isPartial) && monthDistribution.some((d) => !d.isPartial);
+    // Cas : seulement des mois partiels (ex : 1 mois sélectionné, montant < frais mensuels)
+    const allPartial = monthDistribution.length > 0 && monthDistribution.every((d) => d.isPartial);
     // Dictionnaire { "Octobre 2026": 120000, "Novembre 2026": 60000 } — lookup robuste par nom
     const receiptMonthAmounts: Record<string, number> | undefined = monthDistribution.length > 0
       ? Object.fromEntries(monthDistribution.map((d) => [d.month, d.amount]))
@@ -1841,7 +1851,7 @@ export default function PaymentsPage() {
       studentName: `${selectedStudentForPayment.firstName} ${selectedStudentForPayment.lastName}`,
       amount: mainAmount, currency: getActiveCurrency(),
       method: paymentForm.method.toLowerCase() as Payment["method"],
-      status: "paid", paidDate: now,
+      status: allPartial ? "partial" : "paid", paidDate: now,
       description:  paymentForm.description,
       academicYear: paymentForm.academicYear, term: mainTerm,
       createdAt: now,
@@ -1888,7 +1898,7 @@ export default function PaymentsPage() {
         amount:       mainAmount,
         method:       paymentForm.method,
         currency:     getActiveCurrency(),
-        status:       "paid",
+        status:       allPartial ? "partial" : "paid",
         description:  paymentForm.description,
         academicYear: paymentForm.academicYear,
         term:         mainTerm,
@@ -4045,12 +4055,25 @@ export default function PaymentsPage() {
                                     </div>
                                   )}
                                 </div>
-                                {missing > 0 && (
-                                  <span className={cn("font-bold text-sm shrink-0 mt-0.5",
-                                    status === "partial" ? "text-amber-600" : "text-red-600")}>
-                                    {formatCurrency(missing)}
-                                  </span>
-                                )}
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  {missing > 0 && (
+                                    <span className={cn("font-bold text-sm tabular-nums",
+                                      status === "partial" ? "text-amber-600" : "text-red-600")}>
+                                      {formatCurrency(missing)}
+                                    </span>
+                                  )}
+                                  {status === "partial" && missing > 0 && s && (
+                                    <button
+                                      onClick={() => {
+                                        setDrawerStudent(null);
+                                        openPaymentDialog(s.student, { month, remaining: missing });
+                                      }}
+                                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-full transition-colors"
+                                    >
+                                      Compléter →
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -4140,10 +4163,39 @@ export default function PaymentsPage() {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {scolaritePayments.map((p) => {
+                          {(() => {
+                            // ── Fusionner partial + complément pour le même terme ──
+                            type MergedP = Payment & { _completed?: boolean; _totalAmount?: number };
+                            const byTerm: Record<string, { partial: Payment | null; paid: Payment[] }> = {};
+                            for (const p of scolaritePayments) {
+                              const key = p.term ?? p.id;
+                              if (!byTerm[key]) byTerm[key] = { partial: null, paid: [] };
+                              if (p.status === "partial") byTerm[key].partial = p;
+                              else byTerm[key].paid.push(p);
+                            }
+                            const merged: MergedP[] = [];
+                            for (const { partial, paid } of Object.values(byTerm)) {
+                              if (partial && paid.length > 0) {
+                                // Complété → afficher comme une seule ligne avec le total
+                                const total = partial.amount + paid.reduce((s, x) => s + x.amount, 0);
+                                merged.push({ ...paid[0], _completed: true, _totalAmount: total });
+                              } else if (partial) {
+                                merged.push(partial);
+                              } else {
+                                merged.push(...paid);
+                              }
+                            }
+                            merged.sort((a, b) =>
+                              new Date(b.paidDate || b.createdAt || 0).getTime() -
+                              new Date(a.paidDate || a.createdAt || 0).getTime()
+                            );
+                            return merged;
+                          })().map((p) => {
                             const tKey      = p.receiptNumber || p.id;
                             const printed   = generatedReceipts.has(tKey);
-                            const isPaid    = p.status === "paid";
+                            const isCompleted = (p as any)._completed === true;
+                            const displayAmount = (p as any)._totalAmount ?? p.amount;
+                            const isPaid    = p.status === "paid" || isCompleted;
                             const chips     = getPaymentMonthChips(p);
                             return (
                               <div
@@ -4157,15 +4209,19 @@ export default function PaymentsPage() {
                                 <div className="flex items-center gap-2">
                                   <span className={cn(
                                     "text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0",
-                                    isPaid ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+                                    isCompleted ? "bg-emerald-100 text-emerald-700" :
+                                    isPaid      ? "bg-blue-100 text-blue-700"       :
+                                                  "bg-amber-100 text-amber-700"
                                   )}>
-                                    {isPaid ? "SCOLARITÉ" : "PARTIEL"}
+                                    {isCompleted ? "COMPLÉTÉ" : isPaid ? "SCOLARITÉ" : "PARTIEL"}
                                   </span>
                                   <span className={cn(
                                     "font-bold text-sm ml-auto tabular-nums shrink-0",
-                                    isPaid ? "text-emerald-600" : "text-amber-600"
+                                    isCompleted ? "text-emerald-700" :
+                                    isPaid      ? "text-emerald-600" :
+                                                  "text-amber-600"
                                   )}>
-                                    {formatCurrency(p.amount)}
+                                    {formatCurrency(displayAmount)}
                                   </span>
                                 </div>
 
@@ -4250,6 +4306,7 @@ export default function PaymentsPage() {
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground py-20">
                     Chargement…
+
                   </div>
                 )}
               </div>
