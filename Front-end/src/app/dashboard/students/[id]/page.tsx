@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -93,73 +94,66 @@ export default function StudentProfilePage() {
   const { hasFeature } = useSubscription();
   const hasBulletins = hasFeature('bulletins');
 
-  const [student, setStudent] = useState<any>(null);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [attendances, setAttendances] = useState<any[]>([]);
-  const [grades, setGrades] = useState<any[]>([]);
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
-  const [compositions, setCompositions] = useState<Composition[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // ─── React Query : toutes les sources en parallèle ──────────────────────────
+  const token = storage.getAuthItem("structura_token");
 
-  useEffect(() => { loadStudent(); }, [studentId]);
-
-  async function loadStudent() {
-    setIsLoading(true);
-    const token = storage.getAuthItem("structura_token");
-    try {
-      if (!token) { toast.error("Session expirée"); router.push("/login"); return; }
-
-      const data: any = await getStudentById(token, studentId);
-      if (!data) { toast.error("Élève non trouvé"); router.push("/dashboard/students"); return; }
-
-      setStudent({
-        id: data.id,
-        name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
-        firstName: data.firstName || "",
-        lastName: data.lastName || "",
-        matricule: data.matricule,
-        class: data.class ? formatClassName(data.class.name, data.class.section) : data.classId || "",
-        status: data.status?.toLowerCase() || "active",
-        dateOfBirth: data.dateOfBirth || null,
-        gender: data.gender || null,
-        address: data.address || null,
-        parentName: data.parentName || "",
-        parentPhone: data.parentPhone || "",
-        parentEmail: data.parentEmail || null,
-        parentProfession: data.parentProfession || null,
-        // Utilise le paymentStatus recalculé depuis le backend (qui inclut les vrais paiements)
-        paymentStatus: data.paymentStatus?.toLowerCase() || "pending",
-        lastPaidTerm: data.lastPaidTerm || null,
-        gradeMode: data.class?.gradeMode ?? "SECONDARY",
-        classLevel: data.class?.level ?? "",
-        className: data.class?.name ?? "",
-      });
-
-      setPayments(data.payments || []);
-      // Normaliser les statuts en minuscules (le backend stocke PRESENT/ABSENT/LATE/EXCUSED)
-      setAttendances(
-        (data.attendances || []).map((a: any) => ({
-          ...a,
-          status: typeof a.status === "string" ? a.status.toLowerCase() : a.status,
-        }))
-      );
-      setGrades(data.grades || []);
-
-      // Charger les évaluations et compositions en parallèle
-      const [evalsData, compsData] = await Promise.all([
-        getEvaluations(token, { studentId }).catch(() => []),
-        getCompositions(token, { studentId }).catch(() => []),
+  const { data: profileData, isLoading, isError } = useQuery({
+    queryKey: ["student-profile", studentId],
+    staleTime: 2 * 60 * 1000, // 2 minutes de cache
+    enabled: !!token && !!studentId,
+    queryFn: async () => {
+      const [raw, evalsData, compsData] = await Promise.all([
+        getStudentById(token!, studentId),
+        getEvaluations(token!, { studentId }).catch(() => [] as Evaluation[]),
+        getCompositions(token!, { studentId }).catch(() => [] as Composition[]),
       ]);
-      setEvaluations(evalsData);
-      setCompositions(compsData);
-    } catch (error: any) {
-      console.error("Erreur chargement élève:", error);
-      toast.error("Impossible de charger les informations");
-      router.push("/dashboard/students");
-    } finally {
-      setIsLoading(false);
-    }
-  }
+      return { raw: raw as any, evalsData, compsData };
+    },
+  });
+
+  // Redirection si session expirée ou élève introuvable
+  useEffect(() => {
+    if (!token) { toast.error("Session expirée"); router.push("/login"); }
+  }, [token]);
+  useEffect(() => {
+    if (isError) { toast.error("Impossible de charger les informations"); router.push("/dashboard/students"); }
+  }, [isError]);
+
+  // Dériver les données depuis React Query
+  const student = useMemo(() => {
+    const data = profileData?.raw;
+    if (!data) return null;
+    return {
+      id: data.id,
+      name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
+      firstName: data.firstName || "",
+      lastName: data.lastName || "",
+      matricule: data.matricule,
+      class: data.class ? formatClassName(data.class.name, data.class.section) : data.classId || "",
+      status: data.status?.toLowerCase() || "active",
+      dateOfBirth: data.dateOfBirth || null,
+      gender: data.gender || null,
+      address: data.address || null,
+      parentName: data.parentName || "",
+      parentPhone: data.parentPhone || "",
+      parentEmail: data.parentEmail || null,
+      parentProfession: data.parentProfession || null,
+      paymentStatus: data.paymentStatus?.toLowerCase() || "pending",
+      lastPaidTerm: data.lastPaidTerm || null,
+      gradeMode: data.class?.gradeMode ?? "SECONDARY",
+      classLevel: data.class?.level ?? "",
+      className: data.class?.name ?? "",
+    };
+  }, [profileData]);
+
+  const payments: any[]     = useMemo(() => profileData?.raw?.payments || [], [profileData]);
+  const attendances: any[]  = useMemo(() => (profileData?.raw?.attendances || []).map((a: any) => ({
+    ...a,
+    status: typeof a.status === "string" ? a.status.toLowerCase() : a.status,
+  })), [profileData]);
+  const grades: any[]       = useMemo(() => profileData?.raw?.grades || [], [profileData]);
+  const evaluations: Evaluation[]   = useMemo(() => profileData?.evalsData || [], [profileData]);
+  const compositions: Composition[] = useMemo(() => profileData?.compsData || [], [profileData]);
 
   const getInitials = (name: string) => {
     const parts = name.split(" ");

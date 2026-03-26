@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -93,18 +94,18 @@ const EMPTY_FORM: ExpenseForm = {
 export default function ExpensesPage() {
   const { user } = useAuth();
   const isOnline  = useOnline();
+  const queryClient = useQueryClient();
 
-  // ── State ──
-  const [expenses,      setExpenses]      = useState<Expense[]>([]);
-  const [stats,         setStats]         = useState<ExpenseStats | null>(null);
-  const [loading,       setLoading]       = useState(true);
-  const [submitting,    setSubmitting]    = useState(false);
-  const [revenueByMonth, setRevenueByMonth] = useState<Record<string, number>>({});
+  const token = storage.getAuthItem("structura_token");
 
   // Filtres
   const [searchQuery,     setSearchQuery]     = useState("");
   const [filterCategory,  setFilterCategory]  = useState<string>("all");
-  const [selectedYear,    setSelectedYear]    = useState<string>("");
+  const [selectedYear,    setSelectedYear]    = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return storage.getAuthItem(CURRENT_YEAR_KEY) || localStorage.getItem(CURRENT_YEAR_KEY) || "";
+  });
+  const [submitting,    setSubmitting]    = useState(false);
 
   // Dialogs
   const [dialogOpen,      setDialogOpen]      = useState(false);
@@ -127,59 +128,44 @@ export default function ExpensesPage() {
   const canView   = user?.role === "director" || user?.role === "accountant" || user?.role === "secretary";
   const isDirector = user?.role === "director";
 
-  // ── Init année scolaire ──
-  useEffect(() => {
-    const stored = storage.getAuthItem(CURRENT_YEAR_KEY) || localStorage.getItem(CURRENT_YEAR_KEY);
-    if (stored) setSelectedYear(stored);
-  }, []);
-
-  // ── Chargement dépenses + stats ──
-  const loadExpenses = useCallback(async () => {
-    if (!isOnline) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-    try {
+  // ── React Query : dépenses + stats (en parallèle) ──
+  const { data: expenseData, isLoading: loading, refetch: refetchExpenses } = useQuery({
+    queryKey: ["expenses", selectedYear],
+    staleTime: 2 * 60 * 1000,
+    enabled: !!token && isOnline,
+    queryFn: async () => {
       const [data, statsData] = await Promise.all([
-        getExpenses(token, { academicYear: selectedYear || undefined }),
-        getExpenseStats(token, selectedYear || undefined),
+        getExpenses(token!, { academicYear: selectedYear || undefined }),
+        getExpenseStats(token!, selectedYear || undefined),
       ]);
-      setExpenses(data);
-      setStats(statsData);
-    } catch {
-      toast.error("Impossible de charger les dépenses");
-    } finally {
-      setLoading(false);
-    }
-  }, [isOnline, selectedYear]);
-
-  useEffect(() => {
-    setLoading(true);
-    loadExpenses();
-  }, [loadExpenses]);
+      return { expenses: data, stats: statsData };
+    },
+  });
+  const expenses: Expense[]        = expenseData?.expenses ?? [];
+  const stats: ExpenseStats | null = expenseData?.stats ?? null;
 
   // Rafraîchir au retour sur l'onglet
-  useRefreshOnFocus(loadExpenses);
+  useRefreshOnFocus(refetchExpenses);
 
-  // ── Chargement recettes (paiements scolarité) pour le graphique ──
-  useEffect(() => {
-    if (!isOnline) return;
-    const token = storage.getAuthItem("structura_token");
-    if (!token) return;
-    getPayments(token, { academicYear: selectedYear || undefined, limit: 5000 } as any)
-      .then((payments: any[]) => {
-        const byMonth: Record<string, number> = {};
-        for (const p of payments) {
-          if (p.status !== "paid" && p.status !== "partial") continue;
-          if (p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription")) continue;
-          const date = p.paidDate || p.createdAt;
-          if (!date) continue;
-          const key = (date as string).slice(0, 7);
-          byMonth[key] = (byMonth[key] ?? 0) + (p.amount as number);
-        }
-        setRevenueByMonth(byMonth);
-      })
-      .catch(() => {});
-  }, [isOnline, selectedYear]);
+  // ── React Query : recettes (paiements scolarité) pour le graphique ──
+  const { data: revenueByMonth = {} } = useQuery<Record<string, number>>({
+    queryKey: ["expenses-revenue", selectedYear],
+    staleTime: 5 * 60 * 1000,
+    enabled: !!token && isOnline,
+    queryFn: async () => {
+      const payments: any[] = await getPayments(token!, { academicYear: selectedYear || undefined, limit: 5000 } as any);
+      const byMonth: Record<string, number> = {};
+      for (const p of payments) {
+        if (p.status !== "paid" && p.status !== "partial") continue;
+        if (p.term?.startsWith("Inscription") || p.term?.startsWith("Réinscription")) continue;
+        const date = p.paidDate || p.createdAt;
+        if (!date) continue;
+        const key = (date as string).slice(0, 7);
+        byMonth[key] = (byMonth[key] ?? 0) + (p.amount as number);
+      }
+      return byMonth;
+    },
+  });
 
   // ── Données graphique : fusion recettes + dépenses par mois ──
   const chartData = useMemo(() => {
@@ -270,7 +256,6 @@ export default function ExpensesPage() {
     if (!form.description.trim())                      { toast.error("Description requise"); return; }
     if (!form.date)                                    { toast.error("Date requise"); return; }
 
-    const token = storage.getAuthItem("structura_token");
     if (!token) { toast.error("Non authentifié"); return; }
 
     setSubmitting(true);
@@ -291,7 +276,7 @@ export default function ExpensesPage() {
       }
       setDialogOpen(false);
       dispatchExpensesUpdated();
-      loadExpenses();
+      queryClient.invalidateQueries({ queryKey: ["expenses", selectedYear] });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erreur lors de l'enregistrement");
     } finally {
@@ -301,14 +286,13 @@ export default function ExpensesPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    const token = storage.getAuthItem("structura_token");
     if (!token) return;
     try {
       await deleteExpense(token, deleteTarget.id);
       toast.success("Dépense supprimée");
       setDeleteTarget(null);
       dispatchExpensesUpdated();
-      loadExpenses();
+      queryClient.invalidateQueries({ queryKey: ["expenses", selectedYear] });
     } catch {
       toast.error("Erreur lors de la suppression");
     }
@@ -388,7 +372,7 @@ export default function ExpensesPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Button variant="ghost" size="icon"
-            onClick={() => { setLoading(true); loadExpenses(); }}
+            onClick={() => refetchExpenses()}
             disabled={loading} title="Actualiser"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />

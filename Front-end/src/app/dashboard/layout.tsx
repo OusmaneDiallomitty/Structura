@@ -6,6 +6,7 @@ import { Header } from "@/components/dashboard/Header";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { OfflineBanner } from "@/components/shared/OfflineBanner";
 import ImpersonationBanner from "@/components/shared/ImpersonationBanner";
+import { BackendKeepAlive } from "@/components/shared/BackendKeepAlive";
 import { preloadOfflineData } from "@/lib/offline-preloader";
 import * as storage from "@/lib/storage";
 
@@ -31,6 +32,7 @@ export default function DashboardLayout({
 
   return (
     <ProtectedRoute>
+      <BackendKeepAlive />
       <div className="min-h-screen bg-background">
         {/* Bannière session d'impersonation Super Admin */}
         <ImpersonationBanner />
