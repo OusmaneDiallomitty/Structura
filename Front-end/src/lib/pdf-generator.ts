@@ -153,6 +153,11 @@ export interface PaymentReceiptData {
    * - "print"             : ouvre dans un nouvel onglet avec impression automatique
    */
   outputMode?: ReceiptOutputMode;
+  /**
+   * Montant déjà versé lors d'un précédent paiement partiel pour ce même mois.
+   * Permet au PDF d'afficher correctement un paiement complémentaire (mois soldé).
+   */
+  completionAlreadyPaid?: number;
 }
 
 /**
@@ -352,8 +357,12 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   const perMonth = months.length > 0
     ? Math.round(data.amount / months.length)
     : data.amount;
+  // En mode complétion, le seuil "complet" est réduit (montant déjà versé déduit)
+  const completionAlreadyPaid = data.completionAlreadyPaid ?? 0;
   // Frais mensuel attendu (pour détecter les paiements partiels)
-  const expectedPerMonth = data.monthlyFee ?? perMonth;
+  const expectedPerMonth = completionAlreadyPaid > 0
+    ? Math.max(0, (data.monthlyFee ?? perMonth) - completionAlreadyPaid)
+    : (data.monthlyFee ?? perMonth);
   // monthAmounts : montants individuels par mois (paiement mixte complet+partiel)
   const monthAmounts = data.monthAmounts ?? null;
 
@@ -469,8 +478,12 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
     // Utilisé quand le paiement couvre plusieurs trimestres ou un trimestre partiel.
     // Chaque groupe = sous-en-tête coloré (indigo=complet, amber=partiel) + lignes mois.
     data.trimestreBreakdown.forEach((group, groupIdx) => {
-      const isComplete = group.paidMonths.length === group.totalMonths;
-      const headerLabel = isComplete
+      const isComplete = completionAlreadyPaid > 0
+        ? true  // Mode complétion : le mois est soldé dans ce reçu
+        : group.paidMonths.length === group.totalMonths;
+      const headerLabel = completionAlreadyPaid > 0
+        ? `${group.trimestre}  —  Complément (mois soldé)`
+        : isComplete
         ? `${group.trimestre}  —  ${group.paidMonths.length} mois  (complet)`
         : `${group.trimestre}  —  ${group.paidMonths.length} mois sur ${group.totalMonths}  (partiel)`;
       drawTrimestreHeader(headerLabel, isComplete);
