@@ -711,6 +711,8 @@ export default function PaymentsPage() {
 
   // Montant personnalisé (paiement partiel)
   const [customAmountStr, setCustomAmountStr] = useState<string>("");
+  // Mode complétion : montant déjà versé pour le mois partiel sélectionné
+  const [completionAlreadyPaid, setCompletionAlreadyPaid] = useState(0);
 
   // Inscription / Réinscription
   const [inscriptionDialogOpen, setInscriptionDialogOpen] = useState(false);
@@ -1485,8 +1487,12 @@ export default function PaymentsPage() {
     const virtualLevel = cls?.virtualLevel ?? cls?.level ?? "";
     const monthlyFee = getStudentFee(selectedStudentForPayment.classId, virtualLevel, feeConfig);
     if (dialogTrimestreMonths.size === 0) return 0;
+    // En mode complétion (1 mois partiel), le montant attendu est le restant à payer
+    if (completionAlreadyPaid > 0 && dialogTrimestreMonths.size === 1) {
+      return Math.max(0, monthlyFee - completionAlreadyPaid);
+    }
     return monthlyFee * dialogTrimestreMonths.size;
-  }, [selectedStudentForPayment, dialogTrimestreMonths, classes, feeConfig]);
+  }, [selectedStudentForPayment, dialogTrimestreMonths, classes, feeConfig, completionAlreadyPaid]);
 
   /** Montant effectivement envoyé : personnalisé si saisi, sinon calculé automatiquement */
   const effectiveAmount = useMemo(() => {
@@ -1518,17 +1524,22 @@ export default function PaymentsPage() {
     const selectedMonths = dialogSchoolMonths.filter((m) => dialogTrimestreMonths.has(m));
     const dist: { month: string; amount: number; isPartial: boolean }[] = [];
     let remaining = effectiveAmount;
-    for (const month of selectedMonths) {
-      if (remaining >= dialogMonthlyFee) {
-        dist.push({ month, amount: dialogMonthlyFee, isPartial: false });
-        remaining -= dialogMonthlyFee;
+    for (let i = 0; i < selectedMonths.length; i++) {
+      const month = selectedMonths[i];
+      // En mode complétion, le premier mois a un seuil réduit (montant déjà versé déduit)
+      const effectiveFee = (i === 0 && completionAlreadyPaid > 0)
+        ? Math.max(0, dialogMonthlyFee - completionAlreadyPaid)
+        : dialogMonthlyFee;
+      if (remaining >= effectiveFee) {
+        dist.push({ month, amount: effectiveFee, isPartial: false });
+        remaining -= effectiveFee;
       } else if (remaining > 0) {
         dist.push({ month, amount: remaining, isPartial: true });
         remaining = 0;
       }
     }
     return dist;
-  }, [effectiveAmount, dialogMonthlyFee, dialogTrimestreMonths, dialogSchoolMonths]);
+  }, [effectiveAmount, dialogMonthlyFee, dialogTrimestreMonths, dialogSchoolMonths, completionAlreadyPaid]);
 
   const dialogHasMixedPayment = useMemo(
     () => dialogMonthDistribution.some((d) => d.isPartial) && dialogMonthDistribution.some((d) => !d.isPartial),
@@ -1600,7 +1611,7 @@ export default function PaymentsPage() {
     setDrawerStudent(summary);
   };
 
-  const openPaymentDialog = (student: BackendStudent, preselect?: { month: string; remaining: number }) => {
+  const openPaymentDialog = (student: BackendStudent, preselect?: { month: string; remaining: number; alreadyPaid?: number }) => {
     // Bloquer si les frais ne sont pas configurés
     const cls = classes.find((c) => c.id === student.classId);
     const vLevel = cls?.virtualLevel ?? cls?.level ?? "";
@@ -1647,9 +1658,11 @@ export default function PaymentsPage() {
       // Mode "Compléter un partiel" : forcer le mois + montant restant
       setDialogTrimestreMonths(new Set([preselect.month]));
       setCustomAmountStr(String(preselect.remaining));
+      setCompletionAlreadyPaid(preselect.alreadyPaid ?? 0);
     } else {
       setDialogTrimestreMonths(initMonth ? new Set([initMonth]) : new Set());
       setCustomAmountStr("");
+      setCompletionAlreadyPaid(0);
     }
 
     setPaymentForm({
@@ -1791,10 +1804,15 @@ export default function PaymentsPage() {
     const monthDistribution: { month: string; amount: number; isPartial: boolean }[] = [];
     if (receiptMonths.length > 0 && receiptMonthlyFee > 0) {
       let remaining = amount;
-      for (const month of receiptMonths) {
-        if (remaining >= receiptMonthlyFee) {
-          monthDistribution.push({ month, amount: receiptMonthlyFee, isPartial: false });
-          remaining -= receiptMonthlyFee;
+      for (let mi = 0; mi < receiptMonths.length; mi++) {
+        const month = receiptMonths[mi];
+        // En mode complétion, le premier mois a un seuil réduit
+        const effectiveFee = (mi === 0 && completionAlreadyPaid > 0)
+          ? Math.max(0, receiptMonthlyFee - completionAlreadyPaid)
+          : receiptMonthlyFee;
+        if (remaining >= effectiveFee) {
+          monthDistribution.push({ month, amount: effectiveFee, isPartial: false });
+          remaining -= effectiveFee;
         } else if (remaining > 0) {
           monthDistribution.push({ month, amount: remaining, isPartial: true });
           remaining = 0;
@@ -4089,7 +4107,7 @@ export default function PaymentsPage() {
                                     <button
                                       onClick={() => {
                                         setDrawerStudent(null);
-                                        openPaymentDialog(s.student, { month, remaining: missing });
+                                        openPaymentDialog(s.student, { month, remaining: missing, alreadyPaid: paidAmount });
                                       }}
                                       className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-full transition-colors"
                                     >
