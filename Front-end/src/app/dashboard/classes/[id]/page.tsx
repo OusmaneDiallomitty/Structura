@@ -68,7 +68,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { getClassById } from "@/lib/api/classes.service";
 import { getStudents, deleteStudent } from "@/lib/api/students.service";
-import { exportToCSV } from "@/lib/csv-handler";
+import { exportStudentsToXLSX } from "@/lib/csv-handler";
 import { formatClassName } from "@/lib/class-helpers";
 import { EditClassDialog } from "@/components/classes/EditClassDialog";
 
@@ -187,28 +187,29 @@ export default function ClassDetailPage() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (filteredStudents.length === 0) {
       toast.error("Aucun élève à exporter");
       return;
     }
     const cn = classData ? formatClassName(classData.name, classData.section) : "classe";
-    exportToCSV({
-      filename: `eleves_${cn.replace(/[\s()]/g, "_")}_${new Date().toISOString().split("T")[0]}`,
-      headers: ["Matricule", "Nom complet", "Genre", "Nom du parent", "Téléphone parent", "Paiement"],
-      data: filteredStudents.map((s) => ({
-        Matricule: s.matricule,
-        "Nom complet": s.name,
-        Genre: s.gender === "M" ? "Masculin" : s.gender === "F" ? "Féminin" : "-",
-        "Nom du parent": s.parentName || "-",
-        "Téléphone parent": s.parentPhone || "-",
-        Paiement:
-          s.paymentStatus === "paid" ? "À jour"
-          : s.paymentStatus === "late" ? "En retard"
-          : "En attente",
-      })),
+    const className = classData?.name ?? cn;
+    // Reconstruire le format attendu par exportStudentsToXLSX
+    const rawStudents = filteredStudents.map((s) => {
+      const parts = s.name.trim().split(" ");
+      const lastName  = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+      const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : "";
+      return {
+        ...s,
+        firstName,
+        lastName,
+        class: { name: className },
+      };
     });
-    toast.success(`${filteredStudents.length} élève(s) exporté(s)`);
+    await exportStudentsToXLSX(
+      rawStudents,
+      `eleves_${cn.replace(/[\s()]/g, "_")}_${new Date().toISOString().split("T")[0]}`,
+    );
   };
 
   // Filtrage : recherche + statut paiement

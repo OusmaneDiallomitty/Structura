@@ -72,7 +72,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { generateSchoolCertificate } from "@/lib/pdf-generator";
 import { toast } from "sonner";
 import { ImportExportDialog } from "@/components/shared/ImportExportDialog";
-import { exportToCSV, downloadTemplate, validateStudentRow } from "@/lib/csv-handler";
+import { exportStudentsToXLSX, downloadTemplate, validateStudentRow } from "@/lib/csv-handler";
 import { offlineDB, STORES } from "@/lib/offline-db";
 import { syncQueue } from "@/lib/sync-queue";
 import { useOnline } from "@/hooks/use-online";
@@ -570,9 +570,9 @@ export default function StudentsPage() {
 
   const handleExport = async () => {
     const token = storage.getAuthItem('structura_token');
-    let exportStudents = sortedStudents;
+    // Données brutes backend (champs séparés : firstName, lastName, dateOfBirth, etc.)
+    let rawStudents: any[] = [];
 
-    // Si connecté, charger tous les élèves filtrés (pas juste la page courante)
     if (isOnline && token) {
       try {
         const result = await getStudentsPaginated(token, {
@@ -581,50 +581,36 @@ export default function StudentsPage() {
           limit:   5000,
           skip:    0,
         });
-        exportStudents = result.data.map(mapStudent);
+        rawStudents = result.data; // données brutes, pas mapStudent
       } catch {
         // fallback sur la page courante
       }
     }
 
-    if (exportStudents.length === 0) {
+    // Fallback offline : reconstruire depuis sortedStudents (champs partiels)
+    if (rawStudents.length === 0) {
+      rawStudents = sortedStudents.map((s) => {
+        const parts = s.name.trim().split(" ");
+        const lastName  = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : "";
+        return { ...s, firstName, lastName, class: { name: s.class } };
+      });
+    }
+
+    if (rawStudents.length === 0) {
       toast.error("Aucun élève à exporter. Ajustez vos filtres.");
       return;
     }
 
-    const exportData = exportStudents.map((student) => {
-      // Séparer prénom et nom correctement (le nom est le dernier mot, prénom le reste)
-      const nameParts = student.name.trim().split(" ");
-      const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
-      const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : "";
-      return {
-        Matricule: student.matricule,
-        Prénom: firstName,
-        Nom: lastName,
-        Classe: student.class,
-        "Nom du parent": student.parentName || "",
-        "Téléphone parent": student.parentPhone || "",
-        "Profession parent": (student as any).parentProfession || "",
-      };
-    });
-
-    // Ajouter le filtre de classe dans le nom du fichier si actif
     const activeClass = classFilter !== "all" ? classes.find(c => c.id === classFilter) : null;
     const classeSuffix = activeClass
       ? `_${(activeClass.section ? `${activeClass.name}_${activeClass.section}` : activeClass.name).replace(/\s+/g, '_')}`
       : "";
 
-    exportToCSV({
-      filename: `eleves${classeSuffix}_${new Date().toISOString().split("T")[0]}`,
-      headers: ["Matricule", "Prénom", "Nom", "Classe", "Nom du parent", "Téléphone parent", "Profession parent"],
-      data: exportData,
-    });
-
-    const classeInfo = activeClass
-      ? ` de la classe ${formatClassName(activeClass.name, activeClass.section)}`
-      : "";
-
-    toast.success(`${exportStudents.length} élève(s)${classeInfo} exporté(s) avec succès!`);
+    await exportStudentsToXLSX(
+      rawStudents,
+      `eleves${classeSuffix}_${new Date().toISOString().split("T")[0]}`,
+    );
   };
 
   const handleDownloadEmptyTemplate = () => {
