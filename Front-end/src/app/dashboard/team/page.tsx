@@ -193,7 +193,7 @@ export default function TeamPage() {
     lastName: "",
     email: "",
     phone: "",
-    role: "" as RoleType | "",
+    role: "" as RoleType | "co-director" | "",
     isCoDirector: false,
     selectedClassIds: [] as string[],
     classAssignments: [] as ClassSubjectAssignment[],
@@ -477,18 +477,22 @@ export default function TeamPage() {
 
     setIsSubmitting(true);
     try {
+      // "co-director" est un pseudo-rôle UI → rôle réel = secretary + isCoDirector flag
+      const actualRole = addForm.role === "co-director" ? "secretary" : addForm.role;
+      const isCoDirectorRole = addForm.role === "co-director";
+
       const created = await createTeamMember(token, {
         firstName: addForm.firstName,
         lastName: addForm.lastName,
         email: addForm.email,
-        role: addForm.role.toUpperCase(),
+        role: actualRole.toUpperCase(),
         phone: addForm.phone || undefined,
       });
 
-      // Activer co-directeur si coché — réservé au vrai directeur uniquement
-      if (addForm.isCoDirector && addForm.role && isRealDirector) {
+      // Activer co-directeur si sélectionné — réservé au vrai directeur uniquement
+      if (isCoDirectorRole && isRealDirector) {
         const coDirectorPerms = {
-          ...DEFAULT_PERMISSIONS[addForm.role as RoleType],
+          ...DEFAULT_PERMISSIONS["secretary" as RoleType],
           isCoDirector: true,
         };
         await updateMemberPermissions(token, created.id, coDirectorPerms);
@@ -1065,7 +1069,7 @@ export default function TeamPage() {
               <Label htmlFor="add-role">Rôle *</Label>
               <Select
                 value={addForm.role}
-                onValueChange={(v) => setAddForm({ ...addForm, role: v as RoleType, selectedClassIds: [], classAssignments: [] })}
+                onValueChange={(v) => setAddForm({ ...addForm, role: v as RoleType | "co-director", isCoDirector: v === "co-director", selectedClassIds: [], classAssignments: [] })}
               >
                 <SelectTrigger className="border-2">
                   <SelectValue placeholder="Sélectionnez un rôle" />
@@ -1075,42 +1079,32 @@ export default function TeamPage() {
                   <SelectItem value="accountant">Comptable</SelectItem>
                   <SelectItem value="supervisor">Surveillant</SelectItem>
                   <SelectItem value="secretary">Secrétaire</SelectItem>
+                  {isRealDirector && (
+                    <SelectItem value="co-director">
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-violet-600" />
+                        Co-directeur
+                      </span>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
-              {addForm.role && (
+              {addForm.role === "co-director" ? (
+                <div className="rounded-lg border-2 border-violet-400 bg-violet-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-violet-800 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    Accès complet identique au directeur
+                  </p>
+                  <p className="text-xs text-violet-700 mt-0.5">
+                    Ce membre aura accès à toutes les fonctionnalités dès sa première connexion.
+                  </p>
+                </div>
+              ) : addForm.role ? (
                 <p className="text-sm text-muted-foreground">
                   {ROLE_DESCRIPTIONS[addForm.role as RoleType]}
                 </p>
-              )}
+              ) : null}
             </div>
-
-            {/* Toggle co-directeur — visible uniquement pour le vrai directeur */}
-            {addForm.role && isRealDirector && (
-              <div
-                className={`rounded-lg border-2 p-3 transition-colors cursor-pointer ${addForm.isCoDirector ? "border-violet-400 bg-violet-50" : "border-dashed border-gray-300 bg-gray-50"}`}
-                onClick={() => setAddForm((f) => ({ ...f, isCoDirector: !f.isCoDirector }))}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`rounded-full p-1.5 shrink-0 ${addForm.isCoDirector ? "bg-violet-100 text-violet-700" : "bg-gray-200 text-gray-500"}`}>
-                    <ShieldCheck className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold ${addForm.isCoDirector ? "text-violet-800" : "text-gray-700"}`}>
-                      Accès co-directeur
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Accès complet identique au directeur dès la première connexion
-                    </p>
-                  </div>
-                  <Switch
-                    checked={addForm.isCoDirector}
-                    onCheckedChange={(v) => setAddForm((f) => ({ ...f, isCoDirector: v }))}
-                    className="shrink-0 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Assignation classes + matières — visible si role = teacher */}
             {addForm.role === "teacher" && (
