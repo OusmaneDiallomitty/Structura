@@ -163,15 +163,17 @@ export default function StudentsPage() {
     setQuickSaving(true);
     setQuickProgress({ done: 0, total: valid.length });
     let success = 0, errors = 0;
+    const createdStudents: Student[] = [];
     for (const row of valid) {
       try {
-        await createStudent(token, {
+        const created = await createStudent(token, {
           firstName:   row.firstName.trim(),
           lastName:    row.lastName.trim(),
           classId:     row.classId,
           parentName:  row.parentName.trim()  || undefined,
           parentPhone: row.parentPhone.trim() || undefined,
         });
+        createdStudents.push(mapStudent(created));
         success++;
       } catch { errors++; }
       setQuickProgress(p => p ? { ...p, done: p.done + 1 } : null);
@@ -181,6 +183,13 @@ export default function StudentsPage() {
     if (success > 0) {
       toast.success(`${success} élève(s) enregistré(s) avec succès`);
       setQuickRows(Array(5).fill(null).map(newEmptyRow));
+      // Injection immédiate dans le cache — pas d'attente serveur
+      queryClient.setQueryData(studentsQueryKey, (old: { data: Student[]; total: number } | undefined) => {
+        if (!old) return old;
+        return { data: [...createdStudents, ...old.data], total: old.total + createdStudents.length };
+      });
+      setStats(prev => ({ ...prev, total: prev.total + createdStudents.length }));
+      // Sync arrière-plan pour cohérence (pagination, tri serveur…)
       queryClient.invalidateQueries({ queryKey: STUDENTS_QUERY_KEY(user?.tenantId) });
     }
     if (errors > 0) toast.error(`${errors} élève(s) n'ont pas pu être enregistré(s)`);
