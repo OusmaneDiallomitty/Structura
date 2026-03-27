@@ -46,6 +46,10 @@ export class UpdatePermissionsDto {
 
   @ValidateNested()
   @Type(() => PermissionDto)
+  expenses: PermissionDto;
+
+  @ValidateNested()
+  @Type(() => PermissionDto)
   students: PermissionDto;
 
   @ValidateNested()
