@@ -64,7 +64,7 @@ export function PermissionsEditor({
               checked={isCoDirector}
               onCheckedChange={toggleCoDirector}
               disabled={readOnly}
-              className="mt-0.5"
+              className="mt-0.5 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
             />
             <span className={`text-[10px] font-medium ${isCoDirector ? "text-violet-700" : "text-gray-400"}`}>
               {isCoDirector ? "Actif" : "Inactif"}
