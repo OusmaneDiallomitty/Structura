@@ -65,9 +65,8 @@ export class DashboardController {
     @Request() req: any,
     @Query('limit') limit?: string,
   ) {
-    const tenantId = req.user.tenantId;
     const activityLimit = limit ? parseInt(limit, 10) : 10;
-    return this.dashboardService.getRecentActivities(tenantId, activityLimit);
+    return this.dashboardService.getRecentActivities(req.user.tenantId, req.user, activityLimit);
   }
 
   /**

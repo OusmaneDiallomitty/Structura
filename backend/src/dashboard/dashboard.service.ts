@@ -326,108 +326,105 @@ export class DashboardService {
    * Activités récentes (dernières actions)
    * Cache Redis 30s — données fréquentes mais légères
    */
-  async getRecentActivities(tenantId: string, limit: number = 10) {
-    const cacheKey = `dashboard:activities:${tenantId}:${limit}`;
+  async getRecentActivities(tenantId: string, user: any, limit: number = 10) {
+    const role = (user.role ?? '').toLowerCase();
+    // Clé de cache par rôle — un teacher ne voit pas la même chose qu'un director
+    const cacheKey = `dashboard:activities:${tenantId}:${role}:${limit}`;
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
 
-    const result = await this.computeRecentActivities(tenantId, limit);
+    const result = await this.computeRecentActivities(tenantId, user, limit);
     await this.cache.set(cacheKey, result, 30);
     return result;
   }
 
-  private async computeRecentActivities(tenantId: string, limit: number) {
-    const [recentStudents, recentPayments, recentAttendances] = await Promise.all([
-      // Nouveaux élèves
-      this.prisma.student.findMany({
-        where: { tenantId },
-        take: 3,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          createdAt: true,
-        },
-      }),
+  private async computeRecentActivities(tenantId: string, user: any, limit: number) {
+    const role = (user.role ?? '').toLowerCase();
+    const isTeacher      = role === 'teacher';
+    const canSeePayments = ['director', 'admin', 'supervisor', 'accountant', 'secretary'].includes(role);
 
-      // Paiements récents
-      this.prisma.payment.findMany({
-        where: { tenantId },
-        take: 3,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          amount: true,
-          currency: true,
-          createdAt: true,
-          student: {
-            select: {
-              firstName: true,
-              lastName: true,
-            },
+    // Classes assignées au prof (pour filtrer ses élèves et ses absences)
+    const assignedClassIds: string[] = isTeacher
+      ? (user.classAssignments ?? []).map((a: any) => a.classId).filter(Boolean)
+      : [];
+
+    const queries: Promise<any[]>[] = [];
+
+    // ── Nouveaux élèves ─────────────────────────────────────────────────────
+    {
+      const studentWhere: any = { tenantId };
+      if (isTeacher && assignedClassIds.length > 0) {
+        studentWhere.classId = { in: assignedClassIds };
+      } else if (isTeacher) {
+        studentWhere.id = null; // aucune classe assignée → aucun résultat
+      }
+      queries.push(
+        this.prisma.student.findMany({
+          where: studentWhere,
+          take: 3,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, firstName: true, lastName: true, createdAt: true },
+        }).then(rows => rows.map(s => ({
+          type: 'student',
+          message: `Nouvel élève inscrit : ${s.firstName} ${s.lastName}`,
+          time: s.createdAt,
+          icon: 'Users',
+          link: `/dashboard/students/${s.id}`,
+        }))),
+      );
+    }
+
+    // ── Paiements récents (jamais visibles par un enseignant) ───────────────
+    if (canSeePayments) {
+      queries.push(
+        this.prisma.payment.findMany({
+          where: { tenantId },
+          take: 3,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, amount: true, currency: true, createdAt: true,
+            student: { select: { firstName: true, lastName: true } },
           },
-        },
-      }),
+        }).then(rows => rows.map(p => ({
+          type: 'payment',
+          message: `Paiement reçu : ${p.amount.toLocaleString()} ${p.currency} — ${p.student.firstName} ${p.student.lastName}`,
+          time: p.createdAt,
+          icon: 'DollarSign',
+          link: `/dashboard/payments`,
+        }))),
+      );
+    }
 
-      // Absences récentes
-      this.prisma.attendance.findMany({
-        where: {
-          tenantId,
-          status: { in: ['absent', 'ABSENT'] },
-        },
-        take: 3,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          student: {
-            select: {
-              firstName: true,
-              lastName: true,
-            },
+    // ── Absences récentes (enseignant : uniquement ses classes) ─────────────
+    {
+      const absenceWhere: any = { tenantId, status: { in: ['absent', 'ABSENT'] } };
+      if (isTeacher && assignedClassIds.length > 0) {
+        absenceWhere.classId = { in: assignedClassIds };
+      } else if (isTeacher) {
+        absenceWhere.id = null; // aucune classe → aucune absence
+      }
+      queries.push(
+        this.prisma.attendance.findMany({
+          where: absenceWhere,
+          take: 3,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            student: { select: { firstName: true, lastName: true } },
+            class:   { select: { name: true } },
           },
-          class: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      }),
-    ]);
+        }).then(rows => rows.map(a => ({
+          type: 'absence',
+          message: `Absence signalée : ${a.student.firstName} ${a.student.lastName} — ${a.class.name}`,
+          time: a.createdAt,
+          icon: 'UserX',
+          link: `/dashboard/attendance`,
+        }))),
+      );
+    }
 
-    // Combiner et trier toutes les activités
-    const activities: any[] = [];
+    const groups = await Promise.all(queries);
+    const activities = ([] as any[]).concat(...groups);
 
-    recentStudents.forEach(student => {
-      activities.push({
-        type: 'student',
-        message: `Nouvel élève inscrit : ${student.firstName} ${student.lastName}`,
-        time: student.createdAt,
-        icon: 'Users',
-        link: `/dashboard/students/${student.id}`,
-      });
-    });
-
-    recentPayments.forEach(payment => {
-      activities.push({
-        type: 'payment',
-        message: `Paiement reçu : ${payment.amount.toLocaleString()} ${payment.currency} — ${payment.student.firstName} ${payment.student.lastName}`,
-        time: payment.createdAt,
-        icon: 'DollarSign',
-        link: `/dashboard/payments`,
-      });
-    });
-
-    recentAttendances.forEach(attendance => {
-      activities.push({
-        type: 'absence',
-        message: `Absence signalée : ${attendance.student.firstName} ${attendance.student.lastName} — ${attendance.class.name}`,
-        time: attendance.createdAt,
-        icon: 'UserX',
-        link: `/dashboard/attendance`,
-      });
-    });
-
-    // Trier par date décroissante et limiter
     return activities
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
       .slice(0, limit);
