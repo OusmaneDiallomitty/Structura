@@ -489,19 +489,8 @@ export default function TeamPage() {
         phone: addForm.phone || undefined,
       });
 
-      // Activer co-directeur si sélectionné — réservé au vrai directeur uniquement
-      if (isCoDirectorRole && isRealDirector) {
-        const coDirectorPerms = {
-          ...DEFAULT_PERMISSIONS["secretary" as RoleType],
-          isCoDirector: true,
-        };
-        await updateMemberPermissions(token, created.id, coDirectorPerms);
-      }
-
       // Assigner les classes si c'est un professeur et qu'il y en a de sélectionnées
       if (addForm.role === "teacher" && addForm.selectedClassIds.length > 0) {
-        // Filtrer pour n'envoyer que les assignments des classes effectivement cochées
-        // (les classes décochées restent en mémoire dans classAssignments mais ne doivent pas être envoyées)
         const checkedAssignments = addForm.classAssignments.filter((a) =>
           addForm.selectedClassIds.includes(a.classId)
         );
@@ -526,6 +515,23 @@ export default function TeamPage() {
         toast.success("Membre ajouté", {
           description: `${created.firstName} ${created.lastName} a rejoint l'équipe. Un email d'invitation lui a été envoyé.`,
         });
+      }
+
+      // Activer co-directeur après le succès — erreur non bloquante
+      if (isCoDirectorRole && isRealDirector) {
+        try {
+          const coDirectorPerms = {
+            ...DEFAULT_PERMISSIONS["secretary" as RoleType],
+            isCoDirector: true,
+          };
+          await updateMemberPermissions(token, created.id, coDirectorPerms);
+          await loadTeam(); // recharger pour refléter le badge Co-directeur
+        } catch {
+          toast.warning("Accès co-directeur non appliqué", {
+            description: "Le membre a été créé. Allez dans ses permissions pour activer l'accès co-directeur manuellement.",
+            duration: 8000,
+          });
+        }
       }
     } catch (err) {
       toast.error("Impossible d'ajouter le membre.", {
