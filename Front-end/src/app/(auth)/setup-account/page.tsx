@@ -81,8 +81,9 @@ function SetupAccountContent() {
       setIsSuccess(true);
 
       // Redirection vers le dashboard après un court délai
+      // replace() efface /setup-account de l'historique → retour arrière impossible
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        window.location.replace('/dashboard');
       }, 2000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue");
