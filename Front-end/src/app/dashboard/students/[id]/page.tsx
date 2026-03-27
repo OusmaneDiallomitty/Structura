@@ -94,6 +94,10 @@ export default function StudentProfilePage() {
   const { hasFeature } = useSubscription();
   const hasBulletins = hasFeature('bulletins');
 
+  const role = (user?.role ?? "").toLowerCase();
+  // Seuls le directeur, l'admin et le superviseur/comptable voient les paiements
+  const canSeePayments = ["director", "admin", "supervisor"].includes(role);
+
   // ─── React Query : toutes les sources en parallèle ──────────────────────────
   const token = storage.getAuthItem("structura_token");
 
@@ -313,27 +317,29 @@ export default function StudentProfilePage() {
                   <Badge variant="outline">{student.class}</Badge>
                 </div>
 
-                {/* Statut paiement enrichi */}
-                <div className="flex items-start gap-2 text-sm">
-                  <CreditCard className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-muted-foreground">Paiement :</span>
-                      {getPaymentBadge(effectivePaymentStatus)}
+                {/* Statut paiement enrichi — réservé aux rôles autorisés */}
+                {canSeePayments && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <CreditCard className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground">Paiement :</span>
+                        {getPaymentBadge(effectivePaymentStatus)}
+                        {lastPaidPayment?.term && (
+                          <PaymentTypeBadge term={lastPaidPayment.term} />
+                        )}
+                      </div>
                       {lastPaidPayment?.term && (
-                        <PaymentTypeBadge term={lastPaidPayment.term} />
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Dernière période : <span className="font-medium text-foreground">{lastPaidPayment.term}</span>
+                        </p>
+                      )}
+                      {!lastPaidPayment && (
+                        <p className="text-xs text-amber-600 mt-0.5">Aucun paiement enregistré</p>
                       )}
                     </div>
-                    {lastPaidPayment?.term && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Dernière période : <span className="font-medium text-foreground">{lastPaidPayment.term}</span>
-                      </p>
-                    )}
-                    {!lastPaidPayment && (
-                      <p className="text-xs text-amber-600 mt-0.5">Aucun paiement enregistré</p>
-                    )}
                   </div>
-                </div>
+                )}
 
                 <div className="flex items-center gap-2 text-sm">
                   <User className="h-4 w-4 text-muted-foreground" />
@@ -382,7 +388,7 @@ export default function StudentProfilePage() {
 
       {/* ─── Onglets ─── */}
       <Tabs defaultValue="info" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 h-11 bg-gray-100/80 p-1 rounded-xl">
+        <TabsList className={`grid w-full h-11 bg-gray-100/80 p-1 rounded-xl ${canSeePayments ? "grid-cols-4" : "grid-cols-3"}`}>
           <TabsTrigger
             value="info"
             className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
@@ -414,18 +420,20 @@ export default function StudentProfilePage() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger
-            value="payments"
-            className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
-          >
-            <CreditCard className="h-4 w-4 shrink-0" />
-            <span className="hidden sm:inline">Paiements</span>
-            {payments.length > 0 && (
-              <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
-                {payments.length}
-              </span>
-            )}
-          </TabsTrigger>
+          {canSeePayments && (
+            <TabsTrigger
+              value="payments"
+              className="flex items-center gap-1.5 rounded-lg text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:text-indigo-600"
+            >
+              <CreditCard className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Paiements</span>
+              {payments.length > 0 && (
+                <span className="ml-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                  {payments.length}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ═══ Onglet Informations ═══ */}
@@ -677,8 +685,8 @@ export default function StudentProfilePage() {
           </Card>
         </TabsContent>
 
-        {/* ═══ Onglet Paiements ═══ */}
-        <TabsContent value="payments" className="space-y-4">
+        {/* ═══ Onglet Paiements — réservé directeur/admin/superviseur ═══ */}
+        {canSeePayments && <TabsContent value="payments" className="space-y-4">
 
           {/* Bannière fonctionnalité reçu — FREE */}
           {!hasBulletins && (
@@ -870,7 +878,7 @@ export default function StudentProfilePage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   );
