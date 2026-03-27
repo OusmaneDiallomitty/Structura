@@ -485,8 +485,8 @@ export default function TeamPage() {
         phone: addForm.phone || undefined,
       });
 
-      // Activer co-directeur si coché — appel immédiat après création
-      if (addForm.isCoDirector && addForm.role) {
+      // Activer co-directeur si coché — réservé au vrai directeur uniquement
+      if (addForm.isCoDirector && addForm.role && isRealDirector) {
         const coDirectorPerms = {
           ...DEFAULT_PERMISSIONS[addForm.role as RoleType],
           isCoDirector: true,
@@ -1084,8 +1084,8 @@ export default function TeamPage() {
               )}
             </div>
 
-            {/* Toggle co-directeur — visible uniquement si un rôle est sélectionné */}
-            {addForm.role && (
+            {/* Toggle co-directeur — visible uniquement pour le vrai directeur */}
+            {addForm.role && isRealDirector && (
               <div
                 className={`rounded-lg border-2 p-3 transition-colors cursor-pointer ${addForm.isCoDirector ? "border-violet-400 bg-violet-50" : "border-dashed border-gray-300 bg-gray-50"}`}
                 onClick={() => setAddForm((f) => ({ ...f, isCoDirector: !f.isCoDirector }))}
