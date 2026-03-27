@@ -8,17 +8,59 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Structura - Plateforme de Gestion",
-  description: "Un outil. Toutes vos organisations.",
+  title: {
+    default: "Structura — Gestion Scolaire",
+    template: "%s | Structura",
+  },
+  description:
+    "Structura est une plateforme SaaS de gestion scolaire : suivi des élèves, paiements de scolarité, présences, notes, bulletins et proclamation des résultats.",
+  keywords: [
+    "gestion scolaire",
+    "école",
+    "plateforme scolaire",
+    "suivi élèves",
+    "paiements scolarité",
+    "bulletins scolaires",
+    "logiciel école Guinée",
+    "SaaS éducation",
+  ],
   manifest: "/manifest.json",
   icons: {
-    icon: "/logo-icon.svg",
-    apple: "/logo-icon.svg",
+    icon: [
+      { url: "/logo-icon.svg", type: "image/svg+xml" },
+      { url: "/logo.png",      type: "image/png", sizes: "192x192" },
+    ],
+    apple: [
+      { url: "/logo-icon.svg" },
+    ],
+    shortcut: "/logo.png",
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "Structura",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Structura",
+    title: "Structura — Gestion Scolaire",
+    description:
+      "Gérez votre école facilement : élèves, paiements, présences, notes et bulletins. Plateforme multi-tenant sécurisée.",
+    images: [
+      {
+        url: "/logo-icon.svg",
+        width: 300,
+        height: 300,
+        alt: "Structura — Gestion Scolaire",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary",
+    title: "Structura — Gestion Scolaire",
+    description:
+      "Gérez votre école facilement : élèves, paiements, présences, notes et bulletins.",
+    images: ["/logo-icon.svg"],
   },
 };
 
