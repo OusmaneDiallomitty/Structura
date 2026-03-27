@@ -1,7 +1,7 @@
 "use client";
 
 interface LogoProps {
-  /** 'dark' = icône bleue + texte sombre (fond clair) | 'white' = tout blanc (fond sombre) */
+  /** 'dark' = logo couleur (fond clair) | 'white' = logo blanc (fond sombre) */
   variant?: "dark" | "white";
   /** Taille du logo */
   size?: "sm" | "md" | "lg";
@@ -12,6 +12,8 @@ interface LogoProps {
   className?: string;
 }
 
+const HEIGHTS: Record<string, number> = { sm: 32, md: 40, lg: 52 };
+
 export function Logo({
   variant = "dark",
   size = "md",
@@ -19,60 +21,43 @@ export function Logo({
   iconOnly = false,
   className = "",
 }: LogoProps) {
-  const iconColor  = variant === "white" ? "#ffffff" : "#2563EB";
-  const textColor  = variant === "white" ? "#ffffff" : "#0F172A";
-  const tagColor   = variant === "white" ? "rgba(255,255,255,0.70)" : "#38BDF8";
-
-  const iconW  = size === "sm" ? 34 : size === "lg" ? 56 : 44;
-  const fontSize = size === "sm" ? "1rem" : size === "lg" ? "1.6rem" : "1.25rem";
+  const h = HEIGHTS[size];
+  const tagColor = variant === "white" ? "rgba(255,255,255,0.70)" : "#38BDF8";
   const tagSize  = size === "sm" ? "0.6rem" : "0.68rem";
 
-  return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      {/* Icône : 4 carrés décalés — fidèle au logo Namecheap */}
-      <svg
-        width={iconW}
-        height={Math.round(iconW * 51 / 59)}
-        viewBox="0 0 59 51"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        {/* Rangée du bas (gauche) */}
-        <rect x="0"  y="27" width="22" height="22" rx="2.5" stroke={iconColor} strokeWidth="3" />
-        <rect x="26" y="27" width="22" height="22" rx="2.5" stroke={iconColor} strokeWidth="3" />
-        {/* Rangée du haut (décalée à droite) */}
-        <rect x="11" y="2"  width="22" height="22" rx="2.5" stroke={iconColor} strokeWidth="3" />
-        <rect x="37" y="2"  width="22" height="22" rx="2.5" stroke={iconColor} strokeWidth="3" />
-      </svg>
+  // Icône carrée seule (favicon / sidebar réduite)
+  if (iconOnly) {
+    return (
+      <img
+        src="/logo-icon.svg"
+        alt="Structura"
+        style={{ height: h, width: h, borderRadius: 8 }}
+        className={className}
+      />
+    );
+  }
 
-      {!iconOnly && (
-        <div className="flex flex-col justify-center">
-          <span
-            style={{
-              fontFamily: 'Georgia, "Times New Roman", serif',
-              color: textColor,
-              fontSize,
-              fontWeight: 700,
-              lineHeight: 1.1,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            Structura
-          </span>
-          {showTagline && (
-            <span
-              style={{
-                color: tagColor,
-                fontSize: tagSize,
-                marginTop: 3,
-                letterSpacing: "0.02em",
-              }}
-            >
-              Un outil. Toutes vos organisations.
-            </span>
-          )}
-        </div>
+  // Logo complet : utilise logo-white.svg sur fond sombre, logo.png sur fond clair
+  const src = variant === "white" ? "/logo-white.svg" : "/logo.png";
+
+  return (
+    <div className={`flex flex-col justify-center ${className}`}>
+      <img
+        src={src}
+        alt="Structura"
+        style={{ height: h, width: "auto", display: "block" }}
+      />
+      {showTagline && (
+        <span
+          style={{
+            color: tagColor,
+            fontSize: tagSize,
+            marginTop: 3,
+            letterSpacing: "0.02em",
+          }}
+        >
+          Un outil. Toutes vos organisations.
+        </span>
       )}
     </div>
   );
