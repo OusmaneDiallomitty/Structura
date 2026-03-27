@@ -11,9 +11,10 @@ import {
 export const EXPENSE_CATEGORIES = [
   'PEDAGOGY',       // Livres, fournitures, photocopies
   'INFRASTRUCTURE', // Réparations, mobilier, entretien
-  'HR',             // Salaires, primes, avances
+  'HR',             // Primes, avances, divers RH
   'ACTIVITIES',     // Sorties, compétitions, cérémonies
   'GENERAL',        // Électricité, eau, loyer, internet
+  'SALARY',         // Salaires du personnel — géré via /payroll
   'OTHER',          // Autre
 ] as const;
 
@@ -25,6 +26,7 @@ export const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   HR:             'Ressources Humaines',
   ACTIVITIES:     'Activités & Sorties',
   GENERAL:        'Charges Générales',
+  SALARY:         'Salaires',
   OTHER:          'Autre',
 };
 

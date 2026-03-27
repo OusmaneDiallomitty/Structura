@@ -15,6 +15,7 @@ import {
   FileText,
   UsersRound,
   Settings,
+  HandCoins,
   Menu,
   X,
   ChevronDown,
@@ -96,6 +97,12 @@ const navigation: NavItem[] = [
       { title: "Saisie des notes", href: "/dashboard/grades" },
       { title: "Bulletins scolaires", href: "/dashboard/grades/bulletins", directorOnly: true },
     ],
+  },
+  {
+    title: "Paie",
+    href: "/dashboard/payroll",
+    icon: HandCoins,
+    directorOnly: true,
   },
   {
     title: "Équipe",

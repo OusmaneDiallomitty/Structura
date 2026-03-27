@@ -145,6 +145,8 @@ model User {
   // Affectation classes+matières pour les professeurs
   // Exemple : [{"classId":"abc","subjects":["Français","Histoire"]}]
   classAssignments        Json?
+  // Configuration salaire — { amount: number, currency: "GNF" }
+  salaryConfig            Json?
   // Web Push subscriptions (VAPID natif — multi-appareils)
   pushSubscriptions       PushSubscription[]
   notifications           Notification[]
@@ -319,7 +321,7 @@ model Expense {
   tenantId     String
   amount       Float
   currency     String   @default("GNF")
-  category     String   // PEDAGOGY | INFRASTRUCTURE | HR | ACTIVITIES | GENERAL | OTHER
+  category     String   // PEDAGOGY | INFRASTRUCTURE | HR | ACTIVITIES | GENERAL | OTHER | SALARY
   description  String
   method       String   @default("CASH") // CASH | MOBILE_MONEY | BANK_TRANSFER | CHECK
   date         DateTime // Date réelle de la dépense
@@ -327,6 +329,9 @@ model Expense {
   reference    String?  // Numéro de reçu / bon de caisse
   note         String?  // Commentaire libre
   recordedBy   String?  // Nom de l'utilisateur qui a enregistré
+  // Champs salaire — remplis uniquement si category = SALARY
+  staffId      String?  // ID du membre (User.id)
+  staffName    String?  // Snapshot du nom (en cas de suppression du compte)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 

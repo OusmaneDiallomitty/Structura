@@ -1253,3 +1253,132 @@ export function generateProclamationPDF(data: ProclamationData) {
   const safeClass = data.className.replace(/[^a-zA-Z0-9]/g, "-");
   doc.save(`proclamation-${safeClass}-${ascii(data.term).replace(/\s+/g, "-")}.pdf`);
 }
+
+// ── Reçu de salaire ────────────────────────────────────────────────────────────
+
+export interface SalaryReceiptData {
+  schoolName: string;
+  staffName: string;
+  staffRole: string;
+  month: string;           // ex: "Mars 2026"
+  amount: number;
+  currency: string;        // "GNF"
+  method: string;          // "CASH" | "MOBILE_MONEY" | ...
+  receiptNumber?: string;
+  paidDate?: string;       // ex: "15/03/2026"
+  note?: string;
+  mode?: "download" | "preview" | "print";
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  CASH:          "Espèces",
+  MOBILE_MONEY:  "Mobile Money",
+  BANK_TRANSFER: "Virement bancaire",
+  CHECK:         "Chèque",
+};
+
+export function generateSalaryReceipt(data: SalaryReceiptData): void {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 14;
+  const contentW = W - margin * 2;
+  const currency = data.currency || "GNF";
+  const mode = data.mode ?? "download";
+
+  // ── En-tête ──────────────────────────────────────────────────────────────────
+  doc.setFillColor(30, 64, 175); // bleu structura
+  doc.rect(0, 0, W, 22, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.schoolName.toUpperCase(), W / 2, 9, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("REÇU DE SALAIRE", W / 2, 16, { align: "center" });
+
+  // ── Numéro & date ────────────────────────────────────────────────────────────
+  doc.setTextColor(80, 80, 80);
+  let y = 30;
+  doc.setFontSize(8);
+  if (data.receiptNumber) {
+    doc.text(`Reçu N° ${data.receiptNumber}`, margin, y);
+  }
+  doc.text(`Date : ${data.paidDate ?? new Date().toLocaleDateString("fr-FR")}`, W - margin, y, { align: "right" });
+
+  // ── Bandeau membre ───────────────────────────────────────────────────────────
+  y += 8;
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(margin, y, contentW, 18, 2, 2, "F");
+  doc.setTextColor(30, 64, 175);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.staffName, margin + 4, y + 7);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 100, 100);
+  const roleLabel = data.staffRole.charAt(0).toUpperCase() + data.staffRole.slice(1).toLowerCase();
+  doc.text(roleLabel, margin + 4, y + 13);
+
+  // ── Tableau détail ───────────────────────────────────────────────────────────
+  y += 26;
+  const rows: [string, string][] = [
+    ["Mois concerné",      data.month],
+    ["Salaire brut",       fmtAmount(data.amount, currency)],
+    ["Méthode de paiement", METHOD_LABELS[data.method] ?? data.method],
+  ];
+  if (data.note) rows.push(["Note", data.note]);
+
+  const rowH = 10;
+  rows.forEach(([label, value], i) => {
+    const bg = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+    doc.setFillColor(bg[0], bg[1], bg[2]);
+    doc.rect(margin, y, contentW, rowH, "F");
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(80, 80, 80);
+    doc.text(label, margin + 3, y + 6.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 30, 30);
+    doc.text(value, W - margin - 3, y + 6.5, { align: "right" });
+
+    y += rowH;
+  });
+
+  // ── Total encadré ────────────────────────────────────────────────────────────
+  y += 6;
+  doc.setFillColor(30, 64, 175);
+  doc.roundedRect(margin, y, contentW, 14, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("MONTANT PAYÉ", margin + 4, y + 9);
+  doc.setFontSize(12);
+  doc.text(fmtAmount(data.amount, currency), W - margin - 4, y + 9, { align: "right" });
+
+  // ── Pied de page ─────────────────────────────────────────────────────────────
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setDrawColor(200, 200, 200);
+  doc.line(margin, pageH - 18, W - margin, pageH - 18);
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(150, 150, 150);
+  doc.text("Document généré par Structura", W / 2, pageH - 12, { align: "center" });
+  doc.text("Ce reçu atteste du paiement du salaire ci-dessus.", W / 2, pageH - 7, { align: "center" });
+
+  // ── Sortie ───────────────────────────────────────────────────────────────────
+  const safeName = ascii(data.staffName).replace(/\s+/g, "-").toLowerCase();
+  const safeMonth = data.month.replace(/\s+/g, "-").toLowerCase();
+  const filename = `salaire-${safeName}-${safeMonth}.pdf`;
+
+  if (mode === "preview") {
+    window.open(doc.output("bloburl") as unknown as string, "_blank");
+  } else if (mode === "print") {
+    doc.autoPrint();
+    window.open(doc.output("bloburl") as unknown as string, "_blank");
+  } else {
+    doc.save(filename);
+  }
+}
