@@ -659,57 +659,124 @@ export async function downloadTemplate(
   try {
     const { Workbook } = await import("exceljs");
     const workbook = new Workbook();
-    const worksheet = workbook.addWorksheet("Données");
+    workbook.creator = "Structura";
+    workbook.created = new Date();
 
-    const rows = sampleData ?? [
-      headers.reduce((acc, h) => { acc[h] = `Exemple ${h}`; return acc; }, {} as any),
-    ];
+    const worksheet = workbook.addWorksheet("Import");
+    const nCols = headers.length;
 
-    // Définir les colonnes avec largeurs auto (min 20, max 45)
-    worksheet.columns = headers.map((h) => {
-      const maxLen = Math.max(
-        h.length,
-        ...rows.map((r) => String(r[h] ?? "").length)
-      );
-      return {
-        header: h,
-        key: h,
-        width: Math.min(Math.max(maxLen + 4, 20), 45),
-      };
-    });
+    // Largeurs par colonne connue
+    const COL_WIDTHS: Record<string, number> = {
+      prenom: 22, nom: 22, classe: 20, dateNaissance: 20,
+      genre: 12, nomParent: 26, telephoneParent: 20,
+      email: 28, professionParent: 24, adresse: 30,
+    };
+    // Colonnes obligatoires
+    const REQUIRED = new Set(["prenom", "nom"]);
 
-    // Styliser la ligne d'en-tête (ligne 1)
-    const headerRow = worksheet.getRow(1);
-    headerRow.height = 28;
-    headerRow.eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11, name: "Calibri" };
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF2563EB" }, // Bleu Tailwind blue-600
-      };
+    // Définir largeurs (sans header — on ajoute les lignes manuellement)
+    worksheet.columns = headers.map((h) => ({
+      key: h,
+      width: COL_WIDTHS[h] ?? Math.min(Math.max(h.length + 6, 18), 36),
+    }));
+
+    // ── Ligne 1 : Bannière instructions ─────────────────────────────────────
+    const instrRow = worksheet.addRow(
+      [" STRUCTURA — Template d'importation   ·   Les colonnes marquées * sont obligatoires   ·   Supprimez la ligne EXEMPLE avant d'importer"]
+        .concat(Array(nCols - 1).fill(""))
+    );
+    instrRow.height = 24;
+    worksheet.mergeCells(1, 1, 1, nCols);
+    const instrCell = instrRow.getCell(1);
+    instrCell.font  = { bold: true, color: { argb: "FFFFFFFF" }, size: 10, name: "Calibri" };
+    instrCell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A8A" } };
+    instrCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+
+    // ── Ligne 2 : En-têtes ───────────────────────────────────────────────────
+    const headerValues = headers.map((h) => (REQUIRED.has(h) ? `${h} *` : h));
+    const headerRow = worksheet.addRow(headerValues);
+    headerRow.height = 32;
+    headerRow.eachCell((cell, colIdx) => {
+      const h = headers[colIdx - 1];
+      const isReq = REQUIRED.has(h);
+      cell.font      = { bold: true, color: { argb: "FFFFFFFF" }, size: 11, name: "Calibri" };
+      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: isReq ? "FF1D4ED8" : "FF3B82F6" } };
       cell.alignment = { vertical: "middle", horizontal: "center", wrapText: false };
-      cell.border = {
-        bottom: { style: "medium", color: { argb: "FF1D4ED8" } },
+      cell.border    = {
+        top:    { style: "medium", color: { argb: "FF1E40AF" } },
+        bottom: { style: "medium", color: { argb: "FF1E40AF" } },
+        left:   { style: "thin",   color: { argb: "FF1E40AF" } },
+        right:  { style: "thin",   color: { argb: "FF1E40AF" } },
       };
     });
 
-    // Ajouter les lignes d'exemple (italique grisé — guide visuel uniquement)
-    rows.forEach((rowData: any) => {
-      const dataRow = worksheet.addRow(headers.map((h) => rowData[h] ?? ""));
-      dataRow.height = 20;
-      dataRow.eachCell((cell) => {
-        cell.font = { italic: true, color: { argb: "FF9CA3AF" }, size: 11, name: "Calibri" };
-        cell.alignment = { vertical: "middle", horizontal: "left" };
-        // Forcer le format texte pour éviter qu'Excel interprète les dates
-        cell.numFmt = "@";
-      });
+    // ── Ligne 3 : Ligne EXEMPLE (fond jaune, texte sombre bien lisible) ─────
+    const firstSample = sampleData?.[0] ?? headers.reduce((a, h) => { a[h] = `ex. ${h}`; return a; }, {} as any);
+    const exValues = headers.map((h, i) =>
+      i === 0
+        ? `EXEMPLE — ${firstSample[h] ?? ""}`
+        : firstSample[h] ?? ""
+    );
+    const exRow = worksheet.addRow(exValues);
+    exRow.height = 22;
+    exRow.eachCell((cell) => {
+      cell.font      = { italic: true, bold: false, color: { argb: "FF78350F" }, size: 10, name: "Calibri" };
+      cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF9C3" } }; // yellow-100
+      cell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+      cell.numFmt    = "@";
+      cell.border    = {
+        top:    { style: "thin", color: { argb: "FFFBBF24" } },
+        bottom: { style: "medium", color: { argb: "FFFBBF24" } },
+        left:   { style: "thin", color: { argb: "FFFBBF24" } },
+        right:  { style: "thin", color: { argb: "FFFBBF24" } },
+      };
     });
 
-    // Geler la première ligne (en-têtes toujours visibles en défilant)
-    worksheet.views = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+    // ── Lignes 4+ : Lignes de saisie (fond alterné, bordures visibles) ───────
+    const extraRows = sampleData ? sampleData.slice(1) : [];
+    const TOTAL_DATA_ROWS = Math.max(extraRows.length, 30); // au moins 30 lignes prêtes
 
-    // Générer le buffer et déclencher le téléchargement
+    for (let r = 0; r < TOTAL_DATA_ROWS; r++) {
+      const rowData = extraRows[r] ?? {};
+      const values  = headers.map((h) => rowData[h] ?? "");
+      const dataRow = worksheet.addRow(values);
+      dataRow.height = 22;
+
+      const isEven = r % 2 === 0;
+      const bgArgb  = isEven ? "FFFFFFFF" : "FFF0F9FF"; // blanc / bleu très clair
+
+      dataRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.font      = { size: 11, name: "Calibri", color: { argb: "FF111827" } };
+        cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: bgArgb } };
+        cell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+        cell.numFmt    = "@";
+        cell.border    = {
+          top:    { style: "hair",  color: { argb: "FFD1D5DB" } },
+          bottom: { style: "hair",  color: { argb: "FFD1D5DB" } },
+          left:   { style: "thin",  color: { argb: "FFD1D5DB" } },
+          right:  { style: "thin",  color: { argb: "FFD1D5DB" } },
+        };
+      });
+    }
+
+    // ── Validation : dropdown Genre (M / F) ──────────────────────────────────
+    const genreIdx = headers.indexOf("genre");
+    if (genreIdx >= 0) {
+      const col = String.fromCharCode(65 + genreIdx);
+      (worksheet as any).dataValidations.add(`${col}4:${col}${3 + TOTAL_DATA_ROWS}`, {
+        type: "list",
+        allowBlank: true,
+        formulae: ['"M,F"'],
+        showErrorMessage: true,
+        errorTitle: "Valeur invalide",
+        error: "Utilisez M (Masculin) ou F (Féminin)",
+      });
+    }
+
+    // ── Figer lignes 1-2 (bannière + en-têtes toujours visibles) ────────────
+    worksheet.views = [{ state: "frozen", xSplit: 0, ySplit: 2 }];
+
+    // ── Téléchargement ────────────────────────────────────────────────────────
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -725,7 +792,7 @@ export async function downloadTemplate(
 
     showSuccess(
       "Template téléchargé !",
-      `Ouvrez template_${templateName}.xlsx dans Excel, remplissez les lignes et réimportez-le directement.`
+      `Supprimez la ligne EXEMPLE, remplissez et réimportez template_${templateName}.xlsx.`
     );
   } catch (error) {
     showError("Erreur de téléchargement", "Impossible de générer le template Excel.");
