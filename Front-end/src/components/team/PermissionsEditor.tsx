@@ -41,30 +41,36 @@ export function PermissionsEditor({
   return (
     <div className="space-y-6">
       {/* ── Co-directeur ─────────────────────────────────────────────── */}
-      <div className={`rounded-lg border p-4 ${isCoDirector ? "border-violet-300 bg-violet-50" : "border-border bg-muted/30"}`}>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className={`rounded-full p-1.5 ${isCoDirector ? "bg-violet-100 text-violet-700" : "bg-muted text-muted-foreground"}`}>
-              <ShieldCheck className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Accès co-directeur</p>
-              <p className="text-xs text-muted-foreground">
-                Accès complet identique au directeur — ignore les permissions ci-dessous
-              </p>
-            </div>
+      <div className={`rounded-lg border-2 p-4 transition-colors ${isCoDirector ? "border-violet-400 bg-violet-50" : "border-dashed border-gray-300 bg-gray-50"}`}>
+        <div className="flex items-start gap-3">
+          <div className={`rounded-full p-2 shrink-0 mt-0.5 ${isCoDirector ? "bg-violet-100 text-violet-700" : "bg-gray-200 text-gray-500"}`}>
+            <ShieldCheck className="h-4 w-4" />
           </div>
-          <Switch
-            checked={isCoDirector}
-            onCheckedChange={toggleCoDirector}
-            disabled={readOnly}
-          />
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm font-semibold ${isCoDirector ? "text-violet-800" : "text-gray-700"}`}>
+              Accès co-directeur
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Accès complet identique au directeur — ignore les permissions ci-dessous
+            </p>
+            {isCoDirector && (
+              <p className="mt-2 text-xs text-violet-700 bg-violet-100 rounded px-3 py-2">
+                ⚠️ Ce membre a accès à <strong>toutes les fonctionnalités</strong> : paiements, équipe, années scolaires…
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <Switch
+              checked={isCoDirector}
+              onCheckedChange={toggleCoDirector}
+              disabled={readOnly}
+              className="mt-0.5"
+            />
+            <span className={`text-[10px] font-medium ${isCoDirector ? "text-violet-700" : "text-gray-400"}`}>
+              {isCoDirector ? "Actif" : "Inactif"}
+            </span>
+          </div>
         </div>
-        {isCoDirector && (
-          <p className="mt-3 text-xs text-violet-700 bg-violet-100 rounded px-3 py-2">
-            ⚠️ Ce membre a accès à <strong>toutes les fonctionnalités</strong> de l&apos;application, y compris la gestion de l&apos;équipe, les paiements et les années scolaires.
-          </p>
-        )}
       </div>
 
       <Separator />
