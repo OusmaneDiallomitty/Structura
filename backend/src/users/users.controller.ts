@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   HttpCode,
+  ForbiddenException,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
@@ -106,6 +107,11 @@ export class UsersController {
     @Param('id') id: string,
     @Body() dto: UpdatePermissionsDto,
   ) {
+    // Seul le vrai directeur (rôle JWT = DIRECTOR) peut modifier les permissions.
+    // Les co-directeurs (isCoDirector) sont bloqués ici.
+    if (req.user.role?.toUpperCase() !== 'DIRECTOR') {
+      throw new ForbiddenException('Seul le directeur peut modifier les permissions des membres.');
+    }
     return this.usersService.updateMemberPermissions(
       req.user.tenantId,
       req.user.id,

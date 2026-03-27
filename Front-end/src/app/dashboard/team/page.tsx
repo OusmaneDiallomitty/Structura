@@ -21,6 +21,7 @@ import {
   Users,
   AlertCircle,
   RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,6 +158,8 @@ const ROLE_GROUP_LABELS: Record<RoleType, string> = {
 export default function TeamPage() {
   const { user } = useAuth();
   const isDirector = isDirectorLevel(user);
+  // Seul le vrai directeur (pas un co-directeur) peut modifier les permissions
+  const isRealDirector = user?.role === 'director';
 
   // État principal
   const [members, setMembers] = useState<MemberView[]>([]);
@@ -191,6 +194,7 @@ export default function TeamPage() {
     email: "",
     phone: "",
     role: "" as RoleType | "",
+    isCoDirector: false,
     selectedClassIds: [] as string[],
     classAssignments: [] as ClassSubjectAssignment[],
   });
@@ -344,7 +348,7 @@ export default function TeamPage() {
   // ── Handlers UI ─────────────────────────────────────────────────────────────
 
   const handleAdd = () => {
-    setAddForm({ firstName: "", lastName: "", email: "", phone: "", role: "", selectedClassIds: [], classAssignments: [] });
+    setAddForm({ firstName: "", lastName: "", email: "", phone: "", role: "", isCoDirector: false, selectedClassIds: [], classAssignments: [] });
     setIsAddDialogOpen(true);
   };
 
@@ -480,6 +484,15 @@ export default function TeamPage() {
         role: addForm.role.toUpperCase(),
         phone: addForm.phone || undefined,
       });
+
+      // Activer co-directeur si coché — appel immédiat après création
+      if (addForm.isCoDirector && addForm.role) {
+        const coDirectorPerms = {
+          ...DEFAULT_PERMISSIONS[addForm.role as RoleType],
+          isCoDirector: true,
+        };
+        await updateMemberPermissions(token, created.id, coDirectorPerms);
+      }
 
       // Assigner les classes si c'est un professeur et qu'il y en a de sélectionnées
       if (addForm.role === "teacher" && addForm.selectedClassIds.length > 0) {
@@ -895,7 +908,7 @@ export default function TeamPage() {
                                 className="p-0 h-auto text-xs text-muted-foreground hover:text-primary"
                                 onClick={() => handleViewPermissions(member)}
                               >
-                                {isDirector && member.id !== user?.id
+                                {isRealDirector && member.id !== user?.id
                                   ? "Modifier les permissions →"
                                   : "Voir les permissions →"}
                               </Button>
@@ -1070,6 +1083,34 @@ export default function TeamPage() {
                 </p>
               )}
             </div>
+
+            {/* Toggle co-directeur — visible uniquement si un rôle est sélectionné */}
+            {addForm.role && (
+              <div
+                className={`rounded-lg border-2 p-3 transition-colors cursor-pointer ${addForm.isCoDirector ? "border-violet-400 bg-violet-50" : "border-dashed border-gray-300 bg-gray-50"}`}
+                onClick={() => setAddForm((f) => ({ ...f, isCoDirector: !f.isCoDirector }))}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`rounded-full p-1.5 shrink-0 ${addForm.isCoDirector ? "bg-violet-100 text-violet-700" : "bg-gray-200 text-gray-500"}`}>
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${addForm.isCoDirector ? "text-violet-800" : "text-gray-700"}`}>
+                      Accès co-directeur
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Accès complet identique au directeur dès la première connexion
+                    </p>
+                  </div>
+                  <Switch
+                    checked={addForm.isCoDirector}
+                    onCheckedChange={(v) => setAddForm((f) => ({ ...f, isCoDirector: v }))}
+                    className="shrink-0 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Assignation classes + matières — visible si role = teacher */}
             {addForm.role === "teacher" && (
@@ -1477,7 +1518,7 @@ export default function TeamPage() {
               <PermissionsEditor
                 permissions={editedPermissions}
                 onChange={setEditedPermissions}
-                readOnly={!isDirector || selectedMember.id === user?.id}
+                readOnly={!isRealDirector || selectedMember.id === user?.id}
               />
             )}
           </div>
@@ -1488,9 +1529,9 @@ export default function TeamPage() {
               disabled={isSubmitting}
               className="border-2"
             >
-              {isDirector && selectedMember?.id !== user?.id ? "Annuler" : "Fermer"}
+              {isRealDirector && selectedMember?.id !== user?.id ? "Annuler" : "Fermer"}
             </Button>
-            {isDirector && selectedMember?.id !== user?.id && (
+            {isRealDirector && selectedMember?.id !== user?.id && (
               <Button
                 onClick={confirmPermissions}
                 disabled={isSubmitting}
