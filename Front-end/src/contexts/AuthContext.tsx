@@ -383,12 +383,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = (resource: string, action: string): boolean => {
     if (!user) return false;
 
-    // Le directeur a toutes les permissions
-    if (user.role === "director") return true;
+    // Le directeur (ou co-directeur délégué) a toutes les permissions
+    if (user.role === "director" || (user.permissions as any)?.isCoDirector === true) return true;
 
     // Permissions custom persistées en BDD (prioritaires sur les défauts du rôle)
     if (user.permissions) {
-      const res = user.permissions as Record<string, Record<string, boolean>>;
+      const res = user.permissions as unknown as Record<string, Record<string, boolean>>;
       return res[resource]?.[action] === true;
     }
 

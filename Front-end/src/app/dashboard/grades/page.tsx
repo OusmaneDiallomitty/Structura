@@ -51,6 +51,7 @@ import {
 import { syncQueue } from "@/lib/sync-queue";
 import { getSubjectsForLevel } from "@/lib/subjects-config";
 import { formatClassName } from "@/lib/class-helpers";
+import { isDirectorLevel } from "@/lib/is-director";
 import { generateBulletinPDF, printBulletinPDF, generateAllBulletinsPDF, printAllBulletinsPDF, type BulletinData } from "@/lib/bulletin-pdf";
 import { generateProclamationPDF, type ProclamationData } from "@/lib/pdf-generator";
 import type { BackendClass } from "@/lib/api/classes.service";
@@ -209,7 +210,7 @@ function GradesPageInner() {
   const { user, refreshUserProfile, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useOnline();
-  const isDirector    = user?.role === "director";
+  const isDirector    = isDirectorLevel(user);
   const isTeacher     = user?.role === "teacher";
   const teacherAssignments = user?.classAssignments ?? [];
   const canSaveGrades = hasPermission("grades", "create") || hasPermission("grades", "edit");
@@ -305,7 +306,7 @@ function GradesPageInner() {
 
   // Rediriger vers le bon tab dès que le rôle est connu
   useEffect(() => {
-    if (user?.role === "director") setActiveTab("bulletin");
+    if (isDirectorLevel(user)) setActiveTab("bulletin");
     else if (user?.role) setActiveTab("evaluations");
   }, [user?.role]);
 

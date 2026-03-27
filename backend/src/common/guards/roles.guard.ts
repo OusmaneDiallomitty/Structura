@@ -27,7 +27,10 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     // Le JWT stocke le rôle en lowercase — normaliser avant comparaison
     const roleUpper = user.role?.toUpperCase();
-    const hasRole = requiredRoles.some((role) => roleUpper === role);
+    // Co-directeur : traité comme DIRECTOR pour toutes les vérifications de rôle
+    const isCoDirector = user.permissions?.isCoDirector === true;
+    const effectiveRole = isCoDirector ? 'DIRECTOR' : roleUpper;
+    const hasRole = requiredRoles.some((role) => effectiveRole === role);
 
     if (!hasRole) {
       const roleLabel = ROLE_LABELS[roleUpper] ?? user.role;

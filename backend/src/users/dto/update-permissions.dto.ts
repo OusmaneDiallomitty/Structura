@@ -35,6 +35,11 @@ class ReportsPermissionDto {
 }
 
 export class UpdatePermissionsDto {
+  /** Délégation complète : ce membre a les mêmes droits qu'un directeur */
+  @IsOptional()
+  @IsBoolean()
+  isCoDirector?: boolean;
+
   @ValidateNested()
   @Type(() => PaymentsPermissionDto)
   payments: PaymentsPermissionDto;

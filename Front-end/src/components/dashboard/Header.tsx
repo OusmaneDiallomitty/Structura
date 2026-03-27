@@ -4,6 +4,8 @@ import { Search, LayoutDashboard, Users, GraduationCap, UserCheck, DollarSign, F
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
+import { isDirectorLevel } from "@/lib/is-director";
+import { ROLE_LABELS } from "@/types/permissions";
 import { NotificationCenter } from "./NotificationCenter";
 import { GlobalSearch } from "./GlobalSearch";
 import { CurrentYearBadge } from "@/components/academic-year/CurrentYearBadge";
@@ -109,7 +111,7 @@ export function Header() {
                   {user?.firstName} {user?.lastName}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {user?.role === "director" ? "Directeur" : user?.role}
+                  {isDirectorLevel(user) ? (user?.role === "director" ? "Directeur" : "Co-directeur") : (ROLE_LABELS[user?.role as keyof typeof ROLE_LABELS] ?? user?.role)}
                 </p>
               </div>
             </Button>

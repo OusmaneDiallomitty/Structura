@@ -70,6 +70,7 @@ import { getCurrentAcademicYear } from "@/lib/api/academic-years.service";
 import { CreateDefaultClassesDialog } from "@/components/classes/CreateDefaultClassesDialog";
 import { EditClassDialog } from "@/components/classes/EditClassDialog";
 import { formatClassName } from "@/lib/class-helpers";
+import { isDirectorLevel } from "@/lib/is-director";
 
 interface Class {
   id: string;
@@ -87,7 +88,7 @@ export default function ClassesPage() {
   const isOnline = useOnline();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isDirector = user?.role === 'director';
+  const isDirector = isDirectorLevel(user);
   const isTeacher = user?.role === 'teacher';
 
   // ── Fonction de mapping (stable, définie hors queryFn) ────────────────────

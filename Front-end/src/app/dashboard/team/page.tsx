@@ -84,6 +84,7 @@ import {
 } from "@/lib/api/users.service";
 import { getClasses, getClassSubjects } from "@/lib/api/classes.service";
 import { formatClassName } from "@/lib/class-helpers";
+import { isDirectorLevel } from "@/lib/is-director";
 
 // ── Type local (vue) ──────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ const ROLE_GROUP_LABELS: Record<RoleType, string> = {
 
 export default function TeamPage() {
   const { user } = useAuth();
-  const isDirector = user?.role === "director";
+  const isDirector = isDirectorLevel(user);
 
   // État principal
   const [members, setMembers] = useState<MemberView[]>([]);
@@ -820,8 +821,8 @@ export default function TeamPage() {
                                     <span className="text-muted-foreground font-normal ml-1 text-xs">(Vous)</span>
                                   )}
                                 </span>
-                                <Badge className={`${ROLE_COLORS[member.role]} text-xs py-0 h-5`}>
-                                  {ROLE_LABELS[member.role]}
+                                <Badge className={`${member.permissions?.isCoDirector ? "bg-violet-100 text-violet-700 border-violet-200" : ROLE_COLORS[member.role]} text-xs py-0 h-5`}>
+                                  {member.permissions?.isCoDirector ? "Co-directeur" : ROLE_LABELS[member.role]}
                                 </Badge>
                                 {member.isActive ? (
                                   <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs py-0 h-5">

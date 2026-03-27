@@ -10,6 +10,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
 import { useOnline } from "@/hooks/use-online";
+import { isDirectorLevel } from "@/lib/is-director";
 import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "sonner";
 import {
@@ -122,11 +123,11 @@ export default function ExpensesPage() {
   });
 
   // Permissions
-  const canCreate = user?.role === "director" || user?.role === "accountant";
-  const canEdit   = user?.role === "director" || user?.role === "accountant";
-  const canDelete = user?.role === "director";
-  const canView   = user?.role === "director" || user?.role === "accountant" || user?.role === "secretary";
-  const isDirector = user?.role === "director";
+  const canCreate  = isDirectorLevel(user) || user?.role === "accountant";
+  const canEdit    = isDirectorLevel(user) || user?.role === "accountant";
+  const canDelete  = isDirectorLevel(user);
+  const canView    = isDirectorLevel(user) || user?.role === "accountant" || user?.role === "secretary";
+  const isDirector = isDirectorLevel(user);
 
   // ── React Query : dépenses + stats (en parallèle) ──
   const { data: expenseData, isLoading: loading, refetch: refetchExpenses } = useQuery({

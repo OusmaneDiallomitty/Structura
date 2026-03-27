@@ -90,6 +90,7 @@ import { useAuth, usePermission } from "@/contexts/AuthContext";
 import { formatClassName } from "@/lib/class-helpers";
 import { cn } from "@/lib/utils";
 import { exportPaymentSummaryToXLSX } from "@/lib/csv-handler";
+import { isDirectorLevel } from "@/lib/is-director";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -534,7 +535,7 @@ export default function PaymentsPage() {
   const canCreatePayment  = usePermission("payments", "create");
 
   // Confidentialité financière : montants visibles uniquement par directeur et comptable
-  const canViewAmounts = user?.role === "director" || user?.role === "accountant";
+  const canViewAmounts = isDirectorLevel(user) || user?.role === "accountant";
   const { hasFeature } = useSubscription();
   const hasBulletins = hasFeature('bulletins');
 

@@ -27,6 +27,7 @@ import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { ROLE_LABELS } from "@/types/permissions";
+import { isDirectorLevel } from "@/lib/is-director";
 import { toast } from "sonner";
 
 interface NavItem {
@@ -231,7 +232,7 @@ export function Sidebar() {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
             {navigation.filter((item) => {
-              if (item.directorOnly) return user?.role === 'director';
+              if (item.directorOnly) return isDirectorLevel(user);
               if (item.permission) return hasPermission(item.permission.resource, item.permission.action);
               return true;
             }).map((item) => {
@@ -294,7 +295,7 @@ export function Sidebar() {
                   {/* Submenu */}
                   {hasChildren && isExpanded && (
                     <div className="ml-8 mt-1 space-y-1 animate-in slide-in-from-top-2 fade-in duration-200">
-                      {item.children?.filter((child) => !child.directorOnly || user?.role === 'director').map((child) => {
+                      {item.children?.filter((child) => !child.directorOnly || isDirectorLevel(user)).map((child) => {
                         const isChildActive = pathname === child.href;
                         return (
                           <Link
@@ -363,7 +364,7 @@ export function Sidebar() {
               ) : (
                 <div className={cn(
                   "h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0",
-                  user?.role === "director"  ? "bg-blue-600"   :
+                  isDirectorLevel(user)       ? "bg-blue-600"   :
                   user?.role === "teacher"   ? "bg-emerald-600" :
                   user?.role === "secretary" ? "bg-violet-600" :
                   "bg-gray-500"

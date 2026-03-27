@@ -43,6 +43,7 @@ import {
 } from "@/lib/api/dashboard.service";
 import { getCurrentAcademicYear, createAcademicYear } from "@/lib/api/academic-years.service";
 import { updateFeesConfig } from "@/lib/api/fees.service";
+import { isDirectorLevel } from "@/lib/is-director";
 
 /** Calcule le nom de l'année scolaire courante selon la date du jour.
  *  En Guinée l'année commence en Septembre.
@@ -217,7 +218,7 @@ export default function DashboardPage() {
   const activeCurrency = storage.getActiveCurrency();
 
   // Rôles autorisés à voir les montants financiers (confidentialité)
-  const canViewFinancials = user?.role === 'director' || user?.role === 'accountant';
+  const canViewFinancials = isDirectorLevel(user) || user?.role === 'accountant';
 
   // Configuration des cartes de stats
   const statsCards = stats ? [
@@ -331,7 +332,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Onboarding Modal - Directeur uniquement, affiché seulement si pas complété */}
-      {user?.role === 'director' && shouldShowOnboarding && !onboardingLoading && showOnboardingModal && (
+      {isDirectorLevel(user) && shouldShowOnboarding && !onboardingLoading && showOnboardingModal && (
         <OnboardingModal
           onComplete={handleOnboardingComplete}
           onSkip={handleOnboardingSkip}
@@ -339,7 +340,7 @@ export default function DashboardPage() {
       )}
 
       {/* Welcome Banner - Directeur uniquement */}
-      {user?.role === 'director' && showWelcome && (
+      {isDirectorLevel(user) && showWelcome && (
         <WelcomeBanner
           organizationName={organizationName}
           onDismiss={handleDismissWelcome}
@@ -426,7 +427,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Alertes contextuelles — directeur uniquement */}
-      {user?.role === 'director' && stats && (() => {
+      {isDirectorLevel(user) && stats && (() => {
         const now = new Date();
         const dayOfMonth = now.getDate();
         const month = now.getMonth() + 1;

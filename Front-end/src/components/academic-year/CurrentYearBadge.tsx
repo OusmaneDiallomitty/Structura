@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import * as storage from "@/lib/storage";
+import { isDirectorLevel } from "@/lib/is-director";
 import {
   getCurrentAcademicYear,
   getAcademicYears,
@@ -23,7 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export function CurrentYearBadge() {
   const { user } = useAuth();
-  const isDirector = user?.role === "director";
+  const isDirector = isDirectorLevel(user);
 
   const [currentYear, setCurrentYear] = useState<AcademicYear | null>(null);
   const [allYears, setAllYears] = useState<AcademicYear[]>([]);

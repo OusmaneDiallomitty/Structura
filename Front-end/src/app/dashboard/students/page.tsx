@@ -86,6 +86,7 @@ import { YearSelector } from "@/components/shared/YearSelector";
 import { type AcademicYear } from "@/lib/api/academic-years.service";
 import { useCurrentAcademicYear } from "@/hooks/queries/use-academic-year-query";
 import { formatClassName } from "@/lib/class-helpers";
+import { isDirectorLevel } from "@/lib/is-director";
 import type { Student } from "@/types";
 
 export default function StudentsPage() {
@@ -401,7 +402,7 @@ export default function StudentsPage() {
     () => (typeof window !== 'undefined' && localStorage.getItem('structura_school_type') as "private" | "public") || "private"
   );
   const isPublicSchool = schoolType === "public";
-  const canViewPayments = !isPublicSchool && (user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary');
+  const canViewPayments = !isPublicSchool && (isDirectorLevel(user) || user?.role === 'accountant' || user?.role === 'secretary');
 
   // Stats globales depuis le serveur (toute l'école, pas juste la page)
   const totalStudents  = stats.total;

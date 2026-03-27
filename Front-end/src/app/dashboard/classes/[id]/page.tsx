@@ -70,6 +70,7 @@ import { getClassById } from "@/lib/api/classes.service";
 import { getStudents, deleteStudent } from "@/lib/api/students.service";
 import { exportStudentsToXLSX } from "@/lib/csv-handler";
 import { formatClassName } from "@/lib/class-helpers";
+import { isDirectorLevel } from "@/lib/is-director";
 import { EditClassDialog } from "@/components/classes/EditClassDialog";
 
 interface Student {
@@ -106,8 +107,8 @@ export default function ClassDetailPage() {
   const classId = params.id as string;
 
   const { user } = useAuth();
-  const isDirector = user?.role === 'director';
-  const canViewPayments = user?.role === 'director' || user?.role === 'accountant' || user?.role === 'secretary';
+  const isDirector = isDirectorLevel(user);
+  const canViewPayments = isDirectorLevel(user) || user?.role === 'accountant' || user?.role === 'secretary';
 
   const [classData, setClassData] = useState<ClassDetail | null>(null);
   const [students, setStudents] = useState<Student[]>([]);

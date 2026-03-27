@@ -25,6 +25,8 @@ export type UserPermissions = {
     view: boolean;
     export: boolean;
   };
+  /** Délégation complète : ce membre a les mêmes droits qu'un directeur sur toute l'interface */
+  isCoDirector?: boolean;
 };
 
 export type RoleType = "director" | "accountant" | "teacher" | "supervisor" | "secretary";

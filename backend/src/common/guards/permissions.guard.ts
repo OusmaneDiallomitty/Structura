@@ -128,8 +128,8 @@ export class PermissionsGuard implements CanActivate {
     // Le JWT stocke le rôle en lowercase (role.toLowerCase() dans auth.service)
     const roleUpper = user.role?.toUpperCase();
 
-    // Le directeur a toujours toutes les permissions
-    if (roleUpper === 'DIRECTOR') return true;
+    // Le directeur (ou co-directeur délégué) a toujours toutes les permissions
+    if (roleUpper === 'DIRECTOR' || user.permissions?.isCoDirector === true) return true;
 
     const { resource, action } = permission;
 
