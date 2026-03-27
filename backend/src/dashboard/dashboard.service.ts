@@ -348,6 +348,8 @@ export class DashboardService {
       ? (user.classAssignments ?? []).map((a: any) => a.classId).filter(Boolean)
       : [];
 
+    // Chaque source prend jusqu'à `limit` entrées — le tri final coupe à `limit`
+    const perSource = limit;
     const queries: Promise<any[]>[] = [];
 
     // ── Nouveaux élèves ─────────────────────────────────────────────────────
@@ -356,12 +358,12 @@ export class DashboardService {
       if (isTeacher && assignedClassIds.length > 0) {
         studentWhere.classId = { in: assignedClassIds };
       } else if (isTeacher) {
-        studentWhere.id = null; // aucune classe assignée → aucun résultat
+        studentWhere.id = null;
       }
       queries.push(
         this.prisma.student.findMany({
           where: studentWhere,
-          take: 3,
+          take: perSource,
           orderBy: { createdAt: 'desc' },
           select: { id: true, firstName: true, lastName: true, createdAt: true },
         }).then(rows => rows.map(s => ({
@@ -379,7 +381,7 @@ export class DashboardService {
       queries.push(
         this.prisma.payment.findMany({
           where: { tenantId },
-          take: 3,
+          take: perSource,
           orderBy: { createdAt: 'desc' },
           select: {
             id: true, amount: true, currency: true, createdAt: true,
@@ -401,12 +403,12 @@ export class DashboardService {
       if (isTeacher && assignedClassIds.length > 0) {
         absenceWhere.classId = { in: assignedClassIds };
       } else if (isTeacher) {
-        absenceWhere.id = null; // aucune classe → aucune absence
+        absenceWhere.id = null;
       }
       queries.push(
         this.prisma.attendance.findMany({
           where: absenceWhere,
-          take: 3,
+          take: perSource,
           orderBy: { createdAt: 'desc' },
           include: {
             student: { select: { firstName: true, lastName: true } },

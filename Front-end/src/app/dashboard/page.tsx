@@ -535,7 +535,7 @@ export default function DashboardPage() {
               className="w-full mt-4 transition-all duration-200 hover:bg-blue-500/5"
               asChild
             >
-              <Link href="/dashboard/students">Voir toutes les activités</Link>
+              <Link href="/dashboard/activities">Voir toutes les activités</Link>
             </Button>
           </CardContent>
         </Card>
