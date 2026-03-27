@@ -37,8 +37,8 @@ export function Logo({
     );
   }
 
-  // Logo complet : utilise logo-white.svg sur fond sombre, logo.png sur fond clair
-  const src = variant === "white" ? "/logo-white.svg" : "/logo.png";
+  // Logo complet : utilise logo-white.svg sur fond sombre, logo-black.svg sur fond clair
+  const src = variant === "white" ? "/logo-white.svg" : "/logo-black.svg";
 
   return (
     <div className={`flex flex-col justify-center ${className}`}>
