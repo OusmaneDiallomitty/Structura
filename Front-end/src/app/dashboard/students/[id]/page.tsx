@@ -358,7 +358,7 @@ export default function StudentProfilePage() {
       </Card>
 
       {/* ─── Strip récapitulatif (pour réunion parents) ─── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`grid gap-3 ${canSeePayments ? "grid-cols-3" : "grid-cols-2"}`}>
         <Card className={`border-l-4 ${parseInt(attendanceRate) >= 75 ? "border-l-emerald-500" : "border-l-red-500"}`}>
           <CardContent className="pt-3 pb-3 px-4">
             <p className="text-xs text-muted-foreground">Taux de présence</p>
@@ -368,13 +368,15 @@ export default function StudentProfilePage() {
             <p className="text-[11px] text-muted-foreground">{presentCount} présences / {totalAttendances} jours</p>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="pt-3 pb-3 px-4">
-            <p className="text-xs text-muted-foreground">Total encaissé</p>
-            <p className="text-2xl font-bold text-blue-600">{totalPaid.toLocaleString("fr-FR")} GNF</p>
-            <p className="text-[11px] text-muted-foreground">{paidPayments.length} versement{paidPayments.length > 1 ? "s" : ""}</p>
-          </CardContent>
-        </Card>
+        {canSeePayments && (
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="pt-3 pb-3 px-4">
+              <p className="text-xs text-muted-foreground">Total encaissé</p>
+              <p className="text-2xl font-bold text-blue-600">{totalPaid.toLocaleString("fr-FR")} GNF</p>
+              <p className="text-[11px] text-muted-foreground">{paidPayments.length} versement{paidPayments.length > 1 ? "s" : ""}</p>
+            </CardContent>
+          </Card>
+        )}
         <Card className={`border-l-4 ${isAdmis ? "border-l-indigo-500" : "border-l-amber-500"}`}>
           <CardContent className="pt-3 pb-3 px-4">
             <p className="text-xs text-muted-foreground">Moyenne générale</p>
