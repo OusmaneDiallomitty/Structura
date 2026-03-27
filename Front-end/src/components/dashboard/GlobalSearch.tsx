@@ -36,6 +36,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Focus + reset à l'ouverture
   useEffect(() => {
@@ -45,6 +46,9 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       setResults([]);
       setSelectedIndex(0);
       setIsLoading(false);
+      // Annuler toute requête en cours si on rouvre
+      abortRef.current?.abort();
+      abortRef.current = null;
     }
   }, [open]);
 
@@ -54,43 +58,53 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       setIsLoading(false);
       return;
     }
+
+    // Annuler la requête précédente avant d'en lancer une nouvelle
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
     setIsLoading(true);
     try {
       const token = await getValidToken();
-      if (!token) {
-        setResults([]);
-        return;
-      }
+      if (!token || signal.aborted) return;
+
       const res = await fetch(
         `${API_BASE_URL}/dashboard/search?q=${encodeURIComponent(q.trim())}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, signal },
       );
-      if (!res.ok) {
-        setResults([]);
-        return;
-      }
+      if (signal.aborted) return;
+      if (!res.ok) { setResults([]); return; }
+
       const data = await res.json();
+      if (signal.aborted) return; // réponse arrivée trop tard → ignorer
       setResults(data.results ?? []);
       setSelectedIndex(0);
-    } catch {
+    } catch (err: any) {
+      if (err?.name === "AbortError") return; // annulation volontaire
       setResults([]);
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) setIsLoading(false);
     }
   }, [getValidToken]);
 
-  // Debounce 300 ms
+  // Debounce 300 ms — n'envoie la requête qu'après 300ms sans frappe
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
     if (query.trim().length < 2) {
+      abortRef.current?.abort(); // annuler si on efface
+      abortRef.current = null;
       setResults([]);
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
+
+    setIsLoading(true); // spinner immédiat pendant le debounce
     debounceRef.current = setTimeout(() => doSearch(query), 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, doSearch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]); // doSearch exclu intentionnellement — stable via useCallback+ref
 
   // Navigation clavier
   useEffect(() => {
