@@ -7,7 +7,7 @@ import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import {
   Calendar, Check, X, Save, Loader2, WifiOff, Clock, ShieldCheck,
   Users, RotateCcw, FileCheck, GraduationCap, MessageSquare, Timer,
-  Phone, BarChart3, AlertCircle, Eye,
+  Phone, BarChart3, AlertCircle, Eye, ChevronDown, ChevronUp, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -239,6 +239,7 @@ export default function AttendancePage() {
   const [rows, setRows] = useState<StudentRow[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [alreadySaved, setAlreadySaved] = useState(false);
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
 
   // ── Classes : useQuery + filtre prof + offline ───────────────────────────────
 
@@ -688,27 +689,61 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* ── Sélecteur date + heure (partagé entre les deux onglets) ── */}
-      <Card className="shadow-sm">
-        <CardContent className="pt-5 pb-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                <Calendar className="h-4 w-4 text-primary" />
+      {/* ── Onglets + sélecteur date dans une barre unifiée ── */}
+      <div className={`rounded-xl border bg-card shadow-sm ${canSeeOverview ? "" : ""}`}>
+        {/* Onglets */}
+        {canSeeOverview && (
+          <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all -mb-px ${
+                activeTab === "overview"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              Vue d'ensemble
+              {unmarkedClasses > 0 && (
+                <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                  {unmarkedClasses}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("marking")}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all -mb-px ${
+                activeTab === "marking"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              <Check className="h-4 w-4" />
+              Marquer les présences
+            </button>
+          </div>
+        )}
+
+        {/* Sélecteur date + heure */}
+        <div className="px-5 py-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="flex-1 min-w-[160px] space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5" />
                 Date
               </label>
               <input
                 type="date"
                 value={selectedDate}
                 max={getToday()}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => { setSelectedDate(e.target.value); setExpandedClassId(null); }}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
               />
             </div>
             {activeTab === "marking" && (
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                  <Timer className="h-4 w-4 text-primary" />
+              <div className="flex-1 min-w-[130px] space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Timer className="h-3.5 w-3.5" />
                   Heure de séance
                 </label>
                 <input
@@ -719,42 +754,12 @@ export default function AttendancePage() {
                 />
               </div>
             )}
+            <div className="pb-0.5 text-sm text-muted-foreground capitalize font-medium hidden sm:block">
+              {formatDate(selectedDate)}
+            </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Onglets (visibles uniquement si rôle overview) ── */}
-      {canSeeOverview && (
-        <div className="flex gap-1 p-1 rounded-xl bg-muted w-fit">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === "overview"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <BarChart3 className="h-4 w-4" />
-            Vue d'ensemble
-            {unmarkedClasses > 0 && (
-              <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-amber-500 text-white text-[10px] font-bold">
-                {unmarkedClasses}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("marking")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === "marking"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Check className="h-4 w-4" />
-            Marquer les présences
-          </button>
         </div>
-      )}
+      </div>
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* TAB : VUE D'ENSEMBLE                                                  */}
@@ -840,16 +845,24 @@ export default function AttendancePage() {
                 </Card>
               </div>
 
-              {/* ── Grille par classe ── */}
+              {/* ── Liste par classe ── */}
               <Card className="shadow-sm">
-                <CardHeader className="pb-3 pt-5 px-5">
-                  <CardTitle className="text-base font-semibold">État par classe</CardTitle>
+                <CardHeader className="pb-2 pt-5 px-5">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                      <History className="h-4 w-4 text-muted-foreground" />
+                      État par classe
+                    </CardTitle>
+                    <span className="text-xs text-muted-foreground">
+                      {markedClasses}/{totalClasses} marquées
+                    </span>
+                  </div>
                 </CardHeader>
-                <CardContent className="px-5 pb-5">
+                <CardContent className="px-0 pb-0">
                   {classes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucune classe configurée.</p>
+                    <p className="text-sm text-muted-foreground px-5 pb-4">Aucune classe configurée.</p>
                   ) : (
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="divide-y">
                       {classes.map((cls) => {
                         const records = attByClass.get(cls.id) ?? [];
                         const clsTotal = getStudentCount(cls);
@@ -861,65 +874,142 @@ export default function AttendancePage() {
                           ? Math.round(((p + l) / records.length) * 100)
                           : 0;
                         const isMarked = records.length > 0;
+                        const isExpanded = expandedClassId === cls.id;
+
+                        // Élèves triés : absents+retards en premier
+                        const sortedRecords = [...records].sort((x, y) => {
+                          const order: Record<string, number> = { ABSENT: 0, LATE: 1, EXCUSED: 2, PRESENT: 3 };
+                          return (order[x.status] ?? 9) - (order[y.status] ?? 9);
+                        });
 
                         return (
-                          <div
-                            key={cls.id}
-                            className={`rounded-lg border p-4 transition-colors ${
-                              isMarked ? "bg-card border-border" : "bg-amber-50/60 border-amber-200"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2 mb-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-sm truncate">
-                                  {formatClassName(cls.name, cls.section)}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {clsTotal} élève{clsTotal !== 1 ? "s" : ""}
-                                </div>
-                              </div>
-                              {isMarked ? (
-                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 shrink-0">
-                                  <Check className="h-3 w-3 mr-1" />
-                                  Marquée
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 shrink-0">
-                                  En attente
-                                </Badge>
-                              )}
-                            </div>
+                          <div key={cls.id}>
+                            {/* Ligne principale */}
+                            <div className={`px-5 py-3.5 ${isMarked ? "" : "bg-amber-50/40"}`}>
+                              <div className="flex items-center gap-3">
+                                {/* Indicateur statut */}
+                                <div className={`h-2 w-2 rounded-full shrink-0 ${
+                                  isMarked
+                                    ? rate >= 80 ? "bg-emerald-500" : rate >= 60 ? "bg-orange-400" : "bg-red-500"
+                                    : "bg-amber-400"
+                                }`} />
 
-                            {isMarked ? (
-                              <>
-                                <div className="mb-2">
-                                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                                    <span>Présence</span>
-                                    <span className="font-semibold text-foreground">{rate}%</span>
+                                {/* Nom classe */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-semibold text-sm truncate">
+                                    {formatClassName(cls.name, cls.section)}
                                   </div>
-                                  <div className="w-full bg-muted rounded-full h-1.5">
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    {clsTotal} élève{clsTotal !== 1 ? "s" : ""}
+                                    {cls.level && <> · <span>{cls.level}</span></>}
+                                  </div>
+                                </div>
+
+                                {/* Badge + stats condensées */}
+                                {isMarked ? (
+                                  <div className="flex items-center gap-3 shrink-0">
+                                    <div className="hidden sm:flex items-center gap-2 text-xs">
+                                      <span className="text-emerald-600 font-semibold">{p}P</span>
+                                      {a > 0 && <span className="text-red-600 font-semibold">{a}A</span>}
+                                      {l > 0 && <span className="text-orange-500 font-semibold">{l}R</span>}
+                                      {e > 0 && <span className="text-blue-500 font-semibold">{e}E</span>}
+                                      <span className={`font-bold ${
+                                        rate >= 80 ? "text-emerald-600" : rate >= 60 ? "text-orange-500" : "text-red-600"
+                                      }`}>{rate}%</span>
+                                    </div>
+                                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">
+                                      <Check className="h-2.5 w-2.5 mr-0.5" />Marquée
+                                    </Badge>
+                                    <button
+                                      onClick={() => setExpandedClassId(isExpanded ? null : cls.id)}
+                                      className="flex items-center gap-0.5 text-xs text-primary font-medium hover:underline shrink-0"
+                                    >
+                                      {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                      <span className="hidden sm:inline">{isExpanded ? "Masquer" : "Détail"}</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0 whitespace-nowrap">
+                                      En attente
+                                    </Badge>
+                                    <button
+                                      onClick={() => { setSelectedClassId(cls.id); setActiveTab("marking"); }}
+                                      className="text-xs text-primary font-medium hover:underline shrink-0"
+                                    >
+                                      Marquer →
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Barre de progression — visible sur mobile sous le nom */}
+                              {isMarked && (
+                                <div className="mt-2 sm:hidden">
+                                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                                    <span className="flex gap-2">
+                                      <span className="text-emerald-600 font-medium">{p}P</span>
+                                      {a > 0 && <span className="text-red-600 font-medium">{a}A</span>}
+                                      {l > 0 && <span className="text-orange-500 font-medium">{l}R</span>}
+                                    </span>
+                                    <span className={`font-bold ${rate >= 80 ? "text-emerald-600" : rate >= 60 ? "text-orange-500" : "text-red-600"}`}>{rate}%</span>
+                                  </div>
+                                  <div className="w-full bg-muted rounded-full h-1">
                                     <div
-                                      className={`h-1.5 rounded-full transition-all ${
-                                        rate >= 80 ? "bg-emerald-500" : rate >= 60 ? "bg-orange-400" : "bg-red-500"
-                                      }`}
+                                      className={`h-1 rounded-full ${rate >= 80 ? "bg-emerald-500" : rate >= 60 ? "bg-orange-400" : "bg-red-500"}`}
                                       style={{ width: `${rate}%` }}
                                     />
                                   </div>
                                 </div>
-                                <div className="flex gap-2 text-xs flex-wrap">
-                                  <span className="text-emerald-600 font-medium">{p} présents</span>
-                                  {a > 0 && <span className="text-red-600 font-medium">{a} absents</span>}
-                                  {l > 0 && <span className="text-orange-500 font-medium">{l} retards</span>}
-                                  {e > 0 && <span className="text-blue-500 font-medium">{e} excusés</span>}
+                              )}
+                            </div>
+
+                            {/* Détail dépliable : liste des élèves */}
+                            {isExpanded && isMarked && (
+                              <div className="bg-muted/30 border-t px-5 py-3 space-y-1.5">
+                                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                                  Détail · {formatDate(selectedDate)}
                                 </div>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => { setSelectedClassId(cls.id); setActiveTab("marking"); }}
-                                className="text-xs text-primary hover:underline font-medium"
-                              >
-                                Marquer maintenant →
-                              </button>
+                                {sortedRecords.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground">Aucun enregistrement.</p>
+                                ) : (
+                                  sortedRecords.map((r) => {
+                                    const sStatus = r.status as AttendanceStatus;
+                                    const cfg = STATUS_CONFIG[sStatus];
+                                    const name = r.student
+                                      ? `${r.student.lastName?.toUpperCase() ?? ""} ${r.student.firstName ?? ""}`.trim()
+                                      : r.studentId;
+                                    return (
+                                      <div key={r.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/40 last:border-0">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+                                          <span className="text-sm font-medium truncate">{name}</span>
+                                          {r.student?.matricule && (
+                                            <span className="text-[10px] text-muted-foreground hidden sm:inline">{r.student.matricule}</span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {r.notes && (
+                                            <span className="text-[10px] text-muted-foreground italic hidden sm:inline max-w-[120px] truncate">"{r.notes}"</span>
+                                          )}
+                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${cfg.badgeClass}`}>
+                                            {cfg.label}
+                                          </span>
+                                          {r.student?.parentPhone && sStatus !== "PRESENT" && (
+                                            <a
+                                              href={`tel:${r.student.parentPhone}`}
+                                              className="text-primary"
+                                              title={`Appeler ${r.student.parentName || "le parent"}`}
+                                            >
+                                              <Phone className="h-3 w-3" />
+                                            </a>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
                             )}
                           </div>
                         );
