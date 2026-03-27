@@ -425,10 +425,15 @@ export default function ClassesPage() {
         return;
       }
 
-      await createClass(token, classDto);
+      const created = await createClass(token, classDto);
 
       toast.success(`Classe "${formData.name}" créée avec succès !`);
       setIsAddDialogOpen(false);
+      // Injection immédiate dans le cache
+      queryClient.setQueryData<Class[]>(
+        CLASSES_QUERY_KEY(user?.tenantId),
+        (old = []) => [mapClass(created), ...old]
+      );
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la création');
@@ -484,10 +489,15 @@ export default function ClassesPage() {
         return;
       }
 
-      await updateClass(token, selectedClass.id, updateDto);
+      const updated = await updateClass(token, selectedClass.id, updateDto);
 
       toast.success('Classe modifiée avec succès !');
       setIsEditDialogOpen(false);
+      // Injection immédiate dans le cache
+      queryClient.setQueryData<Class[]>(
+        CLASSES_QUERY_KEY(user?.tenantId),
+        (old = []) => old.map((c) => c.id === selectedClass.id ? mapClass(updated) : c)
+      );
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la modification');
@@ -571,11 +581,10 @@ export default function ClassesPage() {
       setTransferTargetClassId("");
       setDeleteAction("");
 
-      // Calcul optimiste de la liste après suppression (sans attendre le re-fetch)
+      // Injection immédiate dans le cache + re-fetch en arrière-plan
       const optimisticList = classes.filter((c) => c.id !== selectedClass.id);
+      queryClient.setQueryData<Class[]>(CLASSES_QUERY_KEY(user?.tenantId), optimisticList);
       checkForSingleClassWithSection(selectedClass.name, optimisticList);
-
-      // Re-fetch serveur en arrière-plan
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la suppression', { id: 'delete-progress' });
