@@ -231,10 +231,24 @@ class SyncQueue {
 
         case "payment": {
           if (action.action === "create") {
-            const { _tempId, needsSync, ...dto } = action.data;
-            const created = await createPayment(token, dto);
-            if (_tempId) {
-              await offlineDB.delete(STORES.PAYMENTS, _tempId);
+            // Extraire UNIQUEMENT les champs du CreatePaymentDto backend.
+            // forbidNonWhitelisted: true rejette toute propriété extra (id, studentName, etc.)
+            // method doit être en MAJUSCULE (IsIn validation backend)
+            const d = action.data as any;
+            const apiDto = {
+              studentId:    d.studentId,
+              amount:       d.amount,
+              currency:     d.currency,
+              status:       d.status,
+              description:  d.description,
+              academicYear: d.academicYear,
+              term:         d.term,
+              paidDate:     d.paidDate,
+              method:       (d.method as string)?.toUpperCase() as 'CASH' | 'MOBILE_MONEY' | 'BANK_TRANSFER' | 'CHECK',
+            };
+            const created = await createPayment(token, apiDto);
+            if (d._tempId) {
+              await offlineDB.delete(STORES.PAYMENTS, d._tempId);
             }
             await offlineDB.update(STORES.PAYMENTS, { ...created, needsSync: false });
           } else if (action.action === "update") {

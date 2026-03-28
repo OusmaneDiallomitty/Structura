@@ -598,8 +598,11 @@ export default function PaymentsPage() {
       if (!token) throw new Error("No token");
       const raw = await getPayments(token);
       const mapped = raw.map(mapBackendPayment);
+      // Conserver les paiements hors ligne en attente de sync — ils ne sont pas encore sur le serveur
+      const existing = await offlineDB.getAll<Payment>(STORES.PAYMENTS).catch(() => [] as Payment[]);
+      const pendingSync = existing.filter((p) => p.needsSync);
       await offlineDB.clear(STORES.PAYMENTS).catch(() => {});
-      await offlineDB.bulkAdd(STORES.PAYMENTS, mapped).catch(() => {});
+      await offlineDB.bulkAdd(STORES.PAYMENTS, [...mapped, ...pendingSync]).catch(() => {});
       return mapped;
     },
     enabled: isOnline && !!user,
@@ -642,25 +645,34 @@ export default function PaymentsPage() {
   }, [currentAcademicYear?.name]);
 
   // ── Cache IndexedDB — chargé au montage comme placeholder ─────────────────
-  // Permet d'afficher les données immédiatement pendant que React Query rafraîchit en arrière-plan.
+  // Chargement atomique (Promise.all) : évite la fenêtre où une source est prête
+  // et l'autre pas encore, ce qui provoquerait un rendu avec students=[] (noms vides).
   const [offlineStudents, setOfflineStudents] = useState<BackendStudent[]>([]);
   const [offlinePayments, setOfflinePayments] = useState<Payment[]>([]);
   const [offlineRawClasses, setOfflineRawClasses] = useState<any[]>([]);
+  const [offlineLoaded, setOfflineLoaded] = useState(false);
 
   useEffect(() => {
-    offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
-    offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
-    offlineDB.getAll<any>(STORES.CLASSES).then(setOfflineRawClasses).catch(() => {});
+    Promise.all([
+      offlineDB.getAll<BackendStudent>(STORES.STUDENTS).catch(() => [] as BackendStudent[]),
+      offlineDB.getAll<Payment>(STORES.PAYMENTS).catch(() => [] as Payment[]),
+      offlineDB.getAll<any>(STORES.CLASSES).catch(() => [] as any[]),
+    ]).then(([s, p, c]) => {
+      setOfflineStudents(s);
+      setOfflinePayments(p);
+      setOfflineRawClasses(c);
+    }).finally(() => setOfflineLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Après une sync réussie → rafraîchir les données + recharger IndexedDB
+  // Après une sync réussie → rafraîchir depuis le serveur, puis recharger IndexedDB
+  // (ordre important : attendre le refetch pour que IndexedDB soit à jour côté serveur)
   useEffect(() => {
     const handleSyncCompleted = () => {
-      refetchPayments();
-      refetchStudents();
-      offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
-      offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
+      Promise.all([refetchPayments(), refetchStudents()]).then(() => {
+        offlineDB.getAll<Payment>(STORES.PAYMENTS).then(setOfflinePayments).catch(() => {});
+        offlineDB.getAll<BackendStudent>(STORES.STUDENTS).then(setOfflineStudents).catch(() => {});
+      }).catch(() => {});
     };
     window.addEventListener('sync:completed', handleSyncCompleted);
     return () => window.removeEventListener('sync:completed', handleSyncCompleted);
@@ -668,13 +680,13 @@ export default function PaymentsPage() {
   }, []);
 
   // ── Données finales (online > offline) ────────────────────────────────────
-  // Utiliser || au lieu de ?? pour éviter que backendStudents=[] (vide initial)
-  // ne cache les données offline IndexedDB pendant le chargement.
+  // Utiliser la source serveur dès qu'elle est disponible, sinon le cache IndexedDB.
   const students = (backendStudents && backendStudents.length > 0) ? backendStudents : offlineStudents;
   const payments = (backendPayments && backendPayments.length > 0) ? backendPayments : offlinePayments;
-  // Spinner uniquement si aucune donnée disponible (ni API ni cache IndexedDB)
+  // Spinner si : IndexedDB pas encore lu (offlineLoaded=false)
+  //              OU requêtes en cours ET aucune donnée disponible (ni serveur ni cache)
   const hasData = students.length > 0 || payments.length > 0;
-  const isLoading = (studentsLoading || paymentsLoading || classesLoading) && !hasData;
+  const isLoading = !offlineLoaded || ((studentsLoading || paymentsLoading || classesLoading) && !hasData);
 
   const rawClassesList = backendRawClasses ?? offlineRawClasses;
   const classes = useMemo<ClassInfo[]>(() =>
