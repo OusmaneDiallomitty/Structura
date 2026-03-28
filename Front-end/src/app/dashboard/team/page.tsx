@@ -66,6 +66,7 @@ import {
   ROLE_DESCRIPTIONS,
   DEFAULT_PERMISSIONS,
   UserPermissions,
+  getUserRoleLabel,
 } from "@/types/permissions";
 import { PermissionsEditor } from "@/components/team/PermissionsEditor";
 import { useAuth } from "@/contexts/AuthContext";
@@ -148,7 +149,7 @@ function classDisplayName(cls: ClassOption): string {
 const ROLE_ORDER: RoleType[] = ["director", "teacher", "accountant", "supervisor", "secretary"];
 
 const ROLE_GROUP_LABELS: Record<RoleType, string> = {
-  director:   "Direction",
+  director:   "Fondateur",
   teacher:    "Professeurs",
   accountant: "Comptabilité",
   supervisor: "Surveillance",
@@ -852,7 +853,7 @@ export default function TeamPage() {
                                   )}
                                 </span>
                                 <Badge className={`${member.permissions?.isCoDirector ? "bg-violet-100 text-violet-700 border-violet-200" : ROLE_COLORS[member.role]} text-xs py-0 h-5`}>
-                                  {member.permissions?.isCoDirector ? "Co-directeur" : ROLE_LABELS[member.role]}
+                                  {getUserRoleLabel(member)}
                                 </Badge>
                                 {member.isActive ? (
                                   <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs py-0 h-5">
@@ -1109,7 +1110,7 @@ export default function TeamPage() {
                     <SelectItem value="co-director">
                       <span className="flex items-center gap-2">
                         <ShieldCheck className="h-4 w-4 text-violet-600" />
-                        Co-directeur
+                        Directeur
                       </span>
                     </SelectItem>
                   )}
@@ -1119,10 +1120,10 @@ export default function TeamPage() {
                 <div className="rounded-lg border-2 border-violet-400 bg-violet-50 px-3 py-2">
                   <p className="text-sm font-semibold text-violet-800 flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4" />
-                    Accès complet identique au directeur
+                    Accès opérationnel complet
                   </p>
                   <p className="text-xs text-violet-700 mt-0.5">
-                    Ce membre aura accès à toutes les fonctionnalités dès sa première connexion.
+                    Élèves, présences, notes, paiements de scolarité, équipe. La comptabilité (paie, stats financières) reste réservée au fondateur — vous pourrez l&apos;activer après l&apos;invitation.
                   </p>
                 </div>
               ) : addForm.role ? (

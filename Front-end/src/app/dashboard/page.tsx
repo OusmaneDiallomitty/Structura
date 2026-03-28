@@ -44,6 +44,7 @@ import {
 import { getCurrentAcademicYear, createAcademicYear } from "@/lib/api/academic-years.service";
 import { updateFeesConfig } from "@/lib/api/fees.service";
 import { isDirectorLevel } from "@/lib/is-director";
+import { canViewAccounting } from "@/types/permissions";
 
 /** Calcule le nom de l'année scolaire courante selon la date du jour.
  *  En Guinée l'année commence en Septembre.
@@ -218,7 +219,8 @@ export default function DashboardPage() {
   const activeCurrency = storage.getActiveCurrency();
 
   // Rôles autorisés à voir les montants financiers (confidentialité)
-  const canViewFinancials = isDirectorLevel(user) || user?.role === 'accountant';
+  // Les stats financières globales (recettes totales) = fondateur OU directeur avec accounting.view
+  const canViewFinancials = canViewAccounting(user) || user?.role === 'accountant';
 
   // Configuration des cartes de stats
   const statsCards = stats ? [

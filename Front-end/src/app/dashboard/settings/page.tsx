@@ -34,6 +34,7 @@ import { getPayments } from "@/lib/api/payments.service";
 import { exportStudentsToXLSX, exportPaymentsToXLSX } from "@/lib/csv-handler";
 import { getFeesConfig, updateFeesConfig, type SchoolDays, migrateSchoolDays } from "@/lib/api/fees.service";
 import { useAuth } from "@/contexts/AuthContext";
+import { isFounder } from "@/lib/is-director";
 import { COUNTRIES, getCountryData } from "@/lib/constants";
 import * as storage from "@/lib/storage";
 
@@ -70,7 +71,22 @@ function loadRegionalPrefs(): RegionalPrefs {
 }
 
 export default function SettingsPage() {
-  const { patchUserLocally } = useAuth();
+  const { user, patchUserLocally } = useAuth();
+
+  // Accès réservé au fondateur
+  if (!isFounder(user)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4">
+        <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
+          <span className="text-3xl">🔒</span>
+        </div>
+        <h2 className="text-xl font-semibold">Accès restreint</h2>
+        <p className="text-muted-foreground max-w-sm">
+          Les paramètres de l&apos;école sont réservés au fondateur.
+        </p>
+      </div>
+    );
+  }
 
   // ── Infos école (depuis l'API) ──────────────────────────────────────────
   const [isLoading, setIsLoading]   = useState(true);

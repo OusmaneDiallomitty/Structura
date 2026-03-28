@@ -27,8 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
-import { ROLE_LABELS } from "@/types/permissions";
-import { isDirectorLevel } from "@/lib/is-director";
+import { getUserRoleLabel, canViewAccounting } from "@/types/permissions";
+import { isDirectorLevel, isFounder } from "@/lib/is-director";
 import { toast } from "sonner";
 
 interface NavItem {
@@ -38,13 +38,17 @@ interface NavItem {
   badge?: string;
   /** Ressource et action requises pour voir cet item (via hasPermission) */
   permission?: { resource: string; action: string };
-  /** Réservé exclusivement au directeur */
+  /** Réservé aux directeurs de niveau director ET co-director */
   directorOnly?: boolean;
+  /** Réservé exclusivement au fondateur (role === "director") */
+  founderOnly?: boolean;
+  /** Visible si fondateur OU directeur avec accounting.view */
+  accountingAccess?: boolean;
   children?: {
     title: string;
     href: string;
-    /** Sous-item réservé exclusivement au directeur */
     directorOnly?: boolean;
+    founderOnly?: boolean;
   }[];
 }
 
@@ -102,7 +106,7 @@ const navigation: NavItem[] = [
     title: "Paie",
     href: "/dashboard/payroll",
     icon: HandCoins,
-    directorOnly: true,
+    accountingAccess: true,
   },
   {
     title: "Équipe",
@@ -115,13 +119,13 @@ const navigation: NavItem[] = [
   //   title: "Abonnement",
   //   href: "/dashboard/billing",
   //   icon: CreditCard,
-  //   directorOnly: true,
+  //   founderOnly: true,
   // },
   {
     title: "Paramètres",
     href: "/dashboard/settings",
     icon: Settings,
-    directorOnly: true,
+    founderOnly: true,
   },
 ];
 
@@ -239,6 +243,8 @@ export function Sidebar() {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
             {navigation.filter((item) => {
+              if (item.founderOnly) return isFounder(user);
+              if (item.accountingAccess) return canViewAccounting(user);
               if (item.directorOnly) return isDirectorLevel(user);
               if (item.permission) return hasPermission(item.permission.resource, item.permission.action);
               return true;
@@ -302,7 +308,11 @@ export function Sidebar() {
                   {/* Submenu */}
                   {hasChildren && isExpanded && (
                     <div className="ml-8 mt-1 space-y-1 animate-in slide-in-from-top-2 fade-in duration-200">
-                      {item.children?.filter((child) => !child.directorOnly || isDirectorLevel(user)).map((child) => {
+                      {item.children?.filter((child) => {
+                        if (child.founderOnly) return isFounder(user);
+                        if (child.directorOnly) return isDirectorLevel(user);
+                        return true;
+                      }).map((child) => {
                         const isChildActive = pathname === child.href;
                         return (
                           <Link
@@ -387,9 +397,7 @@ export function Sidebar() {
                   {user?.firstName} {user?.lastName}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {isDirectorLevel(user)
-                    ? (user?.role === "director" ? "Directeur" : "Co-directeur")
-                    : (ROLE_LABELS[user?.role as keyof typeof ROLE_LABELS] ?? user?.role)}
+                  {getUserRoleLabel(user)}
                 </p>
               </div>
             </Link>

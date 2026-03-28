@@ -27,6 +27,14 @@ export type UserPermissions = {
   };
   /** Délégation complète : ce membre a les mêmes droits qu'un directeur sur toute l'interface */
   isCoDirector?: boolean;
+  /**
+   * Accès à la comptabilité (paie du personnel + statistiques financières globales).
+   * Réservé au fondateur par défaut. Le fondateur peut l'activer pour un directeur.
+   * Non applicable pour role === "director" (fondateur) — il a toujours accès.
+   */
+  accounting?: {
+    view: boolean;
+  };
 };
 
 export type RoleType = "director" | "accountant" | "teacher" | "supervisor" | "secretary";
@@ -87,7 +95,7 @@ export const DEFAULT_PERMISSIONS: Record<RoleType, UserPermissions> = {
 
 // Labels des rôles
 export const ROLE_LABELS: Record<RoleType, string> = {
-  director: "Directeur",
+  director: "Fondateur",
   accountant: "Comptable",
   teacher: "Professeur",
   supervisor: "Surveillant",
@@ -111,6 +119,34 @@ export const ROLE_DESCRIPTIONS: Record<RoleType, string> = {
   supervisor: "Gère les présences et surveille les élèves",
   secretary: "Gère les élèves et enregistre les paiements",
 };
+
+/**
+ * Retourne le label d'affichage d'un utilisateur selon son rôle et permissions.
+ * - role === "director" → "Fondateur"
+ * - isCoDirector === true → "Directeur"
+ * - autres → ROLE_LABELS[role]
+ */
+export function getUserRoleLabel(user: { role?: string; permissions?: { isCoDirector?: boolean } | null } | null | undefined): string {
+  if (!user) return "—";
+  if (user.role === "director") return "Fondateur";
+  if ((user.permissions as any)?.isCoDirector === true) return "Directeur";
+  return ROLE_LABELS[user.role as RoleType] ?? user.role ?? "—";
+}
+
+/**
+ * Retourne true si l'utilisateur a accès à la comptabilité (paie + stats financières).
+ * - Le fondateur (role === "director") : toujours true
+ * - Un directeur (isCoDirector) : seulement si permissions.accounting.view === true
+ * - Autres rôles : false
+ */
+export function canViewAccounting(user: { role?: string; permissions?: { isCoDirector?: boolean; accounting?: { view: boolean } } | null } | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === "director") return true;
+  if (user.permissions?.isCoDirector === true) {
+    return user.permissions?.accounting?.view === true;
+  }
+  return false;
+}
 
 // Type pour un membre de l'équipe
 export interface TeamMember {

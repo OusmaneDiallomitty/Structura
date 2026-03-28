@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { UserPermissions } from "@/types/permissions";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, BarChart3 } from "lucide-react";
 
 interface PermissionsEditorProps {
   permissions: UserPermissions;
@@ -17,6 +17,7 @@ export function PermissionsEditor({
   readOnly = false,
 }: PermissionsEditorProps) {
   const isCoDirector = permissions.isCoDirector === true;
+  const accountingView = permissions.accounting?.view === true;
 
   const updatePermission = (
     category: keyof UserPermissions,
@@ -29,18 +30,24 @@ export function PermissionsEditor({
       [category]:
         category === "reports"
           ? { ...permissions[category], [action]: value }
-          : { ...permissions[category as keyof Omit<UserPermissions, "reports" | "isCoDirector">], [action]: value },
+          : { ...permissions[category as keyof Omit<UserPermissions, "reports" | "isCoDirector" | "accounting">], [action]: value },
     });
   };
 
   const toggleCoDirector = (value: boolean) => {
     if (readOnly) return;
+    // Quand on active co-directeur, on garde l'état accounting tel quel
     onChange({ ...permissions, isCoDirector: value });
+  };
+
+  const toggleAccounting = (value: boolean) => {
+    if (readOnly) return;
+    onChange({ ...permissions, accounting: { view: value } });
   };
 
   return (
     <div className="space-y-6">
-      {/* ── Co-directeur ─────────────────────────────────────────────── */}
+      {/* ── Directeur (co-directeur) ──────────────────────────────────── */}
       <div className={`rounded-lg border-2 p-4 transition-colors ${isCoDirector ? "border-violet-400 bg-violet-50" : "border-dashed border-gray-300 bg-gray-50"}`}>
         <div className="flex items-start gap-3">
           <div className={`rounded-full p-2 shrink-0 mt-0.5 ${isCoDirector ? "bg-violet-100 text-violet-700" : "bg-gray-200 text-gray-500"}`}>
@@ -48,14 +55,14 @@ export function PermissionsEditor({
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-sm font-semibold ${isCoDirector ? "text-violet-800" : "text-gray-700"}`}>
-              Accès co-directeur
+              Rôle Directeur
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Accès complet identique au directeur — ignore les permissions ci-dessous
+              Accès opérationnel complet — élèves, présences, notes, paiements scolarité, équipe
             </p>
             {isCoDirector && (
               <p className="mt-2 text-xs text-violet-700 bg-violet-100 rounded px-3 py-2">
-                ⚠️ Ce membre a accès à <strong>toutes les fonctionnalités</strong> : paiements, équipe, années scolaires…
+                ⚠️ Ce membre a accès à <strong>toutes les fonctionnalités opérationnelles</strong>. La comptabilité reste contrôlée séparément ci-dessous.
               </p>
             )}
           </div>
@@ -73,13 +80,48 @@ export function PermissionsEditor({
         </div>
       </div>
 
+      {/* ── Accès comptabilité (visible uniquement pour les directeurs) ── */}
+      {isCoDirector && (
+        <div className={`rounded-lg border-2 p-4 transition-colors ${accountingView ? "border-amber-400 bg-amber-50" : "border-dashed border-gray-300 bg-gray-50"}`}>
+          <div className="flex items-start gap-3">
+            <div className={`rounded-full p-2 shrink-0 mt-0.5 ${accountingView ? "bg-amber-100 text-amber-700" : "bg-gray-200 text-gray-500"}`}>
+              <BarChart3 className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${accountingView ? "text-amber-800" : "text-gray-700"}`}>
+                Accès comptabilité
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Paie du personnel et statistiques financières globales — réservé au fondateur par défaut
+              </p>
+              {accountingView && (
+                <p className="mt-2 text-xs text-amber-700 bg-amber-100 rounded px-3 py-2">
+                  Ce directeur peut voir la paie du personnel et les statistiques financières.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <Switch
+                checked={accountingView}
+                onCheckedChange={toggleAccounting}
+                disabled={readOnly}
+                className="mt-0.5 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
+              />
+              <span className={`text-[10px] font-medium ${accountingView ? "text-amber-700" : "text-gray-400"}`}>
+                {accountingView ? "Autorisé" : "Bloqué"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Separator />
 
       {/* ── Permissions granulaires (désactivées si co-directeur) ────── */}
       <div className={isCoDirector ? "opacity-40 pointer-events-none select-none" : ""}>
         <p className="text-xs text-muted-foreground mb-4">
           {isCoDirector
-            ? "Permissions ignorées — accès co-directeur actif"
+            ? "Permissions ignorées — rôle Directeur actif"
             : "Configurez les permissions individuelles de ce membre"}
         </p>
 
@@ -140,7 +182,7 @@ export function PermissionsEditor({
               <Label htmlFor="payments-delete" className="cursor-pointer">
                 Supprimer les paiements
                 <span className="text-xs text-muted-foreground ml-2">
-                  (Directeur uniquement)
+                  (Fondateur uniquement)
                 </span>
               </Label>
             </div>

@@ -68,7 +68,7 @@ import {
 import { getFeesConfig, SchoolCalendar } from "@/lib/api/fees.service";
 import { getAcademicYears } from "@/lib/api/academic-years.service";
 import { generateSalaryReceipt } from "@/lib/pdf-generator";
-import { ROLE_LABELS, RoleType } from "@/types/permissions";
+import { ROLE_LABELS, RoleType, canViewAccounting } from "@/types/permissions";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +144,22 @@ const SCHOOL_CONFIG_KEY = (tenantId?: string) =>
 export default function PayrollPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // Accès réservé au fondateur ou directeur avec accounting.view
+  if (!canViewAccounting(user)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4">
+        <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
+          <span className="text-3xl">🔒</span>
+        </div>
+        <h2 className="text-xl font-semibold">Accès restreint</h2>
+        <p className="text-muted-foreground max-w-sm">
+          La gestion de la paie est réservée au fondateur de l&apos;école.
+          Contactez-le s&apos;il souhaite vous donner accès à cette section.
+        </p>
+      </div>
+    );
+  }
 
   // ── Calendrier scolaire ───────────────────────────────────────────────────────
   const { data: schoolConfig } = useQuery({
