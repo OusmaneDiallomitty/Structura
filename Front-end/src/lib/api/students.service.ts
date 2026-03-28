@@ -29,6 +29,7 @@ export interface CreateStudentDto {
   parentProfession?: string;
   address?: string;
   photo?: string;
+  enrollmentMonth?: string; // "YYYY-MM" — mois d'entrée en cours d'année
 }
 
 export interface UpdateStudentDto {
@@ -44,6 +45,7 @@ export interface UpdateStudentDto {
   address?: string;
   status?: string;
   paymentStatus?: string;
+  enrollmentMonth?: string | null;
 }
 
 export interface StudentFilters {

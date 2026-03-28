@@ -174,6 +174,42 @@ const MONTH_SHORT: Record<string, string> = {
 
 const TRIMESTRES = ["Trimestre 1", "Trimestre 2", "Trimestre 3"];
 
+/** Conversion nom de mois français → numéro 1–12 */
+const MONTH_TO_NUM: Record<string, number> = {
+  Janvier:1, Février:2, Mars:3, Avril:4, Mai:5, Juin:6,
+  Juillet:7, Août:8, Septembre:9, Octobre:10, Novembre:11, Décembre:12,
+};
+
+/** Convertit "Novembre 2025" → "2025-11". Retourne "" si non parseable. */
+function monthWithYearToYYYYMM(monthWithYear: string): string {
+  const [name, year] = monthWithYear.split(" ");
+  const num = MONTH_TO_NUM[name ?? ""];
+  if (!num || !year) return "";
+  return `${year}-${String(num).padStart(2, "0")}`;
+}
+
+/**
+ * Retourne true si "Octobre 2025" est STRICTEMENT avant enrollmentMonth "2025-11".
+ * enrollmentMonth null/undefined → jamais avant (l'élève est là depuis le début).
+ */
+function isBeforeEnrollment(monthWithYear: string, enrollmentMonth?: string | null): boolean {
+  if (!enrollmentMonth) return false;
+  const yyyymm = monthWithYearToYYYYMM(monthWithYear);
+  if (!yyyymm) return false;
+  return yyyymm < enrollmentMonth;
+}
+
+/** Retourne la liste des mois couverts par un terme donné. */
+function getTermMonthsList(selectedTerm: string, academicYear: string, calendar: SchoolCalendar): string[] {
+  if (!selectedTerm) return [];
+  if (selectedTerm.startsWith("Annuel")) return getSchoolMonthsWithYear(academicYear, calendar);
+  if (selectedTerm.startsWith("Trimestre")) {
+    const grps = getCalendarTrimestreGroups(academicYear, calendar);
+    return grps.find((g) => g.trimestre === selectedTerm)?.monthsWithYear ?? [];
+  }
+  return [selectedTerm];
+}
+
 const RECEIPTS_DONE_KEY = "structura_receipts_done";
 
 /** Retourne la liste ordonnée des N mois scolaires selon le calendrier configuré */
@@ -1061,10 +1097,13 @@ export default function PaymentsPage() {
 
       // Frais mensuel de base pour cet élève/classe
       const monthlyFee   = getStudentFee(student.classId, virtualLevel, feeConfig);
-      // Nombre de mois couverts par la période sélectionnée (1 = mensuel, 3 = trimestre, N = annuel)
-      const termMonths   = getTermMonthCount(selectedTerm, selectedYear, schoolCalendar);
-      // Montant attendu pour la PERIODE ACTUELLE (pas juste le mensuel !)
-      const expectedFee  = monthlyFee * termMonths;
+      // Mois de la période en cours, filtrés selon le mois d'entrée de l'élève
+      const termMonthsList = getTermMonthsList(selectedTerm, selectedYear, schoolCalendar);
+      const dueTermMonths  = termMonthsList.filter((m) => !isBeforeEnrollment(m, student.enrollmentMonth));
+      // Montant attendu pour la PERIODE ACTUELLE — ne compte que les mois dus par l'élève
+      const expectedFee  = termMonthsList.length > 0
+        ? monthlyFee * Math.max(0, dueTermMonths.length)
+        : monthlyFee * getTermMonthCount(selectedTerm, selectedYear, schoolCalendar);
 
       // Paiements filtrés pour la période + année sélectionnées
       const studentPayments = payments.filter((p) => {
@@ -1113,7 +1152,10 @@ export default function PaymentsPage() {
         (p) => p.studentId === student.id && p.academicYear === selectedYear && (p.status === "paid" || p.status === "partial"),
       );
       const yearTotalPaid   = yearAllPaid.reduce((s, p) => s + p.amount, 0);
-      const yearExpectedFee = monthlyFee * Math.max(1, schoolCalendar.durationMonths);
+      // Mois annuels réellement dus selon l'arrivée de l'élève
+      const allYearMonths   = getSchoolMonthsWithYear(selectedYear, schoolCalendar);
+      const dueYearMonths   = allYearMonths.filter((m) => !isBeforeEnrollment(m, student.enrollmentMonth));
+      const yearExpectedFee = monthlyFee * Math.max(1, dueYearMonths.length);
       const yearRemaining   = Math.max(0, yearExpectedFee - yearTotalPaid);
 
       return { student, payments: studentPayments, expectedFee, totalPaid, remaining, progressPct, status, className, level, yearPaidMonthsCount: annualPaidMonthsSet.size, yearExpectedFee, yearTotalPaid, yearRemaining };
@@ -1372,8 +1414,10 @@ export default function PaymentsPage() {
    */
   const dialogSchoolMonths = useMemo<string[]>(() => {
     if (!isDialogOpen) return [];
-    return getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar);
-  }, [isDialogOpen, paymentForm.academicYear, schoolCalendar]);
+    const all = getSchoolMonthsWithYear(paymentForm.academicYear, schoolCalendar);
+    // Exclure les mois antérieurs au mois d'entrée de l'élève (ils ne lui sont pas facturés)
+    return all.filter((m) => !isBeforeEnrollment(m, selectedStudentForPayment?.enrollmentMonth));
+  }, [isDialogOpen, paymentForm.academicYear, schoolCalendar, selectedStudentForPayment?.enrollmentMonth]);
 
   /**
    * Index du premier mois non-payé dans le calendrier scolaire.
@@ -3876,7 +3920,10 @@ export default function PaymentsPage() {
           : [];
 
         const monthlyFeeForDrawer = s ? getStudentFee(s.student.classId, s.level ?? "", feeConfig) : 0;
-        const fullYearFee         = monthlyFeeForDrawer * schoolCalendar.durationMonths;
+        // Frais annuels ajustés selon le mois d'entrée
+        const allYearMonthsDrawer = getSchoolMonthsWithYear(selectedYear, schoolCalendar);
+        const dueYearMonthsDrawer = allYearMonthsDrawer.filter((m) => !isBeforeEnrollment(m, s?.student.enrollmentMonth));
+        const fullYearFee         = monthlyFeeForDrawer * Math.max(1, dueYearMonthsDrawer.length);
 
         // Séparation inscription / scolarité
         const isInscOrReinscTerm = (term?: string | null) =>
@@ -4055,20 +4102,23 @@ export default function PaymentsPage() {
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                           {drawerSchoolMonths.map((m) => {
-                            const info  = drawerMonthMap[m];
-                            const short = MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3);
+                            const info   = drawerMonthMap[m];
+                            const short  = MONTH_SHORT[m.split(" ")[0]] ?? m.split(" ")[0].slice(0, 3);
+                            const preEnroll = isBeforeEnrollment(m, s?.student.enrollmentMonth);
                             return (
                               <div
                                 key={m}
-                                title={m}
+                                title={preEnroll ? `${m} — avant l'arrivée de l'élève` : m}
                                 className={cn(
                                   "flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 border text-center",
+                                  preEnroll             ? "bg-gray-50 border-dashed border-gray-200 opacity-40" :
                                   info.status === "paid"    ? "bg-emerald-50 border-emerald-200" :
                                   info.status === "partial" ? "bg-amber-50 border-amber-200"     :
                                                               "bg-muted/20 border-dashed border-muted-foreground/20"
                                 )}
                               >
                                 <span className={cn("text-[11px] font-bold",
+                                  preEnroll             ? "text-gray-400" :
                                   info.status === "paid"    ? "text-emerald-700" :
                                   info.status === "partial" ? "text-amber-700"   :
                                                               "text-muted-foreground/40"
@@ -4076,15 +4126,19 @@ export default function PaymentsPage() {
                                   {short}
                                 </span>
                                 <span className={cn("text-[10px] font-medium leading-tight tabular-nums",
+                                  preEnroll             ? "text-gray-300" :
                                   info.status === "paid"    ? "text-emerald-600" :
                                   info.status === "partial" ? "text-amber-600"   :
                                                               "text-muted-foreground/30"
                                 )}>
-                                  {info.status === "paid"    ? formatCurrency(info.paidAmount) :
+                                  {preEnroll ? "N/A" :
+                                   info.status === "paid"    ? formatCurrency(info.paidAmount) :
                                    info.status === "partial" ? formatCurrency(info.paidAmount) :
                                    "—"}
                                 </span>
-                                {info.status === "paid" ? (
+                                {preEnroll ? (
+                                  <div className="h-3 w-3 rounded-full bg-gray-200" />
+                                ) : info.status === "paid" ? (
                                   <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                                 ) : info.status === "partial" ? (
                                   <AlertTriangle className="h-3 w-3 text-amber-500" />

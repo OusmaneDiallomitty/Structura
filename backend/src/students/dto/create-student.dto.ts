@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsIn, Matches } from 'class-validator';
 
 export class CreateStudentDto {
   @IsString()
@@ -42,4 +42,9 @@ export class CreateStudentDto {
   @IsString()
   @IsOptional()
   photo?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'enrollmentMonth doit être au format YYYY-MM' })
+  enrollmentMonth?: string;
 }

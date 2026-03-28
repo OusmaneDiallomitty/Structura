@@ -55,6 +55,7 @@ function AddStudentPageContent() {
     parentEmail: "",
     parentProfession: "",
     address: "",
+    enrollmentMonth: "", // "YYYY-MM" — vide = depuis le début de l'année
   });
 
   // Charger les classes au montage et à la reconnexion
@@ -119,6 +120,7 @@ function AddStudentPageContent() {
         parentEmail: formData.parentEmail || undefined,
         parentProfession: formData.parentProfession || undefined,
         address: formData.address,
+        enrollmentMonth: formData.enrollmentMonth || undefined,
       };
 
       if (!isOnline) {
@@ -168,6 +170,7 @@ function AddStudentPageContent() {
           parentEmail: formData.parentEmail || undefined,
           parentProfession: formData.parentProfession || undefined,
           address: formData.address,
+          enrollmentMonth: formData.enrollmentMonth || undefined,
         };
         const localStudent = {
           id: tempId,
@@ -430,6 +433,20 @@ function AddStudentPageContent() {
                 placeholder="Ex: Quartier Madina, Conakry"
                 className="border-2"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="enrollmentMonth">Mois d&apos;entrée (si arrivée en cours d&apos;année)</Label>
+              <Input
+                id="enrollmentMonth"
+                type="month"
+                value={formData.enrollmentMonth}
+                onChange={(e) =>
+                  setFormData({ ...formData, enrollmentMonth: e.target.value })
+                }
+                className="border-2 w-fit"
+              />
+              <p className="text-xs text-muted-foreground">Laisser vide si l&apos;élève est inscrit depuis le début de l&apos;année scolaire</p>
             </div>
           </CardContent>
         </Card>

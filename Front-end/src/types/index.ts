@@ -137,6 +137,7 @@ export interface BackendStudent {
   address?: string;
   parentEmail?: string;
   parentProfession?: string;
+  enrollmentMonth?: string | null; // "YYYY-MM" — null = depuis le début de l'année
 }
 
 /**
@@ -170,6 +171,7 @@ export interface Student {
   address?: string;
   medicalInfo?: string;
   enrollmentDate?: string;
+  enrollmentMonth?: string | null; // "YYYY-MM" — null = depuis le début de l'année
   paymentStatus?: "paid" | "pending" | "late"; // Statut de paiement
   needsSync?: boolean; // Flag pour synchronisation offline
   createdAt?: string;

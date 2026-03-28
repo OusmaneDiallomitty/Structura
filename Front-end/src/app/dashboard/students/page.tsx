@@ -138,6 +138,8 @@ export default function StudentsPage() {
   const newEmptyRow = (): QuickRow => ({ id: crypto.randomUUID(), firstName: '', lastName: '', classId: '', parentName: '', parentPhone: '' });
   const [quickOpen, setQuickOpen]   = useState(false);
   const [quickRows, setQuickRows]   = useState<QuickRow[]>(() => Array(5).fill(null).map(newEmptyRow));
+  // Mois d'entrée commun à tous les élèves de la saisie rapide (vide = depuis le début de l'année)
+  const [quickEnrollmentMonth, setQuickEnrollmentMonth] = useState<string>('');
   const [quickSaving, setQuickSaving] = useState(false);
   const [quickProgress, setQuickProgress] = useState<{done: number; total: number} | null>(null);
 
@@ -172,6 +174,7 @@ export default function StudentsPage() {
           classId:     row.classId,
           parentName:  row.parentName.trim()  || undefined,
           parentPhone: row.parentPhone.trim() || undefined,
+          enrollmentMonth: quickEnrollmentMonth || undefined,
         });
         createdStudents.push(mapStudent(created));
         success++;
@@ -206,6 +209,7 @@ export default function StudentsPage() {
     parentName: s.parentName || '',
     parentPhone: s.parentPhone || '',
     paymentStatus: s.paymentStatus?.toLowerCase() || 'pending',
+    enrollmentMonth: s.enrollmentMonth ?? null,
     needsSync: false,
   });
 
@@ -914,6 +918,24 @@ export default function StudentsPage() {
 
           {quickOpen && (
             <CardContent className="pt-0 space-y-3">
+              {/* Mois d'entrée — commun à tous les élèves de ce lot */}
+              <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-amber-800">Mois d&apos;entrée (si arrivée en cours d&apos;année)</label>
+                  <p className="text-xs text-amber-600 mt-0.5">Laisser vide si les élèves sont inscrits depuis le début de l&apos;année scolaire</p>
+                </div>
+                <input
+                  type="month"
+                  value={quickEnrollmentMonth}
+                  onChange={e => setQuickEnrollmentMonth(e.target.value)}
+                  className="h-8 text-sm rounded-md border border-amber-300 bg-white px-2 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                />
+                {quickEnrollmentMonth && (
+                  <button onClick={() => setQuickEnrollmentMonth('')} className="text-amber-500 hover:text-amber-700 text-xs underline shrink-0">
+                    Réinitialiser
+                  </button>
+                )}
+              </div>
               {/* Grille */}
               <div className="rounded-lg border overflow-hidden">
                 <div className="overflow-x-auto">

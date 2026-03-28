@@ -188,6 +188,9 @@ model Student {
   parentEmail      String?
   parentProfession String?
   address          String?
+  // Mois d'entrée en cours d'année — format "YYYY-MM" (ex : "2025-11")
+  // null = élève inscrit depuis le début de l'année scolaire
+  enrollmentMonth String?
   status         StudentStatus  @default(ACTIVE)
   paymentStatus  PaymentStatus  @default(PENDING)
   tenantId       String
