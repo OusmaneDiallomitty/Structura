@@ -7,7 +7,7 @@ import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import {
   Calendar, Check, X, Save, Loader2, WifiOff, Clock, ShieldCheck,
   Users, RotateCcw, FileCheck, GraduationCap, MessageSquare, Timer,
-  Phone, BarChart3, AlertCircle, Eye, ChevronDown, ChevronUp, History,
+  Phone, BarChart3, AlertCircle, Eye, ChevronDown, ChevronUp, History, Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -611,7 +611,9 @@ export default function AttendancePage() {
   const attendanceRate = total > 0 ? Math.round(((presentCount + lateCount) / total) * 100) : 0;
   const hasChanges   = rows.some((r) => r.status !== r.originalStatus || r.notes !== r.originalNotes);
   const nonSchoolDay = !isSchoolDay(new Date(selectedDate + "T00:00:00"), schoolDays);
-  const saveDisabled = isSaving || unmarkedCount > 0 || (!hasChanges && alreadySaved) || nonSchoolDay;
+  // Verrou temporel : jour passé → plus modifiable ; aujourd'hui ≥ 18h → clôture de saisie
+  const isAttendanceLocked = selectedDate < getToday() || (selectedDate === getToday() && new Date().getHours() >= 18);
+  const saveDisabled = isSaving || unmarkedCount > 0 || (!hasChanges && alreadySaved) || nonSchoolDay || isAttendanceLocked;
 
   // ── Données vue d'ensemble ───────────────────────────────────────────────────
 
@@ -1406,11 +1408,11 @@ export default function AttendancePage() {
                   </CardTitle>
                   {rows.length > 0 && (
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={resetAll} disabled={isSaving} className="h-8 text-xs">
+                      <Button variant="outline" size="sm" onClick={resetAll} disabled={isSaving || isAttendanceLocked} className="h-8 text-xs">
                         <RotateCcw className="h-3.5 w-3.5 mr-1" /> Réinitialiser
                       </Button>
                       <Button
-                        variant="outline" size="sm" onClick={markAllPresent} disabled={isSaving}
+                        variant="outline" size="sm" onClick={markAllPresent} disabled={isSaving || isAttendanceLocked}
                         className="h-8 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50"
                       >
                         <Check className="h-3.5 w-3.5 mr-1" /> Tous présents
@@ -1493,14 +1495,18 @@ export default function AttendancePage() {
                                 {(["PRESENT", "ABSENT", "LATE", "EXCUSED"] as AttendanceStatus[]).map((s) => (
                                   <button
                                     key={s}
-                                    onClick={() => setStatus(row.studentId, s)}
-                                    title={STATUS_CONFIG[s].label}
+                                    onClick={() => { if (!isAttendanceLocked) setStatus(row.studentId, s); }}
+                                    title={isAttendanceLocked ? "Saisie clôturée" : STATUS_CONFIG[s].label}
+                                    disabled={isAttendanceLocked}
                                     className={`
                                       inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium
-                                      border transition-all duration-100 cursor-pointer
-                                      ${row.status === s
-                                        ? STATUS_CONFIG[s].activeClass
-                                        : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                                      border transition-all duration-100
+                                      ${isAttendanceLocked
+                                        ? "cursor-not-allowed opacity-50 border-slate-200 text-slate-400"
+                                        : "cursor-pointer " + (row.status === s
+                                          ? STATUS_CONFIG[s].activeClass
+                                          : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                                        )
                                       }
                                     `}
                                   >
@@ -1510,14 +1516,18 @@ export default function AttendancePage() {
                                 ))}
                                 {row.status && row.status !== "PRESENT" && (
                                   <button
-                                    onClick={() => toggleNotes(row.studentId)}
+                                    onClick={() => { if (!isAttendanceLocked) toggleNotes(row.studentId); }}
                                     title={row.notesOpen ? "Masquer" : "Motif / note"}
+                                    disabled={isAttendanceLocked}
                                     className={`
                                       inline-flex items-center justify-center w-8 h-8 rounded-md border text-xs
-                                      transition-colors cursor-pointer
-                                      ${row.notesOpen || row.notes
-                                        ? "border-slate-400 bg-slate-100 text-slate-700"
-                                        : "border-slate-200 text-slate-400 hover:bg-slate-50"
+                                      transition-colors
+                                      ${isAttendanceLocked
+                                        ? "cursor-not-allowed opacity-50 border-slate-200 text-slate-400"
+                                        : "cursor-pointer " + (row.notesOpen || row.notes
+                                          ? "border-slate-400 bg-slate-100 text-slate-700"
+                                          : "border-slate-200 text-slate-400 hover:bg-slate-50"
+                                        )
                                       }
                                     `}
                                   >
@@ -1536,13 +1546,17 @@ export default function AttendancePage() {
                                     {motifs.map((motif) => (
                                       <button
                                         key={motif}
-                                        onClick={() => applyMotif(row.studentId, motif)}
+                                        onClick={() => { if (!isAttendanceLocked) applyMotif(row.studentId, motif); }}
+                                        disabled={isAttendanceLocked}
                                         className={`
                                           px-2.5 py-1 rounded-full text-xs font-medium border
-                                          transition-all cursor-pointer
-                                          ${row.notes === motif
-                                            ? STATUS_CONFIG[row.status!].activeClass
-                                            : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                                          transition-all
+                                          ${isAttendanceLocked
+                                            ? "cursor-not-allowed opacity-50 border-slate-200 text-slate-400"
+                                            : "cursor-pointer " + (row.notes === motif
+                                              ? STATUS_CONFIG[row.status!].activeClass
+                                              : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                                            )
                                           }
                                         `}
                                       >
@@ -1555,9 +1569,10 @@ export default function AttendancePage() {
                                 <textarea
                                   placeholder="Précision libre (optionnel)…"
                                   value={row.notes}
-                                  onChange={(e) => setNotes(row.studentId, e.target.value)}
+                                  onChange={(e) => { if (!isAttendanceLocked) setNotes(row.studentId, e.target.value); }}
+                                  readOnly={isAttendanceLocked}
                                   rows={2}
-                                  className="w-full px-3 py-2 text-xs rounded-md border border-input bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
+                                  className={`w-full px-3 py-2 text-xs rounded-md border border-input bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60 ${isAttendanceLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                                 />
                               </div>
                             )}
@@ -1572,6 +1587,18 @@ export default function AttendancePage() {
                         <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                         <p className="text-sm text-amber-800">
                           Ce jour n&apos;est pas un jour de cours (dimanche / congé). Aucune présence à saisir.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* ── Saisie clôturée (18h ou jour passé) ── */}
+                    {isAttendanceLocked && (
+                      <div className="mt-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                        <Lock className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-slate-700">
+                          {selectedDate < getToday()
+                            ? "La saisie des présences pour les jours passés est verrouillée."
+                            : "La saisie des présences est clôturée à partir de 18h00."}
                         </p>
                       </div>
                     )}
