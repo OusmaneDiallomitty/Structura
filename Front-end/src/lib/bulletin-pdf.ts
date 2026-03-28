@@ -316,18 +316,19 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
   doc.text(data.className, MARGIN + 122, y + 17);
   if (data.level) { doc.setFontSize(8.5); doc.text(data.level, MARGIN + 122, y + 24); }
 
-  // Badge "Arrivé(e) en [mois]" si l'élève a rejoint en cours d'année
+  y += 30; // box(26) + gap(4)
+
+  // Badge "Arrivé(e) en [mois]" — affiché dans le gap juste sous la box (ne dépasse pas)
   if (data.enrollmentMonth) {
     const [enrollYear, enrollMonthNum] = data.enrollmentMonth.split('-');
-    const MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const monthLabel = MONTH_NAMES[(parseInt(enrollMonthNum ?? '1', 10) - 1)] ?? data.enrollmentMonth;
+    const FR_MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const monthLabel = FR_MONTHS[(parseInt(enrollMonthNum ?? '1', 10) - 1)] ?? data.enrollmentMonth;
     textColor(doc, COLORS.warning);
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7.5);
-    doc.text(`Arrivé(e) en ${monthLabel} ${enrollYear ?? ''}`.trim(), MARGIN + 38, y + 30);
+    // -4 = remonte dans le gap (y vient d'avancer de 30, box = 26mm, gap = 4mm → -4 = début du gap)
+    doc.text(`★ Arrivé(e) en ${monthLabel} ${enrollYear ?? ''}`.trim(), MARGIN + 7, y - 2);
   }
-
-  y += 30; // box(26) + gap(4)
 
   // ════════════════════════════════════════
   // TITRE SECTION  (9mm)
