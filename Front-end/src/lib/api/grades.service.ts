@@ -69,6 +69,7 @@ export interface StudentReport {
     firstName: string;
     lastName: string;
     matricule: string;
+    enrollmentMonth?: string | null;
     class?: { name: string; section?: string | null };
   };
   term: string;

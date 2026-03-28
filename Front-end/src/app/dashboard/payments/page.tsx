@@ -3979,10 +3979,10 @@ export default function PaymentsPage() {
           }
         }
 
-        // Mois à régulariser (partiels + non payés)
+        // Mois à régulariser (partiels + non payés) — exclure les mois pré-inscription
         const toRegularize = drawerSchoolMonths
           .map((m) => ({ month: m, ...drawerMonthMap[m] }))
-          .filter((m) => m.status !== "paid");
+          .filter((m) => m.status !== "paid" && !isBeforeEnrollment(m.month, s?.student.enrollmentMonth));
 
         // Chips mois couverts par un paiement (pour l'historique)
         const getPaymentMonthChips = (p: Payment): string[] => {

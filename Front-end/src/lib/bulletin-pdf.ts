@@ -34,6 +34,8 @@ export interface BulletinData {
   totalStudents?: number;
   /** Genre de l'élève — "Masculin" ou "Féminin" — pour accord du rang (1er / 1ère) */
   gender?: string | null;
+  /** Mois d'entrée en cours d'année — "YYYY-MM" (ex: "2025-11"). null = depuis le début. */
+  enrollmentMonth?: string | null;
 }
 
 // ─── Palette de couleurs ───────────────────────────────────────────────────────
@@ -313,6 +315,17 @@ function drawBulletin(doc: jsPDF, data: BulletinData): void {
   doc.setFontSize(9.5);
   doc.text(data.className, MARGIN + 122, y + 17);
   if (data.level) { doc.setFontSize(8.5); doc.text(data.level, MARGIN + 122, y + 24); }
+
+  // Badge "Arrivé(e) en [mois]" si l'élève a rejoint en cours d'année
+  if (data.enrollmentMonth) {
+    const [enrollYear, enrollMonthNum] = data.enrollmentMonth.split('-');
+    const MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const monthLabel = MONTH_NAMES[(parseInt(enrollMonthNum ?? '1', 10) - 1)] ?? data.enrollmentMonth;
+    textColor(doc, COLORS.warning);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    doc.text(`Arrivé(e) en ${monthLabel} ${enrollYear ?? ''}`.trim(), MARGIN + 38, y + 30);
+  }
 
   y += 30; // box(26) + gap(4)
 

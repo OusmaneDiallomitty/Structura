@@ -1262,6 +1262,7 @@ function GradesPageInner() {
         classRank: studentRow.rank,
         totalStudents: bulletinReport?.totalStudents,
         gender: studentRow.student.gender,
+        enrollmentMonth: report.student.enrollmentMonth ?? null,
       };
       if (mode === "print") printBulletinPDF(bulletinData);
       else generateBulletinPDF(bulletinData);
@@ -1304,6 +1305,7 @@ function GradesPageInner() {
             classRank: studentRow.rank,
             totalStudents: bulletinReport.totalStudents,
             gender: studentRow.student.gender,
+            enrollmentMonth: report.student.enrollmentMonth ?? null,
           });
         } catch { /* élève sans notes, skip */ }
       }

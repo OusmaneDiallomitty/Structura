@@ -55,6 +55,42 @@ export function getMonthsForTerm(startMonth: string, durationMonths: number, ter
 }
 
 /**
+ * Convertit un nom de mois + année scolaire → "YYYY-MM"
+ * Ex : monthName="Novembre", academicYear="2025-2026", startMonth="Septembre" → "2025-11"
+ * Ex : monthName="Janvier",  academicYear="2025-2026", startMonth="Septembre" → "2026-01"
+ */
+export function evalMonthToYYYYMM(
+  monthName: string,
+  academicYear: string,
+  startMonthName = 'Septembre',
+): string {
+  const monthIdx = MONTHS_GREGORIAN.indexOf(monthName);
+  const startIdx = MONTHS_GREGORIAN.indexOf(startMonthName);
+  if (monthIdx === -1) return '';
+  const startYear = parseInt(academicYear.split('-')[0], 10);
+  if (isNaN(startYear)) return '';
+  // Si le mois est avant le mois de rentrée → il appartient à la 2ème année civile
+  const year = monthIdx >= startIdx ? startYear : startYear + 1;
+  return `${year}-${String(monthIdx + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Vérifie si un mois de cours est strictement antérieur au mois d'inscription de l'élève.
+ * enrollmentMonth : "YYYY-MM" | null/undefined (null = depuis le début)
+ */
+export function isMonthBeforeEnrollment(
+  monthName: string,
+  academicYear: string,
+  enrollmentMonth: string | null | undefined,
+  startMonthName = 'Septembre',
+): boolean {
+  if (!enrollmentMonth) return false;
+  const yyyymm = evalMonthToYYYYMM(monthName, academicYear, startMonthName);
+  if (!yyyymm) return false;
+  return yyyymm < enrollmentMonth;
+}
+
+/**
  * Vérifie si un mois appartient à un trimestre
  */
 export function isMonthInTerm(

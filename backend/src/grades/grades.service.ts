@@ -4,7 +4,7 @@ import { CacheService } from '../cache/cache.service';
 import { CreateEvaluationDto, BulkCreateEvaluationDto } from './dto/create-evaluation.dto';
 import { CreateCompositionDto, BulkCreateCompositionDto, UpdateCompositionDto } from './dto/create-composition.dto';
 import { SetSubjectCoefficientsDto, UpdateSubjectCoefficientDto } from './dto/subject-coefficient.dto';
-import { getMonthsForTerm, getTermsMonths } from './utils/months';
+import { getMonthsForTerm, getTermsMonths, isMonthBeforeEnrollment } from './utils/months';
 
 @Injectable()
 export class GradesService {
@@ -481,18 +481,27 @@ export class GradesService {
       /^(CP|CE|CM)\d/i.test(className) ||
       /^(Petite|Moyenne|Grande)\s+Section$/i.test(className);
 
-    const [evaluations, compositions] = await Promise.all([
+    const [evaluationsRaw, compositions, tenant] = await Promise.all([
       this.prisma.evaluation.findMany({
         where: { tenantId, studentId, term, academicYear: year },
       }),
       this.prisma.composition.findMany({
         where: { tenantId, studentId, term, academicYear: year },
       }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { schoolCalendar: true } }),
     ]);
 
-    if (evaluations.length === 0 && compositions.length === 0) {
+    if (evaluationsRaw.length === 0 && compositions.length === 0) {
       throw new NotFoundException('Aucune note trouvée pour ce trimestre');
     }
+
+    // Exclure les évaluations des mois antérieurs au mois d'entrée de l'élève
+    const calendarStartMonth = (tenant?.schoolCalendar as any)?.startMonth ?? 'Septembre';
+    const evaluations = (student as any).enrollmentMonth
+      ? evaluationsRaw.filter(
+          (e) => !isMonthBeforeEnrollment(e.month, year, (student as any).enrollmentMonth, calendarStartMonth),
+        )
+      : evaluationsRaw;
 
     // ── Construire les détails par matière ──────────────────────────────────
     // rawAvgSubject : valeur EXACTE utilisée pour le calcul de la moyenne générale
@@ -570,11 +579,12 @@ export class GradesService {
 
     return {
       student: {
-        id:        student.id,
-        firstName: student.firstName,
-        lastName:  student.lastName,
-        matricule: student.matricule,
-        class:     student.class
+        id:              student.id,
+        firstName:       student.firstName,
+        lastName:        student.lastName,
+        matricule:       student.matricule,
+        enrollmentMonth: (student as any).enrollmentMonth ?? null,
+        class:           student.class
           ? { name: (student.class as any).name, section: (student.class as any).section }
           : null,
       },
@@ -666,15 +676,17 @@ export class GradesService {
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
 
-    // 6 requêtes en parallèle — remplace les centaines de requêtes en boucle
-    const [students, allEvals, allComps, allCoeffs, classSubjects, classInfo] = await Promise.all([
+    // 7 requêtes en parallèle — remplace les centaines de requêtes en boucle
+    const [students, allEvals, allComps, allCoeffs, classSubjects, classInfo, tenantForCal] = await Promise.all([
       this.prisma.student.findMany({ where: { tenantId, classId, status: 'ACTIVE' } }),
       this.prisma.evaluation.findMany({ where: { tenantId, classId, term, academicYear: year } }),
       this.prisma.composition.findMany({ where: { tenantId, classId, term, academicYear: year } }),
       this.prisma.subjectCoefficient.findMany({ where: { tenantId, classId, academicYear: year } }),
       this.prisma.classSubject.findMany({ where: { classId } }),
       this.prisma.class.findUnique({ where: { id: classId } }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { schoolCalendar: true } }),
     ]);
+    const calendarStartMonth = (tenantForCal?.schoolCalendar as any)?.startMonth ?? 'Septembre';
 
     if (students.length === 0) {
       throw new NotFoundException('Aucun élève dans cette classe');
@@ -707,7 +719,13 @@ export class GradesService {
 
     // Calcul en mémoire — zéro requête supplémentaire
     const studentResults = students.map((student) => {
-      const evals = evalsByStudent.get(student.id) ?? [];
+      // Évals filtrées selon le mois d'entrée de l'élève (null = depuis le début)
+      const evalsRaw = evalsByStudent.get(student.id) ?? [];
+      const evals = (student as any).enrollmentMonth
+        ? evalsRaw.filter(
+            (e) => !isMonthBeforeEnrollment(e.month, year, (student as any).enrollmentMonth, calendarStartMonth),
+          )
+        : evalsRaw;
       const comps = compsByStudent.get(student.id) ?? [];
 
       if (comps.length === 0) {
