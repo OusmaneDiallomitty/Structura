@@ -274,17 +274,6 @@ export default function TeamPage() {
     }
   }, [loadTeam, loadClasses, isDirector]);
 
-  // Auto-replier le groupe Professeurs si > 4 profs (page trop longue sinon)
-  useEffect(() => {
-    if (!isLoading && teacherCount > 4) {
-      setCollapsedGroups((prev) => {
-        const next = new Set(prev);
-        next.add("teacher");
-        return next;
-      });
-    }
-  }, [isLoading, teacherCount]);
-
   // ── Filtrage ────────────────────────────────────────────────────────────────
 
   const filteredMembers = members.filter((m) => {
@@ -301,6 +290,17 @@ export default function TeamPage() {
 
   const activeCount  = members.filter((m) => m.isActive).length;
   const teacherCount = members.filter((m) => m.role === "teacher").length;
+
+  // Auto-replier le groupe Professeurs si > 4 profs (page trop longue sinon)
+  useEffect(() => {
+    if (!isLoading && teacherCount > 4) {
+      setCollapsedGroups((prev) => {
+        const next = new Set(prev);
+        next.add("teacher");
+        return next;
+      });
+    }
+  }, [isLoading, teacherCount]);
 
   // Membres filtrés groupés par rôle (ordre fixe)
   const groupedMembers = ROLE_ORDER.reduce<Record<string, MemberView[]>>((acc, r) => {
