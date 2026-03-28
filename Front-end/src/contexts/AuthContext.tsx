@@ -383,8 +383,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = (resource: string, action: string): boolean => {
     if (!user) return false;
 
-    // Le directeur (ou co-directeur délégué) a toutes les permissions
-    if (user.role === "director" || (user.permissions as any)?.isCoDirector === true) return true;
+    // Le fondateur a toutes les permissions sans exception
+    if (user.role === "director") return true;
+
+    // Le directeur délégué (isCoDirector) a accès à tout sauf :
+    // - payments.create / edit / delete / configure → contrôlés individuellement par le fondateur
+    // - expenses.create / edit / delete              → idem
+    if ((user.permissions as any)?.isCoDirector === true) {
+      const directorControlled =
+        (resource === "payments" && ["create", "edit", "delete", "configure"].includes(action)) ||
+        (resource === "expenses" && ["create", "edit", "delete"].includes(action));
+
+      if (!directorControlled) return true;
+
+      // Pour ces actions spécifiques, vérifier les permissions réelles stockées en BDD
+      const res = user.permissions as unknown as Record<string, Record<string, boolean>>;
+      return res[resource]?.[action] === true;
+    }
 
     // Permissions custom persistées en BDD (prioritaires sur les défauts du rôle)
     if (user.permissions) {

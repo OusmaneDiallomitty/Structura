@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { UserPermissions } from "@/types/permissions";
-import { ShieldCheck, BarChart3 } from "lucide-react";
+import { ShieldCheck, BarChart3, DollarSign, Wallet } from "lucide-react";
 
 interface PermissionsEditorProps {
   permissions: UserPermissions;
@@ -18,6 +18,8 @@ export function PermissionsEditor({
 }: PermissionsEditorProps) {
   const isCoDirector = permissions.isCoDirector === true;
   const accountingView = permissions.accounting?.view === true;
+  const canCreatePayments = permissions.payments?.create === true;
+  const canCreateExpenses = permissions.expenses?.create === true;
 
   const updatePermission = (
     category: keyof UserPermissions,
@@ -43,6 +45,22 @@ export function PermissionsEditor({
   const toggleAccounting = (value: boolean) => {
     if (readOnly) return;
     onChange({ ...permissions, accounting: { view: value } });
+  };
+
+  const toggleCreatePayments = (value: boolean) => {
+    if (readOnly) return;
+    onChange({
+      ...permissions,
+      payments: { ...permissions.payments, create: value, edit: value, delete: false, configure: false },
+    });
+  };
+
+  const toggleCreateExpenses = (value: boolean) => {
+    if (readOnly) return;
+    onChange({
+      ...permissions,
+      expenses: { ...permissions.expenses, create: value, edit: value, delete: false },
+    });
   };
 
   return (
@@ -109,6 +127,66 @@ export function PermissionsEditor({
               />
               <span className={`text-[10px] font-medium ${accountingView ? "text-amber-700" : "text-gray-400"}`}>
                 {accountingView ? "Autorisé" : "Bloqué"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Enregistrer des paiements (visible uniquement pour les directeurs) ── */}
+      {isCoDirector && (
+        <div className={`rounded-lg border-2 p-4 transition-colors ${canCreatePayments ? "border-emerald-400 bg-emerald-50" : "border-dashed border-gray-300 bg-gray-50"}`}>
+          <div className="flex items-start gap-3">
+            <div className={`rounded-full p-2 shrink-0 mt-0.5 ${canCreatePayments ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-500"}`}>
+              <DollarSign className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${canCreatePayments ? "text-emerald-800" : "text-gray-700"}`}>
+                Enregistrer des paiements
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Autoriser le directeur à encaisser les frais de scolarité — par défaut réservé au secrétaire/comptable
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <Switch
+                checked={canCreatePayments}
+                onCheckedChange={toggleCreatePayments}
+                disabled={readOnly}
+                className="mt-0.5 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
+              />
+              <span className={`text-[10px] font-medium ${canCreatePayments ? "text-emerald-700" : "text-gray-400"}`}>
+                {canCreatePayments ? "Autorisé" : "Bloqué"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Enregistrer des dépenses (visible uniquement pour les directeurs) ── */}
+      {isCoDirector && (
+        <div className={`rounded-lg border-2 p-4 transition-colors ${canCreateExpenses ? "border-blue-400 bg-blue-50" : "border-dashed border-gray-300 bg-gray-50"}`}>
+          <div className="flex items-start gap-3">
+            <div className={`rounded-full p-2 shrink-0 mt-0.5 ${canCreateExpenses ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-500"}`}>
+              <Wallet className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${canCreateExpenses ? "text-blue-800" : "text-gray-700"}`}>
+                Enregistrer des dépenses
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Autoriser le directeur à saisir des dépenses — par défaut réservé au comptable
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <Switch
+                checked={canCreateExpenses}
+                onCheckedChange={toggleCreateExpenses}
+                disabled={readOnly}
+                className="mt-0.5 data-[state=unchecked]:bg-gray-300 data-[state=unchecked]:border-gray-400"
+              />
+              <span className={`text-[10px] font-medium ${canCreateExpenses ? "text-blue-700" : "text-gray-400"}`}>
+                {canCreateExpenses ? "Autorisé" : "Bloqué"}
               </span>
             </div>
           </div>
