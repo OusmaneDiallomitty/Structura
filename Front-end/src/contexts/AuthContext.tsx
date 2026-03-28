@@ -85,7 +85,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    loadUser();
+    // Charger depuis le localStorage d'abord (affichage immédiat)
+    // puis rafraîchir depuis le serveur pour avoir les permissions à jour
+    loadUser().then(() => {
+      refreshUserProfile();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Rafraîchir les permissions dès que l'onglet reprend le focus (alt+tab, retour sur l'app)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshUserProfile();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
