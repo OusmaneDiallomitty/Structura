@@ -93,7 +93,7 @@ const EMPTY_FORM: ExpenseForm = {
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const isOnline  = useOnline();
   const queryClient = useQueryClient();
 
@@ -122,11 +122,12 @@ export default function ExpensesPage() {
     try { const s = localStorage.getItem(BUDGET_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
   });
 
-  // Permissions
-  const canCreate  = isDirectorLevel(user) || user?.role === "accountant";
-  const canEdit    = isDirectorLevel(user) || user?.role === "accountant";
-  const canDelete  = isDirectorLevel(user);
-  const canView    = isDirectorLevel(user) || user?.role === "accountant" || user?.role === "secretary";
+  // Permissions — pour un directeur (isCoDirector), expenses.create/edit/delete
+  // sont contrôlées individuellement par le fondateur via hasPermission
+  const canCreate  = hasPermission("expenses", "create");
+  const canEdit    = hasPermission("expenses", "edit");
+  const canDelete  = hasPermission("expenses", "delete");
+  const canView    = hasPermission("expenses", "view");
   const isDirector = isDirectorLevel(user);
 
   // ── React Query : dépenses + stats (en parallèle) ──
