@@ -577,6 +577,9 @@ export default function PaymentsPage() {
 
   // ── React Query — données serveur ─────────────────────────────────────────
 
+  const CLASSES_LS_KEY  = `structura_classes_cache:${user?.tenantId}`;
+  const STUDENTS_LS_KEY = `structura_students_cache:${user?.tenantId}`;
+
   const { data: backendStudents, isLoading: studentsLoading, refetch: refetchStudents } = useQuery({
     queryKey: STUDENTS_QUERY_KEY(user?.tenantId),
     queryFn: async () => {
@@ -585,10 +588,17 @@ export default function PaymentsPage() {
       const data = await getStudents(token);
       await offlineDB.clear(STORES.STUDENTS).catch(() => {});
       await offlineDB.bulkAdd(STORES.STUDENTS, data).catch(() => {});
+      try { localStorage.setItem(STUDENTS_LS_KEY, JSON.stringify(data)); } catch { /* quota */ }
       return data as BackendStudent[];
     },
-    enabled: isOnline && !!user,
+    enabled: !!user,
     staleTime: 5 * 60_000,  // 5 min — élèves changent rarement
+    placeholderData: () => {
+      try {
+        const cached = localStorage.getItem(STUDENTS_LS_KEY);
+        return cached ? (JSON.parse(cached) as BackendStudent[]) : undefined;
+      } catch { return undefined; }
+    },
   });
 
   const { data: backendPayments, isLoading: paymentsLoading, refetch: refetchPayments } = useQuery({
@@ -605,7 +615,7 @@ export default function PaymentsPage() {
       await offlineDB.bulkAdd(STORES.PAYMENTS, [...mapped, ...pendingSync]).catch(() => {});
       return mapped;
     },
-    enabled: isOnline && !!user,
+    enabled: !!user,
     staleTime: 2 * 60_000,  // 2 min — paiements changent plus souvent
   });
 
@@ -617,10 +627,17 @@ export default function PaymentsPage() {
       const data = await getClasses(token);
       await offlineDB.clear(STORES.CLASSES).catch(() => {});
       await offlineDB.bulkAdd(STORES.CLASSES, data).catch(() => {});
+      try { localStorage.setItem(CLASSES_LS_KEY, JSON.stringify(data)); } catch { /* quota */ }
       return data;
     },
-    enabled: isOnline && !!user,
+    enabled: !!user,
     staleTime: 5 * 60_000,  // 5 min — classes changent rarement
+    placeholderData: () => {
+      try {
+        const cached = localStorage.getItem(CLASSES_LS_KEY);
+        return cached ? JSON.parse(cached) : undefined;
+      } catch { return undefined; }
+    },
   });
 
   const { data: currentAcademicYear } = useQuery({

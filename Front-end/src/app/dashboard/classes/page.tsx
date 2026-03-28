@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CLASSES_QUERY_KEY } from "@/hooks/queries/use-classes-query";
 import {
   Plus,
@@ -120,6 +120,7 @@ export default function ClassesPage() {
   }, [isOnline]);
 
   // ── useQuery : chargement des classes ──────────────────────────────────────
+  const CLASSES_LS_KEY = `structura_classes_cache:${user?.tenantId}`;
   const {
     data: onlineClasses,
     isLoading,
@@ -136,6 +137,8 @@ export default function ClassesPage() {
       offlineDB.clear(STORES.CLASSES)
         .then(() => offlineDB.bulkAdd(STORES.CLASSES, mapped))
         .catch(() => {});
+      // Sauvegarder dans localStorage pour affichage instantané au prochain chargement
+      try { localStorage.setItem(CLASSES_LS_KEY, JSON.stringify(mapped)); } catch { /* quota */ }
       if (mapped.length === 0) {
         toast.info('Aucune classe trouvée. Créez votre première classe !', {
           description: "Ou utilisez le modal d'onboarding pour créer des classes automatiquement.",
@@ -143,9 +146,15 @@ export default function ClassesPage() {
       }
       return mapped;
     },
-    enabled: isOnline && !!user,
+    enabled: !!user,
     staleTime: 60_000,
-    placeholderData: keepPreviousData,
+    // Afficher le cache localStorage immédiatement pendant le fetch (connexion lente)
+    placeholderData: () => {
+      try {
+        const cached = localStorage.getItem(CLASSES_LS_KEY);
+        return cached ? (JSON.parse(cached) as Class[]) : undefined;
+      } catch { return undefined; }
+    },
   });
 
   // Erreur réseau → fallback IndexedDB

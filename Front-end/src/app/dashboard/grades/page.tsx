@@ -250,6 +250,7 @@ function GradesPageInner() {
   const effectiveYear = selectedYear || academicYear;
 
   // ── Classes via useQuery ──────────────────────────────────────────────────
+  const CLASSES_LS_KEY = `structura_classes_cache:${user?.tenantId}`;
   const { data: allClassesData, isLoading: classesLoading, refetch: refetchClasses } = useQuery({
     queryKey: CLASSES_QUERY_KEY(user?.tenantId),
     queryFn: async (): Promise<BackendClass[]> => {
@@ -257,10 +258,19 @@ function GradesPageInner() {
       if (!token) throw new Error("Session expirée");
       const data = await getClasses(token);
       for (const cls of data) await offlineDB.update(STORES.CLASSES, cls).catch(() => {});
+      // Sauvegarder dans localStorage pour affichage instantané au prochain chargement
+      try { localStorage.setItem(CLASSES_LS_KEY, JSON.stringify(data)); } catch { /* quota */ }
       return data;
     },
-    enabled: isOnline && !!user,
+    enabled: !!user,
     staleTime: 60_000,
+    // Afficher le cache localStorage immédiatement pendant le fetch (connexion lente)
+    placeholderData: () => {
+      try {
+        const cached = localStorage.getItem(CLASSES_LS_KEY);
+        return cached ? (JSON.parse(cached) as BackendClass[]) : undefined;
+      } catch { return undefined; }
+    },
   });
 
   const [offlineClasses, setOfflineClasses] = useState<BackendClass[]>([]);
