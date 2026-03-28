@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/dialog";
 import { changePassword } from "@/lib/api/auth.service";
 import * as storage from "@/lib/storage";
+import { ROLE_LABELS } from "@/types/permissions";
+import { isDirectorLevel } from "@/lib/is-director";
 
 const TOKEN_KEY = "structura_token";
 
@@ -34,13 +36,10 @@ function getInitials(first?: string, last?: string) {
   return `${first?.charAt(0) ?? ""}${last?.charAt(0) ?? ""}`.toUpperCase();
 }
 
-function roleLabel(role?: string) {
-  switch (role) {
-    case "director":    return "Directeur";
-    case "teacher":     return "Professeur";
-    case "accountant":  return "Comptable";
-    default:            return role ?? "—";
-  }
+function roleLabel(user?: import("@/types").User | null) {
+  if (!user) return "—";
+  if (isDirectorLevel(user)) return user.role === "director" ? "Directeur" : "Co-directeur";
+  return ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role ?? "—";
 }
 
 export default function ProfilePage() {
@@ -178,7 +177,7 @@ export default function ProfilePage() {
               </p>
               <div className="flex items-center gap-2 flex-wrap mt-1">
                 <Badge variant="secondary" className="text-xs">
-                  {roleLabel(user?.role)}
+                  {roleLabel(user)}
                 </Badge>
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Mail className="h-3 w-3" />

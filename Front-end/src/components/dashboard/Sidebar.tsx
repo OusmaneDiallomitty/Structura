@@ -387,7 +387,9 @@ export function Sidebar() {
                   {user?.firstName} {user?.lastName}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {ROLE_LABELS[user?.role as keyof typeof ROLE_LABELS] ?? user?.role}
+                  {isDirectorLevel(user)
+                    ? (user?.role === "director" ? "Directeur" : "Co-directeur")
+                    : (ROLE_LABELS[user?.role as keyof typeof ROLE_LABELS] ?? user?.role)}
                 </p>
               </div>
             </Link>
