@@ -274,6 +274,17 @@ export default function TeamPage() {
     }
   }, [loadTeam, loadClasses, isDirector]);
 
+  // Auto-replier le groupe Professeurs si > 4 profs (page trop longue sinon)
+  useEffect(() => {
+    if (!isLoading && teacherCount > 4) {
+      setCollapsedGroups((prev) => {
+        const next = new Set(prev);
+        next.add("teacher");
+        return next;
+      });
+    }
+  }, [isLoading, teacherCount]);
+
   // ── Filtrage ────────────────────────────────────────────────────────────────
 
   const filteredMembers = members.filter((m) => {
@@ -871,7 +882,7 @@ export default function TeamPage() {
                                 )}
                                 {hasCustomPermissions && (
                                   <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 text-xs py-0 h-5">
-                                    <Shield className="h-2.5 w-2.5 mr-1" />Custom
+                                    <Shield className="h-2.5 w-2.5 mr-1" />Configuré
                                   </Badge>
                                 )}
                               </div>
