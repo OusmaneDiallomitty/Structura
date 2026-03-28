@@ -95,16 +95,36 @@ export class PaymentsService {
         academicYear: string,
         term: string,
     ): Promise<void> {
-        // 1. Récupérer le calendrier scolaire depuis la BDD
-        const academicYearRecord = await this.prisma.academicYear.findFirst({
-            where: { tenantId, name: academicYear },
-            select: { startMonth: true, durationMonths: true },
-        });
+        // 1. Récupérer le calendrier scolaire et l'enrollmentMonth de l'élève depuis la BDD
+        const [academicYearRecord, studentRecord] = await Promise.all([
+            this.prisma.academicYear.findFirst({
+                where: { tenantId, name: academicYear },
+                select: { startMonth: true, durationMonths: true },
+            }),
+            this.prisma.student.findFirst({
+                where: { id: studentId, tenantId },
+                select: { enrollmentMonth: true },
+            }),
+        ]);
 
         const startMonth = academicYearRecord?.startMonth ?? 'Septembre';
         const durationMonths = academicYearRecord?.durationMonths ?? 9;
 
-        const schoolMonths = this.getSchoolMonthsForYear(academicYear, startMonth, durationMonths);
+        let schoolMonths = this.getSchoolMonthsForYear(academicYear, startMonth, durationMonths);
+
+        // Exclure les mois antérieurs au mois d'inscription de l'élève (YYYY-MM)
+        // Les mois avant inscription ne lui sont pas facturés → pas de contrainte séquentielle sur eux
+        const enrollmentMonth = studentRecord?.enrollmentMonth; // ex: "2026-03"
+        if (enrollmentMonth) {
+            const [enrollYear, enrollMonthNum] = enrollmentMonth.split('-').map(Number);
+            const enrollMonthName = ALL_MONTHS_FR[(enrollMonthNum ?? 1) - 1];
+            const enrollLabel = `${enrollMonthName} ${enrollYear}`; // ex: "Mars 2026"
+            const enrollIdx = schoolMonths.indexOf(enrollLabel);
+            if (enrollIdx > 0) {
+                schoolMonths = schoolMonths.slice(enrollIdx);
+            }
+        }
+
         const trimestreGroups = this.getTrimestreGroups(schoolMonths);
 
         // 2. Expand le terme entrant en liste de mois
