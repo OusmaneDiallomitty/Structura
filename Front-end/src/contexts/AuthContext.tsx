@@ -106,15 +106,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Heartbeat toutes les 5 minutes : refresh uniquement si le token access est expiré.
-  // Ne pas rafraîchir aveuglément — chaque rotation écrit en BDD et risque de perdre
-  // la réponse en cas de timeout réseau, rendant l'ancien refresh token invalide.
+  // Heartbeat toutes les 5 minutes : refresh token si expiré + sync permissions depuis le serveur.
+  // Le sync permissions garantit que les changements faits par le fondateur prennent effet
+  // sans forcer la déconnexion/reconnexion du directeur.
   useEffect(() => {
     if (!user) return;
     const interval = setInterval(() => {
       const token = storage.getAuthItem(TOKEN_KEY);
-      if (token && isTokenExpired(token)) {
+      if (!token) return;
+      if (isTokenExpired(token)) {
         tryRefreshToken();
+      } else {
+        // Rafraîchir le profil (permissions incluses) silencieusement
+        refreshUserProfile();
       }
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
