@@ -34,11 +34,22 @@ class ReportsPermissionDto {
   export: boolean;
 }
 
+class AccountingPermissionDto {
+  @IsBoolean()
+  view: boolean;
+}
+
 export class UpdatePermissionsDto {
   /** Délégation complète : ce membre a les mêmes droits qu'un directeur */
   @IsOptional()
   @IsBoolean()
   isCoDirector?: boolean;
+
+  /** Accès comptabilité : paie du personnel + stats financières globales */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AccountingPermissionDto)
+  accounting?: AccountingPermissionDto;
 
   @ValidateNested()
   @Type(() => PaymentsPermissionDto)
