@@ -26,6 +26,7 @@ export class PayrollService {
           role: true,
           phone: true,
           salaryConfig: true,
+          hireMonth: true,
         },
         orderBy: [{ role: 'asc' }, { lastName: 'asc' }],
       }),
@@ -60,6 +61,7 @@ export class PayrollService {
         role: s.role.toLowerCase(),
         phone: s.phone,
         salaryConfig: config,
+        hireMonth: s.hireMonth ?? null,
         payment,
         isPaid: !!payment,
       };

@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional, IsIn, MinLength } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsIn, MinLength, Matches } from 'class-validator';
 
 export class CreateTeamMemberDto {
   @IsString()
@@ -21,4 +21,9 @@ export class CreateTeamMemberDto {
   @IsString()
   @IsOptional()
   phone?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'hireMonth doit être au format YYYY-MM' })
+  hireMonth?: string;
 }

@@ -27,6 +27,7 @@ export interface PayrollStaffMember {
   role: string;
   phone: string | null;
   salaryConfig: SalaryConfig | null;
+  hireMonth: string | null; // "YYYY-MM" — null = depuis le début de l'année scolaire
   payment: SalaryPayment | null;
   isPaid: boolean;
 }

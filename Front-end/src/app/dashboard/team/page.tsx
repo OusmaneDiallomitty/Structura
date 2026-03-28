@@ -100,6 +100,7 @@ interface MemberView {
   assignedClasses: AssignedClass[];
   /** Détail des matières par classe (professeurs uniquement) */
   classAssignments: ClassSubjectAssignment[];
+  hireMonth: string | null;
   isActive: boolean;
   emailVerified: boolean;
   lastLoginAt: Date | null;
@@ -130,6 +131,7 @@ function mapMember(m: BackendTeamMember): MemberView {
     permissions: m.permissions,
     assignedClasses: m.taughtClasses ?? [],
     classAssignments: (m.classAssignments as ClassSubjectAssignment[]) ?? [],
+    hireMonth: m.hireMonth ?? null,
     isActive: m.isActive,
     emailVerified: m.emailVerified,
     lastLoginAt: m.lastLoginAt ? new Date(m.lastLoginAt) : null,
@@ -195,6 +197,7 @@ export default function TeamPage() {
     phone: "",
     role: "" as RoleType | "co-director" | "",
     isCoDirector: false,
+    hireMonth: "",
     selectedClassIds: [] as string[],
     classAssignments: [] as ClassSubjectAssignment[],
   });
@@ -205,6 +208,7 @@ export default function TeamPage() {
     phone: "",
     role: "" as RoleType | "",
     isActive: true,
+    hireMonth: "",
     selectedClassIds: [] as string[],
     classAssignments: [] as ClassSubjectAssignment[],
   });
@@ -348,7 +352,7 @@ export default function TeamPage() {
   // ── Handlers UI ─────────────────────────────────────────────────────────────
 
   const handleAdd = () => {
-    setAddForm({ firstName: "", lastName: "", email: "", phone: "", role: "", isCoDirector: false, selectedClassIds: [], classAssignments: [] });
+    setAddForm({ firstName: "", lastName: "", email: "", phone: "", role: "", isCoDirector: false, hireMonth: "", selectedClassIds: [], classAssignments: [] });
     setIsAddDialogOpen(true);
   };
 
@@ -366,6 +370,7 @@ export default function TeamPage() {
       phone: member.phone,
       role: member.role,
       isActive: member.isActive,
+      hireMonth: member.hireMonth ?? "",
       selectedClassIds,
       classAssignments: member.classAssignments ?? [],
     });
@@ -487,6 +492,7 @@ export default function TeamPage() {
         email: addForm.email,
         role: actualRole.toUpperCase(),
         phone: addForm.phone || undefined,
+        hireMonth: addForm.hireMonth || undefined,
       });
 
       // Assigner les classes si c'est un professeur et qu'il y en a de sélectionnées
@@ -579,6 +585,7 @@ export default function TeamPage() {
         ...(!isSelf && { role: newRole.toUpperCase() }),
         ...(!isSelf && { isActive: editForm.isActive }),
         ...(emailChanged && !selectedMember.lastLoginAt && { email: editForm.email }),
+        hireMonth: editForm.hireMonth || null,
       });
 
       if (!isSelf && newRole === "teacher") {
@@ -1070,6 +1077,19 @@ export default function TeamPage() {
                   className="border-2"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-hireMonth">Mois d&apos;embauche</Label>
+                <Input
+                  id="add-hireMonth"
+                  type="month"
+                  value={addForm.hireMonth}
+                  onChange={(e) => setAddForm({ ...addForm, hireMonth: e.target.value })}
+                  className="border-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Laisser vide si le membre est présent depuis le début de l&apos;année scolaire
+                </p>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="add-role">Rôle *</Label>
@@ -1290,6 +1310,19 @@ export default function TeamPage() {
                 placeholder="+224 621 234 567"
                 className="border-2"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-hireMonth">Mois d&apos;embauche</Label>
+              <Input
+                id="edit-hireMonth"
+                type="month"
+                value={editForm.hireMonth}
+                onChange={(e) => setEditForm({ ...editForm, hireMonth: e.target.value })}
+                className="border-2"
+              />
+              <p className="text-xs text-muted-foreground">
+                Laisser vide si le membre est présent depuis le début de l&apos;année scolaire
+              </p>
             </div>
             {/* Rôle — pas modifiable sur soi-même */}
             {selectedMember?.id !== user?.id && (

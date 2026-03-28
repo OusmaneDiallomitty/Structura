@@ -147,6 +147,8 @@ model User {
   classAssignments        Json?
   // Configuration salaire — { amount: number, currency: "GNF" }
   salaryConfig            Json?
+  // Mois d'embauche — "YYYY-MM" — null = depuis le début de l'année scolaire
+  hireMonth               String?
   // Web Push subscriptions (VAPID natif — multi-appareils)
   pushSubscriptions       PushSubscription[]
   notifications           Notification[]

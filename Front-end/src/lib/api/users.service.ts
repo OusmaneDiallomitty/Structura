@@ -32,6 +32,8 @@ export interface BackendTeamMember {
   permissions: UserPermissions | null;
   /** Détail des matières enseignées par classe (professeurs uniquement) */
   classAssignments?: ClassSubjectAssignment[] | null;
+  /** Mois d'embauche — "YYYY-MM" — null = depuis le début de l'année scolaire */
+  hireMonth?: string | null;
   isActive: boolean;
   emailVerified: boolean;
   lastLoginAt: string | null;
@@ -48,6 +50,7 @@ export interface CreateTeamMemberPayload {
   email: string;
   role: string;           // UPPERCASE attendu par le backend
   phone?: string;
+  hireMonth?: string;     // "YYYY-MM"
 }
 
 export interface UpdateTeamMemberPayload {
@@ -57,6 +60,7 @@ export interface UpdateTeamMemberPayload {
   role?: string;          // UPPERCASE
   isActive?: boolean;
   email?: string;
+  hireMonth?: string | null; // "YYYY-MM" ou null pour effacer
 }
 
 export interface UpdateProfilePayload {

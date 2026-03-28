@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsIn, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsIn, IsEmail, Matches } from 'class-validator';
 
 export class UpdateTeamMemberDto {
   @IsString()
@@ -27,4 +27,9 @@ export class UpdateTeamMemberDto {
   @IsEmail({}, { message: 'Email invalide' })
   @IsOptional()
   email?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'hireMonth doit être au format YYYY-MM' })
+  hireMonth?: string;
 }

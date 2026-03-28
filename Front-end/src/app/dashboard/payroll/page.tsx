@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Receipt,
   Search,
+  CalendarX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,8 @@ import {
   PayrollStaffMember,
   SalaryPayment,
 } from "@/lib/api/payroll.service";
+import { getFeesConfig, SchoolCalendar } from "@/lib/api/fees.service";
+import { getAcademicYears } from "@/lib/api/academic-years.service";
 import { generateSalaryReceipt } from "@/lib/pdf-generator";
 import { ROLE_LABELS, RoleType } from "@/types/permissions";
 
@@ -93,6 +96,38 @@ const ROLE_COLORS: Record<string, string> = {
   secretary:  "bg-pink-100 text-pink-700",
 };
 
+const MONTHS_FR = [
+  "Janvier","Février","Mars","Avril","Mai","Juin",
+  "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
+];
+
+/**
+ * Calcule la liste des mois YYYY-MM de l'année scolaire à partir du calendrier + nom d'année.
+ * Ex: startMonth="Septembre", durationMonths=9, academicYear="2025-2026"
+ *   → ["2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03","2026-04","2026-05"]
+ */
+function getSchoolMonths(cal: SchoolCalendar, academicYear: string): string[] {
+  const startIdx = MONTHS_FR.indexOf(cal.startMonth);
+  if (startIdx === -1) return [];
+  const startYear = parseInt(academicYear.split("-")[0], 10);
+  if (isNaN(startYear)) return [];
+  const months: string[] = [];
+  for (let i = 0; i < Math.min(cal.durationMonths, 12); i++) {
+    const mIdx = (startIdx + i) % 12;
+    const year = mIdx >= startIdx ? startYear : startYear + 1;
+    months.push(`${year}-${String(mIdx + 1).padStart(2, "0")}`);
+  }
+  return months;
+}
+
+/**
+ * Vérifie si le mois courant (YYYY-MM) est avant le mois d'embauche du membre.
+ */
+function isBeforeHire(currentMonth: string, hireMonth: string | null): boolean {
+  if (!hireMonth) return false;
+  return currentMonth < hireMonth;
+}
+
 // ── Query keys ─────────────────────────────────────────────────────────────────
 
 const PAYROLL_KEY = (tenantId?: string, month?: string) =>
@@ -101,33 +136,101 @@ const PAYROLL_KEY = (tenantId?: string, month?: string) =>
 const HISTORY_KEY = (tenantId?: string) =>
   ["payroll-history", tenantId] as const;
 
+const SCHOOL_CONFIG_KEY = (tenantId?: string) =>
+  ["school-config-payroll", tenantId] as const;
+
 // ── Page principale ────────────────────────────────────────────────────────────
 
 export default function PayrollPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // ── Mois courant ─────────────────────────────────────────────────────────────
+  // ── Calendrier scolaire ───────────────────────────────────────────────────────
+  const { data: schoolConfig } = useQuery({
+    queryKey: SCHOOL_CONFIG_KEY(user?.tenantId),
+    queryFn: async () => {
+      const token = storage.getAuthItem("structura_token");
+      if (!token) throw new Error("Session expirée");
+      const [fees, years] = await Promise.all([
+        getFeesConfig(token),
+        getAcademicYears(token),
+      ]);
+      const currentYear = years.find((y) => y.isCurrent);
+      // Priorité : AcademicYear.startMonth/durationMonths, fallback schoolCalendar du tenant
+      const cal: SchoolCalendar = {
+        startMonth:
+          currentYear?.startMonth ??
+          fees.schoolCalendar?.startMonth ??
+          "Septembre",
+        durationMonths:
+          currentYear?.durationMonths ??
+          fees.schoolCalendar?.durationMonths ??
+          9,
+      };
+      return { cal, academicYearName: currentYear?.name ?? null };
+    },
+    enabled: !!user,
+    staleTime: 10 * 60_000,
+  });
+
+  // ── Mois valides + mois courant ───────────────────────────────────────────────
+  const schoolMonths = useMemo(() => {
+    if (!schoolConfig) return null;
+    return getSchoolMonths(schoolConfig.cal, schoolConfig.academicYearName ?? new Date().getFullYear().toString());
+  }, [schoolConfig]);
+
   const [currentMonth, setCurrentMonth] = useState(() =>
     new Date().toISOString().slice(0, 7)
   );
 
+  // Une fois le calendrier chargé, caler le mois courant dans les limites valides
+  const effectiveMonth = useMemo(() => {
+    if (!schoolMonths || schoolMonths.length === 0) return currentMonth;
+    if (schoolMonths.includes(currentMonth)) return currentMonth;
+    // Trouver le mois le plus proche
+    const first = schoolMonths[0];
+    const last = schoolMonths[schoolMonths.length - 1];
+    if (currentMonth < first) return first;
+    if (currentMonth > last) return last;
+    return currentMonth;
+  }, [currentMonth, schoolMonths]);
+
   const monthLabel = new Intl.DateTimeFormat("fr-FR", {
     month: "long",
     year: "numeric",
-  }).format(new Date(currentMonth + "-01"));
+  }).format(new Date(effectiveMonth + "-01"));
 
-  const prevMonth = () => {
-    const [y, m] = currentMonth.split("-").map(Number);
-    const d = new Date(y, m - 2, 1);
-    setCurrentMonth(d.toISOString().slice(0, 7));
-  };
+  const canGoPrev = useMemo(() => {
+    if (!schoolMonths) return true;
+    return schoolMonths.indexOf(effectiveMonth) > 0;
+  }, [effectiveMonth, schoolMonths]);
 
-  const nextMonth = () => {
-    const [y, m] = currentMonth.split("-").map(Number);
-    const d = new Date(y, m, 1);
-    setCurrentMonth(d.toISOString().slice(0, 7));
-  };
+  const canGoNext = useMemo(() => {
+    if (!schoolMonths) return true;
+    return schoolMonths.indexOf(effectiveMonth) < schoolMonths.length - 1;
+  }, [effectiveMonth, schoolMonths]);
+
+  const prevMonth = useCallback(() => {
+    if (!canGoPrev) return;
+    if (schoolMonths) {
+      const idx = schoolMonths.indexOf(effectiveMonth);
+      if (idx > 0) setCurrentMonth(schoolMonths[idx - 1]);
+    } else {
+      const [y, m] = effectiveMonth.split("-").map(Number);
+      setCurrentMonth(new Date(y, m - 2, 1).toISOString().slice(0, 7));
+    }
+  }, [canGoPrev, effectiveMonth, schoolMonths]);
+
+  const nextMonth = useCallback(() => {
+    if (!canGoNext) return;
+    if (schoolMonths) {
+      const idx = schoolMonths.indexOf(effectiveMonth);
+      if (idx < schoolMonths.length - 1) setCurrentMonth(schoolMonths[idx + 1]);
+    } else {
+      const [y, m] = effectiveMonth.split("-").map(Number);
+      setCurrentMonth(new Date(y, m, 1).toISOString().slice(0, 7));
+    }
+  }, [canGoNext, effectiveMonth, schoolMonths]);
 
   // ── Recherche ─────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -148,11 +251,11 @@ export default function PayrollPage() {
     data: summary,
     isLoading: isLoadingSummary,
   } = useQuery({
-    queryKey: PAYROLL_KEY(user?.tenantId, currentMonth),
+    queryKey: PAYROLL_KEY(user?.tenantId, effectiveMonth),
     queryFn: async () => {
       const token = storage.getAuthItem("structura_token");
       if (!token) throw new Error("Session expirée");
-      return getPayrollSummary(token, currentMonth);
+      return getPayrollSummary(token, effectiveMonth);
     },
     enabled: !!user,
     staleTime: 2 * 60_000,
@@ -206,7 +309,7 @@ export default function PayrollPage() {
     try {
       const payment = await paySalary(token, {
         staffId: payDialog.id,
-        month: currentMonth,
+        month: effectiveMonth,
         amount,
         method: payForm.method,
         note: payForm.note || undefined,
@@ -214,7 +317,7 @@ export default function PayrollPage() {
 
       // Optimistic update
       queryClient.setQueryData(
-        PAYROLL_KEY(user?.tenantId, currentMonth),
+        PAYROLL_KEY(user?.tenantId, effectiveMonth),
         (old: typeof summary) => {
           if (!old) return old;
           return {
@@ -259,7 +362,7 @@ export default function PayrollPage() {
       await updateSalaryConfig(token, configDialog.id, amount);
 
       queryClient.setQueryData(
-        PAYROLL_KEY(user?.tenantId, currentMonth),
+        PAYROLL_KEY(user?.tenantId, effectiveMonth),
         (old: typeof summary) => {
           if (!old) return old;
           const wasUnconfigured = !configDialog.salaryConfig?.amount;
@@ -298,7 +401,7 @@ export default function PayrollPage() {
 
     try {
       await deletePayrollPayment(token, deleteTarget.id);
-      queryClient.invalidateQueries({ queryKey: PAYROLL_KEY(user?.tenantId, currentMonth) });
+      queryClient.invalidateQueries({ queryKey: PAYROLL_KEY(user?.tenantId, effectiveMonth) });
       queryClient.invalidateQueries({ queryKey: HISTORY_KEY(user?.tenantId) });
       toast.success("Paiement annulé");
       setDeleteTarget(null);
@@ -314,7 +417,7 @@ export default function PayrollPage() {
       staffName: `${member.firstName} ${member.lastName}`,
       staffRole: ROLE_LABELS[member.role as RoleType] ?? member.role,
       month: new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" })
-        .format(new Date(currentMonth + "-01"))
+        .format(new Date(effectiveMonth + "-01"))
         .replace(/^\w/, (c) => c.toUpperCase()),
       amount: member.payment.amount,
       currency: member.salaryConfig?.currency ?? "GNF",
@@ -359,13 +462,25 @@ export default function PayrollPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 bg-white border-2 border-gray-200 rounded-lg px-3 py-2 w-fit">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMonth}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={prevMonth}
+            disabled={!canGoPrev}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="font-semibold text-sm capitalize min-w-[130px] text-center">
             {monthLabel}
           </span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMonth}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={nextMonth}
+            disabled={!canGoNext}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -493,107 +608,118 @@ export default function PayrollPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredStaff.map((member) => (
-                    <TableRow key={member.id} className="hover:bg-gray-50">
-                      <TableCell>
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shrink-0">
-                            <span className="text-white text-xs font-bold">
-                              {member.firstName[0]}{member.lastName[0]}
+                  {filteredStaff.map((member) => {
+                    const beforeHire = isBeforeHire(effectiveMonth, member.hireMonth);
+                    return (
+                      <TableRow
+                        key={member.id}
+                        className={beforeHire ? "bg-gray-50 opacity-60" : "hover:bg-gray-50"}
+                      >
+                        <TableCell>
+                          <div className="flex items-center gap-2.5">
+                            <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${beforeHire ? "bg-gray-300" : "bg-gradient-to-br from-blue-500 to-violet-600"}`}>
+                              <span className="text-white text-xs font-bold">
+                                {member.firstName[0]}{member.lastName[0]}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{member.firstName} {member.lastName}</p>
+                              <p className="text-xs text-muted-foreground sm:hidden">
+                                {ROLE_LABELS[member.role as RoleType] ?? member.role}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge variant="outline" className={`text-xs ${ROLE_COLORS[member.role] ?? "bg-gray-100 text-gray-600"}`}>
+                            {ROLE_LABELS[member.role as RoleType] ?? member.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {member.salaryConfig?.amount ? (
+                            <span className="font-semibold text-sm">{formatAmount(member.salaryConfig.amount)}</span>
+                          ) : (
+                            <span className="text-xs text-orange-600 font-medium flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Non configuré
                             </span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{member.firstName} {member.lastName}</p>
-                            <p className="text-xs text-muted-foreground sm:hidden">
-                              {ROLE_LABELS[member.role as RoleType] ?? member.role}
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        <Badge variant="outline" className={`text-xs ${ROLE_COLORS[member.role] ?? "bg-gray-100 text-gray-600"}`}>
-                          {ROLE_LABELS[member.role as RoleType] ?? member.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {member.salaryConfig?.amount ? (
-                          <span className="font-semibold text-sm">{formatAmount(member.salaryConfig.amount)}</span>
-                        ) : (
-                          <span className="text-xs text-orange-600 font-medium flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" /> Non configuré
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {member.isPaid ? (
-                          <div className="flex items-center gap-1.5">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                            <span className="text-xs text-emerald-700 font-medium">
-                              Payé le {fmtDate(member.payment!.date)}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="h-4 w-4 text-amber-500 shrink-0" />
-                            <span className="text-xs text-amber-700 font-medium">En attente</span>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1">
-                          {!member.isPaid && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-xs text-gray-500 hover:text-gray-700"
-                                onClick={() => {
-                                  setConfigDialog(member);
-                                  setConfigAmount(member.salaryConfig?.amount?.toString() ?? "");
-                                }}
-                              >
-                                <Settings2 className="h-3.5 w-3.5 mr-1" />
-                                <span className="hidden sm:inline">Config</span>
-                              </Button>
-                              <Button
-                                size="sm"
-                                disabled={!member.salaryConfig?.amount}
-                                onClick={() => {
-                                  setPayDialog(member);
-                                  setPayForm({ method: "CASH", note: "" });
-                                }}
-                                className="h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700"
-                              >
-                                <Banknote className="h-3.5 w-3.5 mr-1" />
-                                Payer
-                              </Button>
-                            </>
                           )}
-                          {member.isPaid && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => handleReceipt(member)}
-                              >
-                                <Download className="h-3.5 w-3.5 mr-1" />
-                                Reçu
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => setDeleteTarget(member.payment!)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
+                        </TableCell>
+                        <TableCell>
+                          {beforeHire ? (
+                            <div className="flex items-center gap-1.5">
+                              <CalendarX className="h-4 w-4 text-gray-400 shrink-0" />
+                              <span className="text-xs text-gray-500 font-medium">Avant embauche</span>
+                            </div>
+                          ) : member.isPaid ? (
+                            <div className="flex items-center gap-1.5">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                              <span className="text-xs text-emerald-700 font-medium">
+                                Payé le {fmtDate(member.payment!.date)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                              <span className="text-xs text-amber-700 font-medium">En attente</span>
+                            </div>
                           )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            {!beforeHire && !member.isPaid && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-xs text-gray-500 hover:text-gray-700"
+                                  onClick={() => {
+                                    setConfigDialog(member);
+                                    setConfigAmount(member.salaryConfig?.amount?.toString() ?? "");
+                                  }}
+                                >
+                                  <Settings2 className="h-3.5 w-3.5 mr-1" />
+                                  <span className="hidden sm:inline">Config</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  disabled={!member.salaryConfig?.amount}
+                                  onClick={() => {
+                                    setPayDialog(member);
+                                    setPayForm({ method: "CASH", note: "" });
+                                  }}
+                                  className="h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <Banknote className="h-3.5 w-3.5 mr-1" />
+                                  Payer
+                                </Button>
+                              </>
+                            )}
+                            {!beforeHire && member.isPaid && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => handleReceipt(member)}
+                                >
+                                  <Download className="h-3.5 w-3.5 mr-1" />
+                                  Reçu
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => setDeleteTarget(member.payment!)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

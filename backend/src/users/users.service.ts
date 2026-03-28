@@ -26,6 +26,7 @@ const USER_PUBLIC_SELECT = {
   role: true,
   permissions: true,
   classAssignments: true,
+  hireMonth: true,
   isActive: true,
   emailVerified: true,
   lastLoginAt: true,
@@ -166,6 +167,7 @@ export class UsersService {
         password: hashedPassword,
         phone: dto.phone ?? null,
         role: dto.role.toUpperCase(),
+        hireMonth: dto.hireMonth ?? null,
         tenantId,
         // Le directeur ajoute directement → email déjà vérifié
         emailVerified: true,
@@ -292,6 +294,7 @@ export class UsersService {
         ...(dto.role                       && { role:       dto.role.toUpperCase() }),
         ...(dto.isActive !== undefined      && { isActive:   dto.isActive  }),
         ...(emailChanged && { email: dto.email }),
+        ...(dto.hireMonth !== undefined     && { hireMonth:  dto.hireMonth ?? null }),
       },
       select: {
         ...USER_PUBLIC_SELECT,
