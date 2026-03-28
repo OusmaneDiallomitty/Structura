@@ -1713,7 +1713,9 @@ export default function PaymentsPage() {
 
     // Toujours pré-sélectionner le premier mois impayé (contrainte séquentielle)
     // Jamais sauter des mois même si le mois courant est plus loin dans le calendrier
-    const initMonth = allMonths.find((mo) => !alreadyPaid.has(mo)) ?? null;
+    // Ignorer les mois antérieurs à l'inscription de l'élève
+    const eligibleMonths = allMonths.filter((mo) => !isBeforeEnrollment(mo, student.enrollmentMonth));
+    const initMonth = eligibleMonths.find((mo) => !alreadyPaid.has(mo)) ?? null;
 
     if (preselect) {
       // Mode "Compléter un partiel" : forcer le mois + montant restant
@@ -4870,29 +4872,33 @@ export default function PaymentsPage() {
                             const isPaid      = paidMonthsForStudent.has(month);
                             const isPartial   = !isPaid && partialMonthsForStudent.has(month);
                             const isSel       = dialogTrimestreMonths.has(month);
+                            const isEnrollmentBlocked = !isHC && isBeforeEnrollment(month, selectedStudentForPayment?.enrollmentMonth);
                             const shortName   = MONTH_SHORT[month.split(" ")[0]] ?? month.split(" ")[0].slice(0, 3);
                             const monthSchoolIdx = dialogSchoolMonths.indexOf(month);
-                            const isAwaitingPrev = !isHC && !isPaid && !isPartial && !isSel &&
+                            const isAwaitingPrev = !isHC && !isPaid && !isPartial && !isSel && !isEnrollmentBlocked &&
                               monthSchoolIdx > firstUnpaidIdx &&
                               dialogSchoolMonths.slice(firstUnpaidIdx, monthSchoolIdx).some((m) => !dialogTrimestreMonths.has(m) && !paidMonthsForStudent.has(m));
                             return (
                               <button
                                 key={month}
                                 type="button"
-                                disabled={isPaid}
+                                disabled={isPaid || isEnrollmentBlocked}
                                 title={
+                                  isEnrollmentBlocked ? `${month} — avant l'inscription de l'élève` :
                                   isPaid      ? `${month} — déjà payé` :
                                   isPartial   ? `${month} — paiement partiel, cliquer pour compléter` :
                                   isAwaitingPrev ? `Cliquer inclura automatiquement les mois précédents non réglés` :
                                   undefined
                                 }
                                 onClick={() => {
-                                  if (isPaid) return;
+                                  if (isPaid || isEnrollmentBlocked) return;
                                   handleMonthToggle(month);
                                 }}
                                 className={cn(
                                   "flex flex-col items-center justify-center gap-0.5 w-11 py-1.5 rounded-md border text-[11px] font-semibold transition-colors",
-                                  isPaid
+                                  isEnrollmentBlocked
+                                    ? "bg-muted/30 border-border/30 text-muted-foreground/40 cursor-not-allowed opacity-50"
+                                    : isPaid
                                     ? "bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed"
                                     : isSel
                                     ? "bg-primary border-primary text-primary-foreground shadow-sm active:bg-primary/80"
@@ -4906,7 +4912,9 @@ export default function PaymentsPage() {
                                 )}
                               >
                                 {shortName}
-                                {isPaid
+                                {isEnrollmentBlocked
+                                  ? <span className="h-2" />
+                                  : isPaid
                                   ? <CheckCircle2 className="h-2 w-2" />
                                   : isSel
                                   ? <Check className="h-2 w-2" />
