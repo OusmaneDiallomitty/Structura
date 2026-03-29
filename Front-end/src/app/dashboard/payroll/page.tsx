@@ -68,7 +68,7 @@ import {
 import { getFeesConfig, SchoolCalendar } from "@/lib/api/fees.service";
 import { getAcademicYears } from "@/lib/api/academic-years.service";
 import { generateSalaryReceipt } from "@/lib/pdf-generator";
-import { ROLE_LABELS, RoleType, canViewAccounting } from "@/types/permissions";
+import { ROLE_LABELS, RoleType, canViewAccounting, getUserRoleLabel } from "@/types/permissions";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -431,7 +431,7 @@ export default function PayrollPage() {
     generateSalaryReceipt({
       schoolName: user?.schoolName ?? "École",
       staffName: `${member.firstName} ${member.lastName}`,
-      staffRole: ROLE_LABELS[member.role as RoleType] ?? member.role,
+      staffRole: getUserRoleLabel(member),
       month: new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" })
         .format(new Date(effectiveMonth + "-01"))
         .replace(/^\w/, (c) => c.toUpperCase()),
@@ -641,14 +641,14 @@ export default function PayrollPage() {
                             <div>
                               <p className="font-medium text-sm">{member.firstName} {member.lastName}</p>
                               <p className="text-xs text-muted-foreground sm:hidden">
-                                {ROLE_LABELS[member.role as RoleType] ?? member.role}
+                                {getUserRoleLabel(member)}
                               </p>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <Badge variant="outline" className={`text-xs ${ROLE_COLORS[member.role] ?? "bg-gray-100 text-gray-600"}`}>
-                            {ROLE_LABELS[member.role as RoleType] ?? member.role}
+                            {getUserRoleLabel(member)}
                           </Badge>
                         </TableCell>
                         <TableCell>
