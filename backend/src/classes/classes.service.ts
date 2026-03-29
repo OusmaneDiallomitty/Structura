@@ -1,14 +1,21 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { DEFAULT_CLASSES, CreateDefaultClassesDto } from './dto/create-default-classes.dto';
 import { ConvertAndCreateClassesDto } from './dto/convert-and-create-classes.dto';
 import { SaveClassSubjectsDto } from './dto/save-class-subjects.dto';
 
+/** TTL cache matières : 10 min — ne changent que sur action explicite du fondateur */
+const SUBJECTS_TTL = 600;
+
 @Injectable()
 export class ClassesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
 
   /**
    * Créer une classe unique
@@ -214,14 +221,30 @@ export class ClassesService {
    * Retourne une liste vide si aucune matière n'a encore été configurée.
    */
   async getSubjects(tenantId: string, classId: string) {
-    // Vérifier que la classe appartient au tenant
-    await this.findOne(tenantId, classId);
+    const cacheKey = `subjects:${tenantId}:${classId}`;
 
-    return this.prisma.classSubject.findMany({
+    // 1. Cache hit → retour immédiat sans toucher la BDD
+    const cached = await this.cache.get<any[]>(cacheKey);
+    if (cached) return cached;
+
+    // 2. Cache miss → une seule requête Prisma avec vérification tenant incluse
+    //    (on filtre par tenantId + classId : si la classe n'appartient pas au tenant → tableau vide)
+    const subjects = await this.prisma.classSubject.findMany({
       where: { classId, tenantId },
       orderBy: { order: 'asc' },
       select: { id: true, name: true, coefficient: true, order: true },
     });
+
+    // La classe doit exister dans ce tenant — on vérifie en une requête COUNT
+    // au lieu de faire un findOne séparé qui doublait le temps de réponse
+    const classExists = await this.prisma.class.count({
+      where: { id: classId, tenantId },
+    });
+    if (!classExists) throw new NotFoundException('Classe introuvable');
+
+    // 3. Mettre en cache et retourner
+    await this.cache.set(cacheKey, subjects, SUBJECTS_TTL);
+    return subjects;
   }
 
   /**
@@ -236,7 +259,7 @@ export class ClassesService {
     // Vérifier que la classe appartient au tenant
     await this.findOne(tenantId, classId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Supprimer les matières qui ne sont plus dans la liste
       await tx.classSubject.deleteMany({
         where: {
@@ -270,6 +293,11 @@ export class ClassesService {
         select: { id: true, name: true, coefficient: true, order: true },
       });
     });
+
+    // Invalider le cache après écriture — le prochain GET rechargera depuis la BDD
+    await this.cache.del(`subjects:${tenantId}:${classId}`);
+
+    return result;
   }
 
   async remove(tenantId: string, id: string) {
