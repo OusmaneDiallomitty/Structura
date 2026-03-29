@@ -29,6 +29,7 @@ import {
   History,
   CreditCard,
   GraduationCap,
+  ChevronDown,
   Lock,
   Eye,
   Printer,
@@ -838,6 +839,7 @@ export default function PaymentsPage() {
   const [bulkMarkingItemId, setBulkMarkingItemId] = useState<string | null>(null);
 
   // ── Saisie en masse des paiements ─────────────────────────────────────────
+  const [recouvrementOpen,   setRecouvrementOpen]   = useState(true);
   const [bulkOpen,           setBulkOpen]           = useState(false);
   const [bulkClassId,        setBulkClassId]        = useState<string>("");
   const [bulkRows,           setBulkRows]           = useState<BulkPayRow[]>([]);
@@ -3421,13 +3423,23 @@ export default function PaymentsPage() {
       {/* ── Recouvrement par classe ── */}
       {canViewAmounts && classes.length > 0 && activeClass === "all" && !isLoading && (
         <Card>
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-primary" />
-              Recouvrement par classe
-              <span className="text-xs font-normal text-muted-foreground">— {selectedTerm} {selectedYear}</span>
+          <CardHeader
+            className="py-3 px-4 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg"
+            onClick={() => setRecouvrementOpen((v) => !v)}
+          >
+            <CardTitle className="text-sm font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 text-primary" />
+                Recouvrement par classe
+                <span className="text-xs font-normal text-muted-foreground">— {selectedTerm} {selectedYear}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({classes.filter(cls => studentSummaries.some(s => s.student.classId === cls.id)).length} classes)
+                </span>
+              </span>
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${recouvrementOpen ? "rotate-180" : ""}`} />
             </CardTitle>
           </CardHeader>
+          {recouvrementOpen && (
           <CardContent className="px-0 pb-3">
             {/* En-tête colonnes */}
             <div className="grid grid-cols-[1fr_80px_100px_56px] gap-2 px-4 pb-1.5 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -3496,6 +3508,7 @@ export default function PaymentsPage() {
                 })}
             </div>
           </CardContent>
+          )}
         </Card>
       )}
 
