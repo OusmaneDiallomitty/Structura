@@ -410,7 +410,7 @@ function RegisterContent() {
                         )}
                       </Button>
                     </div>
-                    {errors.password && (
+                    {errors.password && !password && (
                       <p
                         id="password-error"
                         className="text-sm text-red-600"
@@ -419,9 +419,10 @@ function RegisterContent() {
                         {errors.password.message}
                       </p>
                     )}
-                    {/* Indicateur de force */}
-                    {password && password.length > 0 && (
-                      <div className="space-y-1">
+                    {/* Règles du mot de passe + indicateur de force */}
+                    {password && password.length > 0 ? (
+                      <div className="space-y-2">
+                        {/* Barre de force */}
                         <div className="flex gap-1">
                           {[...Array(5)].map((_, i) => (
                             <div
@@ -434,10 +435,37 @@ function RegisterContent() {
                             />
                           ))}
                         </div>
-                        <p className="text-xs text-gray-600">
-                          Force : {strengthLabels[passwordStrength - 1] || "Aucune"}
+                        <p className="text-xs text-gray-500">
+                          Force : <span className={`font-medium ${passwordStrength >= 4 ? "text-green-600" : passwordStrength >= 3 ? "text-yellow-600" : "text-red-500"}`}>{strengthLabels[passwordStrength - 1] || "Aucune"}</span>
                         </p>
+                        {/* Checklist des règles */}
+                        <ul className="space-y-1">
+                          {[
+                            { ok: password.length >= 8,           label: "8 caractères minimum" },
+                            { ok: /[A-Z]/.test(password),         label: "Une lettre majuscule (A–Z)" },
+                            { ok: /[a-z]/.test(password),         label: "Une lettre minuscule (a–z)" },
+                            { ok: /[0-9]/.test(password),         label: "Un chiffre (0–9)" },
+                            { ok: /[^A-Za-z0-9]/.test(password),  label: "Un caractère spécial (!@#$…)" },
+                          ].map(({ ok, label }) => (
+                            <li key={label} className={`flex items-center gap-1.5 text-xs transition-colors duration-200 ${ok ? "text-green-600" : "text-gray-400"}`}>
+                              {ok ? (
+                                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <circle cx="12" cy="12" r="9" />
+                                </svg>
+                              )}
+                              {label}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
+                    ) : (
+                      <p className="text-xs text-gray-400">
+                        8 car. min · majuscule · minuscule · chiffre · caractère spécial
+                      </p>
                     )}
                   </div>
 
