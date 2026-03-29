@@ -1,8 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
+
+/** TTL cache paiements : 2 min — données qui changent régulièrement */
+const PAYMENTS_TTL = 120;
 
 // ─── Constantes calendrier (miroir du frontend) ──────────────────────────────
 
@@ -13,7 +17,28 @@ const ALL_MONTHS_FR = [
 
 @Injectable()
 export class PaymentsService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private cache: CacheService,
+    ) { }
+
+    /** Clé de cache unique par tenant + filtres actifs */
+    private paymentsCacheKey(tenantId: string, filters?: Record<string, any>): string {
+        const f = filters ?? {};
+        const suffix = [
+            f.status, f.studentId, f.method, f.academicYear, f.term,
+            f.startDate, f.endDate, f.limit, f.skip,
+        ].map(v => v ?? '').join(':');
+        return `payments:list:${tenantId}:${suffix}`;
+    }
+
+    /** Invalide tous les caches de liste pour ce tenant (après create/update/delete) */
+    private async invalidatePaymentsCache(tenantId: string): Promise<void> {
+        await this.cache.del(`payments:list:${tenantId}`);
+        // Invalider aussi les stats dashboard qui incluent les paiements
+        await this.cache.del(`dashboard:stats:${tenantId}`);
+        await this.cache.del(`dashboard:chart:payments:${tenantId}`);
+    }
 
     // ─── Helpers calendrier (privés) ─────────────────────────────────────────
 
@@ -282,6 +307,9 @@ export class PaymentsService {
             });
         }
 
+        // Invalider le cache après écriture
+        await this.invalidatePaymentsCache(tenantId);
+
         return payment;
     }
 
@@ -304,6 +332,11 @@ export class PaymentsService {
         const take = Math.min(Number(filters?.limit) || 500, 5000);
         const skip = Number(filters?.skip) || 0;
 
+        // Cache Redis — clé unique par tenant + combinaison de filtres
+        const cacheKey = this.paymentsCacheKey(tenantId, { ...filters, limit: take, skip });
+        const cached = await this.cache.get<any[]>(cacheKey);
+        if (cached) return cached;
+
         const where: any = { tenantId };
 
         if (filters?.status)       where.status       = filters.status;
@@ -319,13 +352,16 @@ export class PaymentsService {
             };
         }
 
-        return this.prisma.payment.findMany({
+        const result = await this.prisma.payment.findMany({
             where,
             take,
             skip,
             include: { student: true },
             orderBy: { paidDate: 'desc' },
         });
+
+        await this.cache.set(cacheKey, result, PAYMENTS_TTL);
+        return result;
     }
 
     async findOne(tenantId: string, id: string) {
@@ -397,6 +433,9 @@ export class PaymentsService {
             }
         }
 
+        // Invalider le cache après écriture
+        await this.invalidatePaymentsCache(tenantId);
+
         return payment;
     }
 
@@ -404,9 +443,14 @@ export class PaymentsService {
         // Vérifier que le paiement appartient au tenant
         await this.findOne(tenantId, id);
 
-        return this.prisma.payment.delete({
+        const result = await this.prisma.payment.delete({
             where: { id },
         });
+
+        // Invalider le cache après suppression
+        await this.invalidatePaymentsCache(tenantId);
+
+        return result;
     }
 
     async getStats(tenantId: string, filters?: { academicYear?: string; term?: string }) {
