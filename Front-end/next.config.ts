@@ -43,7 +43,6 @@ const sentryConfig = {
   project: 'javascript-nextjs',
   // authToken seulement en CI/CD pour uploader les source maps
   authToken: process.env.SENTRY_AUTH_TOKEN,
-  tunnelRoute: '/monitoring',
   silent: !process.env.CI,
   hideSourceMaps: true,
 };
