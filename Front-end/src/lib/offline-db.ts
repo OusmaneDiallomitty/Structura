@@ -135,12 +135,21 @@ class OfflineDB {
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([storeName], "readonly");
-      const store = transaction.objectStore(storeName);
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      try {
+        const transaction = this.db!.transaction([storeName], "readonly");
+        const store = transaction.objectStore(storeName);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        // InvalidStateError : connexion en fermeture (navigation) — retourner vide
+        if (e instanceof DOMException && e.name === "InvalidStateError") {
+          this.db = null; // forcer re-init au prochain appel
+          resolve([]);
+        } else {
+          reject(e);
+        }
+      }
     });
   }
 

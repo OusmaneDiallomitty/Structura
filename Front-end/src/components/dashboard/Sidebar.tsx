@@ -223,8 +223,12 @@ export function Sidebar() {
 
   // Compteur d'actions en attente de synchronisation
   const refreshPendingCount = useCallback(async () => {
-    const count = await syncQueue.getPendingCount();
-    setPendingSync(count);
+    try {
+      const count = await syncQueue.getPendingCount();
+      setPendingSync(count);
+    } catch {
+      // IndexedDB peut être en fermeture lors d'une navigation — ignorer silencieusement
+    }
   }, []);
 
   useEffect(() => {
