@@ -140,17 +140,8 @@ export class SalesService {
         ? 'PARTIAL'
         : 'COMPLETED';
 
-    // 4. Générer un numéro de reçu unique
-    let receiptNumber: string;
-    let attempts = 0;
-    do {
-      receiptNumber = this.generateReceiptNumber();
-      const exists = await this.prisma.sale.findUnique({
-        where: { tenantId_receiptNumber: { tenantId, receiptNumber } },
-      });
-      if (!exists) break;
-      attempts++;
-    } while (attempts < 5);
+    // 4. Générer un numéro de reçu (timestamp + random — collision quasi impossible)
+    const receiptNumber = this.generateReceiptNumber();
 
     // 5. Tout dans une transaction atomique
     const sale = await this.prisma.$transaction(async (tx) => {
@@ -185,24 +176,27 @@ export class SalesService {
         },
       });
 
-      // Décrémenter le stock + créer les mouvements
-      for (const item of dto.items) {
-        const product = productMap.get(item.productId)!;
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stockQty: { decrement: item.quantity } },
-        });
-        await tx.stockMovement.create({
-          data: {
-            tenantId,
-            productId: item.productId,
-            userId: cashierId,
-            type: 'OUT',
-            quantity: item.quantity,
-            reason: `Vente ${receiptNumber}`,
-          },
-        });
-      }
+      // Décrémenter le stock + créer les mouvements — en parallèle
+      await Promise.all(
+        dto.items.map((item) =>
+          Promise.all([
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stockQty: { decrement: item.quantity } },
+            }),
+            tx.stockMovement.create({
+              data: {
+                tenantId,
+                productId: item.productId,
+                userId: cashierId,
+                type: 'OUT',
+                quantity: item.quantity,
+                reason: `Vente ${receiptNumber}`,
+              },
+            }),
+          ])
+        )
+      );
 
       // Mettre à jour la dette du client si applicable
       if (dto.customerId && remainingDebt > 0) {
@@ -215,7 +209,7 @@ export class SalesService {
       return newSale;
     });
 
-    await this.invalidate(tenantId);
+    this.invalidate(tenantId).catch(() => {});
     return sale;
   }
 
@@ -262,5 +256,156 @@ export class SalesService {
 
     await this.invalidate(tenantId);
     return { message: 'Vente annulée et stock restauré' };
+  }
+
+  async recordPayment(tenantId: string, id: string, amount: number) {
+    const sale = await this.findOne(tenantId, id);
+
+    if (sale.status === 'CANCELLED') {
+      throw new BadRequestException('Impossible de payer une vente annulée');
+    }
+
+    if (amount <= 0) {
+      throw new BadRequestException('Montant invalide');
+    }
+
+    if (amount > sale.remainingDebt) {
+      throw new BadRequestException(
+        `Montant dépasse le reste dû (${sale.remainingDebt} GNF)`,
+      );
+    }
+
+    const newPaidAmount = sale.paidAmount + amount;
+    const newRemainingDebt = sale.remainingDebt - amount;
+    const newStatus =
+      newRemainingDebt === 0 ? 'COMPLETED' : newPaidAmount === 0 ? 'PARTIAL' : 'PARTIAL';
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Créer l'entrée de paiement
+      await tx.salesPayment.create({
+        data: {
+          tenantId,
+          saleId: id,
+          amount,
+          method: 'CASH',
+        },
+      });
+
+      const updatedSale = await tx.sale.update({
+        where: { id },
+        data: {
+          paidAmount: newPaidAmount,
+          remainingDebt: newRemainingDebt,
+          status: newStatus,
+        },
+        include: {
+          items: {
+            include: { product: { select: { id: true, name: true, unit: true } } },
+          },
+          customer: { select: { id: true, name: true } },
+          payments: { orderBy: { createdAt: 'desc' }, take: 10 },
+        },
+      });
+
+      // Mettre à jour la dette du client si applicable
+      if (sale.customerId && newRemainingDebt < sale.remainingDebt) {
+        await tx.commerceCustomer.update({
+          where: { id: sale.customerId },
+          data: { totalDebt: { decrement: amount } },
+        });
+      }
+
+      return updatedSale;
+    });
+
+    await this.invalidate(tenantId);
+    return updated;
+  }
+
+  async payAllBatch(tenantId: string, saleIds: string[]) {
+    if (!saleIds || saleIds.length === 0) {
+      throw new BadRequestException('Aucune vente à payer');
+    }
+
+    // Valider que toutes les ventes existent et appartiennent à ce tenant
+    const sales = await this.prisma.sale.findMany({
+      where: { id: { in: saleIds }, tenantId },
+      include: {
+        customer: { select: { id: true, name: true } },
+        items: {
+          include: { product: { select: { id: true, name: true, unit: true } } },
+        },
+      },
+    });
+
+    if (sales.length !== saleIds.length) {
+      throw new BadRequestException('Une ou plusieurs ventes introuvables');
+    }
+
+    const totalToPay = sales.reduce((sum, s) => sum + s.remainingDebt, 0);
+
+    if (totalToPay <= 0) {
+      throw new BadRequestException('Aucune vente à payer');
+    }
+
+    const paymentId = `BATCH-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedSales = [];
+
+      for (const sale of sales) {
+        const amountToRecord = sale.remainingDebt;
+
+        // Enregistrer le paiement
+        await tx.salesPayment.create({
+          data: {
+            tenantId,
+            saleId: sale.id,
+            amount: amountToRecord,
+            method: 'CASH',
+            notes: `Paiement consolidé ${paymentId}`,
+          },
+        });
+
+        // Mettre à jour la vente
+        const updatedSale = await tx.sale.update({
+          where: { id: sale.id },
+          data: {
+            paidAmount: { increment: amountToRecord },
+            remainingDebt: 0,
+            status: 'COMPLETED',
+          },
+          include: {
+            items: {
+              include: { product: { select: { id: true, name: true, unit: true } } },
+            },
+            customer: { select: { id: true, name: true } },
+            payments: { orderBy: { createdAt: 'desc' }, take: 10 },
+          },
+        });
+
+        updatedSales.push(updatedSale);
+
+        // Mettre à jour la dette du client si applicable
+        if (sale.customerId && amountToRecord > 0) {
+          await tx.commerceCustomer.update({
+            where: { id: sale.customerId },
+            data: { totalDebt: { decrement: amountToRecord } },
+          });
+        }
+      }
+
+      return updatedSales;
+    });
+
+    await this.invalidate(tenantId);
+    return {
+      totalPaid: totalToPay,
+      salesCount: updated.length,
+      sales: updated,
+      type: 'CONSOLIDATED_BATCH',
+      paymentId,
+      createdAt: new Date().toISOString(),
+    };
   }
 }

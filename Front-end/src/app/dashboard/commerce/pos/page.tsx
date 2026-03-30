@@ -171,8 +171,9 @@ export default function POSPage() {
       return result;
     },
     enabled: !!user,
-    staleTime: 60_000,
+    staleTime: 0,         // toujours refetch si le cache a été invalidé
     gcTime: 5 * 60_000,
+    refetchOnWindowFocus: true,
     placeholderData: () => {
       if (!tid) return undefined;
       const cached = readCache<CommerceProduct[]>(CACHE_PRODUCTS(tid));

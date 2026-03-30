@@ -368,6 +368,8 @@ export default function ProductsPage() {
           return newData;
         }
       );
+      // Mettre à jour la caisse aussi
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
       setShowDialog(false);
       setEditing(null);
       setForm(EMPTY_FORM);
@@ -408,6 +410,7 @@ export default function ProductsPage() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
     },
   });
 
@@ -442,11 +445,13 @@ export default function ProductsPage() {
       setStockDialog(null);
       setStockForm({ quantity: "", type: "IN", reason: "" });
       queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
       queryClient.invalidateQueries({ queryKey: ["commerce-dashboard"] });
     },
     onError: (e: Error) => {
       toast.error(e.message);
       queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
     },
   });
 
