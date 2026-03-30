@@ -40,6 +40,10 @@ COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
 # Copier les fichiers de config
 COPY --chown=nestjs:nodejs package*.json ./
 
+# Copier le script de démarrage
+COPY --chown=nestjs:nodejs docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 USER nestjs
 
 # Health check
@@ -49,9 +53,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Utiliser dumb-init pour lancer l'app
 ENTRYPOINT ["dumb-init", "--"]
 
-# En production, les migrations sont exécutées séparément (pas au démarrage du container).
-# Lancer directement l'app — aucune connexion DB gaspillée au démarrage.
-CMD ["node", "dist/main.js"]
+# Le script de démarrage synchronise le schéma Prisma avant de lancer l'app
+CMD ["./docker-entrypoint.sh"]
 
 # Expose le port
 EXPOSE 3001
