@@ -92,6 +92,7 @@ export default function DebtsPage() {
   const [payingAllCustomer, setPayingAllCustomer] = useState<CommerceCustomer | null>(null);
   const [payingAllSalesGroup, setPayingAllSalesGroup] = useState<{ id: string; saleIds: string[] } | null>(null);
   const [consolidatedReceipt, setConsolidatedReceipt] = useState<any | null>(null);
+  const [debtReceipt, setDebtReceipt] = useState<any | null>(null);
   const [showPaymentHistory, setShowPaymentHistory] = useState<string | null>(null);
 
   // ─── Données ────────────────────────────────────────────────────────────────
@@ -173,6 +174,10 @@ export default function DebtsPage() {
       }
     },
     onMutate: async ({ id, amount, type }: any) => {
+      // Capturer les infos avant fermeture du dialog
+      const customerSnapshot = payingCustomer;
+      const saleSnapshot = payingSale;
+      const amountSnapshot = parseFloat(payAmount);
       // Fermer le dialog immédiatement — pas d'attente réseau
       closePay();
       if (type === "customer") {
@@ -183,11 +188,11 @@ export default function DebtsPage() {
             c.id === id ? { ...c, totalDebt: Math.max(0, c.totalDebt - amount) } : c
           )
         );
-        return { prev, type };
+        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot };
       } else {
         await queryClient.cancelQueries({ queryKey: ["commerce-sales-pending", tid] });
         const prev = queryClient.getQueryData(["commerce-sales-pending", tid]);
-        return { prev, type };
+        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot };
       }
     },
     onError: (_e, _v, ctx: any) => {
@@ -198,13 +203,22 @@ export default function DebtsPage() {
       }
       toast.error("Erreur lors de l'enregistrement");
     },
-    onSuccess: (res) => {
-      if ("remainingDebt" in res) {
-        toast.success(
-          `Paiement enregistré — Reste : ${formatGNF(res.remainingDebt)}` +
-          (res.remainingDebt === 0 ? " ✓" : "")
-        );
-      }
+    onSuccess: (res, _vars, ctx: any) => {
+      const amountPaid = ctx?.amount ?? 0;
+      const customerName = ctx?.customer?.name ?? ctx?.sale?.customer?.name ?? "Client anonyme";
+      const receiptNumber = ctx?.sale?.receiptNumber ?? null;
+      const remainingDebt = "remainingDebt" in res ? res.remainingDebt : 0;
+      setDebtReceipt({
+        amountPaid,
+        customerName,
+        receiptNumber,
+        remainingDebt,
+        paidAt: new Date().toISOString(),
+      });
+      toast.success(
+        `Paiement enregistré — Reste : ${formatGNF(remainingDebt)}` +
+        (remainingDebt === 0 ? " ✓" : "")
+      );
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["commerce-customers", tid] });
@@ -887,6 +901,57 @@ export default function DebtsPage() {
                   )}
                 </Button>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog reçu paiement individuel ──────────────────────────── */}
+      <Dialog open={!!debtReceipt} onOpenChange={(o) => !o && setDebtReceipt(null)}>
+        <DialogContent className="max-w-sm p-0 overflow-hidden gap-0">
+          <DialogHeader className="px-5 pt-5 pb-4 border-b">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              Reçu de paiement
+            </DialogTitle>
+          </DialogHeader>
+          {debtReceipt && (
+            <div className="px-5 py-4 space-y-4">
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
+                <p className="text-2xl font-bold text-emerald-700 tabular-nums">
+                  {formatGNF(debtReceipt.amountPaid)}
+                </p>
+                <p className="text-xs text-emerald-600 mt-1">Montant encaissé</p>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-muted-foreground">Client</span>
+                  <span className="font-semibold">{debtReceipt.customerName}</span>
+                </div>
+                {debtReceipt.receiptNumber && (
+                  <div className="flex justify-between py-1 border-b">
+                    <span className="text-muted-foreground">Reçu N°</span>
+                    <span className="font-mono">{debtReceipt.receiptNumber}</span>
+                  </div>
+                )}
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-muted-foreground">Date</span>
+                  <span>{new Date(debtReceipt.paidAt).toLocaleString("fr-FR")}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-muted-foreground">Reste dû</span>
+                  <span className={cn("font-bold tabular-nums", debtReceipt.remainingDebt === 0 ? "text-emerald-600" : "text-amber-600")}>
+                    {debtReceipt.remainingDebt === 0 ? "✓ Soldé" : formatGNF(debtReceipt.remainingDebt)}
+                  </span>
+                </div>
+              </div>
+              <Button
+                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                onClick={() => setDebtReceipt(null)}
+              >
+                Fermer
+              </Button>
             </div>
           )}
         </DialogContent>
