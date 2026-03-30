@@ -24,19 +24,50 @@ const TENANT_SCOPED_KEYS = [
   "structura_class_fees_v2",
   "structura_school_calendar_v1",
   "structura_school_type",
+  "structura_commerce_customers",
+  "structura_commerce_products",
+  "structura_commerce_sales",
+  "structura_commerce_dashboard",
 ];
 
-/** Purge les données du tenant précédent si l'utilisateur connecté est dans un autre tenant */
-function clearStaleTenanData(newTenantId: string) {
+/** Purge les données du tenant/module précédent si changement */
+function clearStaleTenanData(newTenantId: string, newModuleType?: string) {
   try {
-    const last = localStorage.getItem("structura_last_tenant_id");
-    if (last && last !== newTenantId) {
+    const lastTenantId = localStorage.getItem("structura_last_tenant_id");
+    const lastModuleType = localStorage.getItem("structura_last_module_type");
+
+    // Purger si: (1) tenantId change OU (2) moduleType change (école ↔ commerce)
+    const tenantChanged = lastTenantId && lastTenantId !== newTenantId;
+    const moduleChanged = newModuleType && lastModuleType && lastModuleType !== newModuleType;
+
+    if (tenantChanged || moduleChanged) {
+      // ⚠️ SÉCURITÉ CRITIQUE: Purger COMPLÈTEMENT les données du module/tenant précédent
+      // Empêche les fuites de données entre ÉCOLE et COMMERCE
       TENANT_SCOPED_KEYS.forEach((k) => localStorage.removeItem(k));
+
+      // Purger TOUS les caches de données (classes, élèves, paiements, dashboard, etc.)
+      Object.keys(localStorage).forEach((key) => {
+        if (
+          key.includes("structura_") &&
+          (key.includes("_cache") || key.includes("commerce") || key.includes("dashboard"))
+        ) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      // Nettoyer complètement IndexedDB (évite les fuites inter-modules)
       offlineDB.clearAll().catch(() => {});
-      // Forcer un re-fetch complet pour le nouveau tenant (bypass cooldown)
+
+      // Forcer un re-fetch complet (bypass cooldown)
       resetPrefetchCooldown();
+
+      console.warn(`🔐 Données purgées: tenant=${lastTenantId}→${newTenantId}, module=${lastModuleType}→${newModuleType}`);
     }
+
     localStorage.setItem("structura_last_tenant_id", newTenantId);
+    if (newModuleType) {
+      localStorage.setItem("structura_last_module_type", newModuleType);
+    }
   } catch { /* quota ou SSR */ }
 }
 
@@ -108,14 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Déconnexion automatique si une autre session prend la place (détectée par fetchWithTimeout)
   useEffect(() => {
     const handleSessionInvalidated = () => {
-      // Tenter de nettoyer currentSessionId en BDD (fire-and-forget, ignoré si token invalide)
       const staleToken = storage.getAuthItem(TOKEN_KEY);
       if (staleToken) logoutUser(staleToken).catch(() => {});
       clearAuth();
-      toast.info('Votre session a été fermée. Veuillez vous reconnecter.', {
-        duration: 6000,
-      });
-      router.push('/login');
+      // Hard reload — vide tout le cache React en mémoire (évite les fuites inter-modules)
+      window.location.href = '/login';
     };
     window.addEventListener('auth:session-invalidated', handleSessionInvalidated);
     return () => window.removeEventListener('auth:session-invalidated', handleSessionInvalidated);
@@ -147,6 +175,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     storage.removeAuthItem(REFRESH_TOKEN_KEY);
     storage.removeAuthItem(USER_KEY);
     localStorage.removeItem("structura_remember_me");
+    // Purger les caches de données (dashboard, commerce, etc.)
+    Object.keys(localStorage).forEach((key) => {
+      if (key.includes("structura_") && (key.includes("_cache") || key.includes("dashboard") || key.includes("commerce"))) {
+        localStorage.removeItem(key);
+      }
+    });
+    // ⚠️ Flag déconnexion manuelle — empêche ProtectedRoute de re-sauvegarder l'URL
+    // au moment du re-render déclenché par setUser(null)
+    sessionStorage.setItem("structura_manual_logout", "true");
+    sessionStorage.removeItem("redirectAfterLogin");
     setUser(null);
   };
 
@@ -165,7 +203,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         toast.error('Vous avez été déconnecté — une nouvelle connexion a été détectée sur un autre appareil.', {
           duration: 8000,
         });
-        router.push('/login');
+        // Hard reload — vide tout le cache React en mémoire
+        window.location.href = '/login';
       }
       return false;
     }
@@ -211,15 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Lire les données utilisateur (inchangées après refresh)
         const freshUserData = storage.getAuthItem(USER_KEY);
         if (freshUserData) {
-          setUser(JSON.parse(freshUserData));
+          const parsedFreshUser = JSON.parse(freshUserData);
+          setUser(parsedFreshUser);
           // Pre-fetch silencieux au chargement de l'app si le cooldown est écoulé.
-          // Assure que les données IndexedDB sont fraîches même après une longue absence.
           const currentToken = storage.getAuthItem(TOKEN_KEY);
           if (currentToken) {
-            const parsedUser = JSON.parse(freshUserData);
             prefetchOfflineData(currentToken, {
-              moduleType: parsedUser?.moduleType,
-              tenantId: parsedUser?.tenantId,
+              moduleType: parsedFreshUser?.moduleType,
+              tenantId: parsedFreshUser?.tenantId,
             }).catch(() => {});
           }
         }
@@ -285,14 +323,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem("structura_remember_me");
       }
 
-      // Purger les données stale si changement de tenant (ex: connexion avec un autre compte)
-      if (authResponse.user.tenantId) clearStaleTenanData(authResponse.user.tenantId);
+      // Déterminer si le module a changé (ÉCOLE ↔ COMMERCE) avant de purger
+      const prevModuleType = localStorage.getItem("structura_last_module_type");
+      const moduleChanged = prevModuleType && prevModuleType !== authResponse.user.moduleType;
+
+      // Purger les données stale si changement de tenant OU de module
+      if (authResponse.user.tenantId) {
+        clearStaleTenanData(authResponse.user.tenantId, authResponse.user.moduleType);
+      }
 
       setUser(authResponse.user);
 
-      // Pre-fetch en arrière-plan : charge élèves, classes, paiements dans IndexedDB
-      // pour que toutes les pages soient disponibles hors ligne sans visite préalable.
-      // Force=true : on vient de se connecter → données fraîches garanties.
+      // Pre-fetch en arrière-plan
       prefetchOfflineData(authResponse.token, {
         force: true,
         moduleType: authResponse.user.moduleType,
@@ -302,9 +344,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!authResponse.user.emailVerified) {
         router.push("/check-email");
       } else if (authResponse.user.moduleType === 'COMMERCE') {
-        router.push("/dashboard/commerce");
+        // Si le module a changé → rechargement complet pour vider le cache React en mémoire
+        if (moduleChanged) {
+          window.location.href = '/dashboard/commerce';
+        } else {
+          router.push("/dashboard/commerce");
+        }
       } else {
-        router.push("/dashboard");
+        // Si le module a changé → rechargement complet
+        if (moduleChanged) {
+          window.location.href = '/dashboard';
+        } else {
+          router.push("/dashboard");
+        }
       }
     } catch (error) {
       throw error;
@@ -323,8 +375,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.setAuthItem(USER_KEY, JSON.stringify(response.user), true);
       localStorage.setItem("structura_remember_me", "true");
 
-      // Purger les données stale d'un tenant précédent (même navigateur, nouveau compte)
-      if (response.user.tenantId) clearStaleTenanData(response.user.tenantId);
+      // Purger les données stale d'un tenant/module précédent (même navigateur, nouveau compte)
+      if (response.user.tenantId) {
+        clearStaleTenanData(response.user.tenantId, response.user.moduleType);
+      }
 
       setUser(response.user);
 
@@ -343,7 +397,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = storage.getAuthItem(TOKEN_KEY);
     if (token) logoutUser(token).catch(() => {});
     clearAuth();
-    router.push("/login");
+    // Hard reload — vide TOUT le cache React en mémoire (React Query, composants, state)
+    // Indispensable pour éviter que les données ÉCOLE apparaissent sur COMMERCE et vice versa
+    window.location.href = '/login';
   };
 
   const refreshEmailVerified = () => {

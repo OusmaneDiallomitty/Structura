@@ -22,6 +22,15 @@ export class CommerceModuleGuard implements CanActivate {
       throw new ForbiddenException('Tenant introuvable');
     }
 
+    // ✅ SÉCURITÉ CRITIQUE: Vérifier que le JWT contient moduleType=COMMERCE
+    // Empêche un token ÉCOLE d'accéder aux endpoints COMMERCE
+    if (user?.moduleType && user.moduleType !== 'COMMERCE') {
+      throw new ForbiddenException(
+        'Accès refusé: ce token ne permet pas accès au module Commerce',
+      );
+    }
+
+    // Vérifier aussi que le tenant est configuré en COMMERCE
     const cacheKey = `tenant:moduleType:${user.tenantId}`;
     let moduleType = await this.cache.get<string>(cacheKey);
 
@@ -37,7 +46,7 @@ export class CommerceModuleGuard implements CanActivate {
 
     if (moduleType !== 'COMMERCE') {
       throw new ForbiddenException(
-        'Ce module est réservé aux tenants Commerce',
+        'Ce tenant est configuré en mode École, pas Commerce',
       );
     }
 

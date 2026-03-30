@@ -55,6 +55,17 @@ export class CustomersController {
     return this.customersService.payDebt(user.tenantId, id, amount);
   }
 
+  @Post(':id/pay-all')
+  @HttpCode(200)
+  payAllDebt(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customersService.payAllDebt(user.tenantId, id);
+  }
+
+  @Get(':id/payment-history')
+  getPaymentHistory(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customersService.getPaymentHistory(user.tenantId, id);
+  }
+
   @Delete(':id')
   remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.customersService.remove(user.tenantId, id);

@@ -155,7 +155,8 @@ export default function DashboardPage() {
   };
 
   // ── useQuery : toutes les données du dashboard en une seule requête ────────
-  const DASH_CACHE_KEY = `structura_dashboard_${user?.tenantId}`;
+  // Clé unique par tenant ET module — évite que le cache COMMERCE s'affiche sur ÉCOLE
+  const DASH_CACHE_KEY = `structura_dashboard_${user?.tenantId}_SCHOOL`;
   const { data: dashData, isLoading, refetch } = useQuery({
     queryKey: ["dashboard", user?.tenantId],
     queryFn: async () => {

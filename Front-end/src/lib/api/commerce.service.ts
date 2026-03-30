@@ -319,6 +319,35 @@ export const cancelSale = (token: string, id: string) =>
     method: 'PATCH',
   });
 
+export const recordSalePayment = (token: string, id: string, amount: number) =>
+  request<CommerceSale>(`/commerce/sales/${id}/record-payment`, token, {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  });
+
+export const payAllSalesBatch = (token: string, saleIds: string[]) =>
+  request<{ totalPaid: number; salesCount: number; sales: CommerceSale[]; type: string }>(
+    '/commerce/sales/batch/pay-all',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify({ saleIds }),
+    },
+  );
+
+export const payCustomerAllDebt = (token: string, customerId: string) =>
+  request<{ customerId: string; customerName: string; amountPaid: number; previousDebt: number; remainingDebt: number; type: string; paymentId: string; paidSales: any[]; createdAt: string }>(
+    `/commerce/customers/${customerId}/pay-all`,
+    token,
+    { method: 'POST' },
+  );
+
+export const getCustomerPaymentHistory = (token: string, customerId: string) =>
+  request<any[]>(
+    `/commerce/customers/${customerId}/payment-history`,
+    token,
+  );
+
 // ─── Unités multiples / Conversion ────────────────────────────────────────────
 
 export const configureConversion = (

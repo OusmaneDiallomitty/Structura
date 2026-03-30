@@ -127,6 +127,116 @@ export class CustomersService {
     };
   }
 
+  async payAllDebt(tenantId: string, id: string) {
+    const customer = await this.findOne(tenantId, id);
+    if (customer.totalDebt <= 0) {
+      throw new BadRequestException('Ce client n\'a aucune dette en cours');
+    }
+
+    const totalDebtAmount = customer.totalDebt;
+    const paymentId = `CONSO-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    let paidSales: any[] = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      // Récupérer toutes les ventes partielles du client
+      const partialSales = await tx.sale.findMany({
+        where: { tenantId, customerId: id, status: 'PARTIAL' },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          items: {
+            include: { product: { select: { id: true, name: true, unit: true } } },
+          },
+        },
+      });
+
+      // Payer chaque vente
+      let remainingAmount = totalDebtAmount;
+      for (const sale of partialSales) {
+        const payAmount = Math.min(remainingAmount, sale.remainingDebt);
+        if (payAmount > 0) {
+          const updated = await tx.sale.update({
+            where: { id: sale.id },
+            data: {
+              remainingDebt: Math.max(0, sale.remainingDebt - payAmount),
+              paidAmount: { increment: payAmount },
+              status: sale.remainingDebt - payAmount === 0 ? 'COMPLETED' : 'PARTIAL',
+            },
+            include: {
+              items: {
+                include: { product: { select: { id: true, name: true, unit: true } } },
+              },
+            },
+          });
+
+          // Enregistrer le paiement
+          await tx.salesPayment.create({
+            data: {
+              tenantId,
+              saleId: sale.id,
+              amount: payAmount,
+              method: 'CASH',
+              notes: `Paiement consolidé ${paymentId}`,
+            },
+          });
+
+          paidSales.push({ ...updated, amountPaid: payAmount });
+          remainingAmount -= payAmount;
+        }
+      }
+
+      // Mettre à jour la dette du client
+      await tx.commerceCustomer.update({
+        where: { id },
+        data: { totalDebt: 0 },
+      });
+    });
+
+    await this.invalidate(tenantId);
+    return {
+      customerId: id,
+      customerName: customer.name,
+      amountPaid: totalDebtAmount,
+      previousDebt: customer.totalDebt,
+      remainingDebt: 0,
+      type: 'CONSOLIDATED',
+      paymentId,
+      paidSales,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  async getPaymentHistory(tenantId: string, id: string) {
+    // Vérifier que le client existe
+    await this.findOne(tenantId, id);
+
+    // Récupérer les paiements du client via ses ventes
+    const payments = await this.prisma.salesPayment.findMany({
+      where: {
+        tenantId,
+        sale: {
+          customerId: id,
+        },
+      },
+      include: {
+        sale: {
+          select: {
+            id: true,
+            receiptNumber: true,
+            totalAmount: true,
+            paidAmount: true,
+            remainingDebt: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return payments;
+  }
+
   async remove(tenantId: string, id: string) {
     const customer = await this.findOne(tenantId, id);
     if (customer.totalDebt > 0) {

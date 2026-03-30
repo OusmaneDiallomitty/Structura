@@ -60,6 +60,25 @@ export class SalesController {
     return this.salesService.cancel(user.tenantId, id);
   }
 
+  @Post(':id/record-payment')
+  @HttpCode(200)
+  recordPayment(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { amount: number },
+  ) {
+    return this.salesService.recordPayment(user.tenantId, id, body.amount);
+  }
+
+  @Post('batch/pay-all')
+  @HttpCode(200)
+  payAllPartial(
+    @CurrentUser() user: any,
+    @Body() body: { saleIds: string[] },
+  ) {
+    return this.salesService.payAllBatch(user.tenantId, body.saleIds);
+  }
+
   @Post(':id/send-receipt-email')
   @HttpCode(200)
   async sendReceiptEmail(

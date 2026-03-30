@@ -129,6 +129,7 @@ model Tenant {
   products              Product[]
   productCategories     ProductCategory[]
   sales                 Sale[]
+  salesPayments         SalesPayment[]
   stockMovements        StockMovement[]
   stockInbounds         StockInbound[]
   stockReceipts         StockReceipt[]
@@ -829,6 +830,7 @@ model Sale {
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer      CommerceCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items         SaleItem[]
+  payments      SalesPayment[]
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
@@ -873,4 +875,23 @@ model StockMovement {
   @@index([productId])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("stock_movements")
+}
+
+/// Paiements enregistrés — historique des paiements effectués sur les ventes
+model SalesPayment {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  saleId    String
+  amount    Float    // Montant payé
+  method    String   @default("CASH") // CASH | MOBILE_MONEY | TRANSFER | etc.
+  notes     String?
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("sales_payments")
 }

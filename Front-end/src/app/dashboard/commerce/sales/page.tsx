@@ -177,11 +177,17 @@ export default function SalesPage() {
             return (
               <div
                 key={sale.id}
-                className="rounded-xl border bg-card overflow-hidden"
+                className={`rounded-xl border-2 bg-card overflow-hidden transition-all ${
+                  isExpanded
+                    ? "border-orange-500 shadow-lg bg-orange-50/30 dark:bg-orange-950/20"
+                    : "border-border hover:border-orange-300 hover:shadow-md"
+                }`}
               >
                 {/* Ligne principale */}
                 <div
-                  className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                  className={`flex items-center gap-4 p-4 cursor-pointer transition-all ${
+                    isExpanded ? "bg-orange-100/40 dark:bg-orange-950/30" : "hover:bg-muted/30"
+                  }`}
                   onClick={() => setExpanded(isExpanded ? null : sale.id)}
                 >
                   <div className="flex-1 min-w-0">
@@ -208,9 +214,9 @@ export default function SalesPage() {
                     )}
                   </div>
                   {isExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <ChevronUp className="h-5 w-5 text-orange-600 shrink-0 font-bold" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />
                   )}
                 </div>
 
