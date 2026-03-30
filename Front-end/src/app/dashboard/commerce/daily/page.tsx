@@ -1,0 +1,238 @@
+"use client";
+
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import * as storage from "@/lib/storage";
+import { getDailySituation } from "@/lib/api/commerce.service";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  TrendingUp, TrendingDown, DollarSign, ShoppingCart,
+  Banknote, Smartphone, CreditCard, Calendar, Package,
+} from "lucide-react";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
+
+const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
+const token = () => storage.getItem("structura_token") as string;
+const today = () => new Date().toISOString().slice(0, 10);
+
+const METHOD_LABEL: Record<string, { label: string; icon: any; color: string }> = {
+  CASH:         { label: "Espèces",      icon: Banknote,    color: "text-emerald-600" },
+  MOBILE_MONEY: { label: "Mobile Money", icon: Smartphone,  color: "text-blue-600"   },
+  CREDIT:       { label: "Crédit",       icon: CreditCard,  color: "text-amber-600"  },
+};
+
+export default function DailySituationPage() {
+  const { user } = useAuth();
+  const [date, setDate] = useState(today());
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["commerce-daily", user?.tenantId, date],
+    queryFn: () => getDailySituation(token(), date),
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+
+  const s = data?.summary;
+
+  return (
+    <ProtectedRoute>
+      <div className="space-y-6 p-4 md:p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold">Situation journalière</h1>
+            <p className="text-sm text-muted-foreground">Recettes, dépenses et bénéfice du jour</p>
+          </div>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44 h-9" />
+        </div>
+
+        {isLoading ? (
+          <div className="text-center text-muted-foreground py-12">Chargement…</div>
+        ) : !s ? (
+          <div className="text-center text-muted-foreground py-12">Aucune donnée pour ce jour</div>
+        ) : (
+          <>
+            {/* Résumé principal */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="border-l-4 border-l-blue-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <ShoppingCart className="h-3.5 w-3.5" /> Ventes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold">{fmt(s.totalRevenue)}</p>
+                  <p className="text-xs text-muted-foreground">{s.salesCount} vente{s.salesCount > 1 ? "s" : ""}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-emerald-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Banknote className="h-3.5 w-3.5" /> Encaissé
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-emerald-600">{fmt(s.totalCollected)}</p>
+                  {s.totalDebt > 0 && (
+                    <p className="text-xs text-amber-600">+ {fmt(s.totalDebt)} en crédit</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-red-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <TrendingDown className="h-3.5 w-3.5 text-red-500" /> Dépenses
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-red-600">{fmt(s.totalExpenses)}</p>
+                  <p className="text-xs text-muted-foreground">Coût stock: {fmt(s.totalCog)}</p>
+                </CardContent>
+              </Card>
+
+              <Card className={`border-l-4 ${s.netProfit >= 0 ? "border-l-orange-500" : "border-l-red-600"}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" /> Bénéfice net
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className={`text-xl font-bold ${s.netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>
+                    {s.netProfit >= 0 ? "+" : ""}{fmt(s.netProfit)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Brut: {fmt(s.grossProfit)}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Répartition par mode de paiement */}
+            {Object.keys(data.byMethod).length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" /> Encaissements par mode
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {Object.entries(data.byMethod).map(([method, amount]) => {
+                      const info = METHOD_LABEL[method] ?? { label: method, icon: DollarSign, color: "text-gray-600" };
+                      return (
+                        <div key={method} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40">
+                          <info.icon className={`h-5 w-5 ${info.color} shrink-0`} />
+                          <div>
+                            <p className="text-xs text-muted-foreground">{info.label}</p>
+                            <p className="font-bold">{fmt(Number(amount))}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Détail ventes */}
+            {data.sales.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <Package className="h-4 w-4" /> Ventes du jour ({data.sales.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {data.sales.map((sale: any) => (
+                      <div key={sale.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">#{sale.receiptNumber}</span>
+                            {sale.customer && (
+                              <span className="text-xs text-muted-foreground">— {sale.customer.name}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(sale.createdAt), "HH:mm", { locale: fr })}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              · {sale.items.length} article{sale.items.length > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold">{fmt(sale.totalAmount)}</p>
+                          {sale.remainingDebt > 0 && (
+                            <p className="text-xs text-amber-600">Crédit: {fmt(sale.remainingDebt)}</p>
+                          )}
+                        </div>
+                        <Badge variant="outline" className="text-xs shrink-0">
+                          {METHOD_LABEL[sale.paymentMethod]?.label ?? sale.paymentMethod}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Dépenses du jour */}
+            {data.expenses.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-600">
+                    <TrendingDown className="h-4 w-4" /> Dépenses du jour ({data.expenses.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {data.expenses.map((exp: any) => (
+                      <div key={exp.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium capitalize">{exp.category.replace("_", " ")}</p>
+                          {exp.description && (
+                            <p className="text-xs text-muted-foreground">{exp.description}</p>
+                          )}
+                        </div>
+                        <p className="font-bold text-red-600 shrink-0">{fmt(exp.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Récap final */}
+            <Card className="bg-muted/30">
+              <CardContent className="py-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Récapitulatif — {date ? format(new Date(date), "d MMMM yyyy", { locale: fr }) : "aujourd'hui"}
+                </p>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span>Ventes totales</span><span className="font-medium">{fmt(s.totalRevenue)}</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>− Coût des marchandises</span><span>−{fmt(s.totalCog)}</span></div>
+                  <div className="flex justify-between font-medium"><span>= Bénéfice brut</span><span className={s.grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}>{fmt(s.grossProfit)}</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>− Dépenses du jour</span><span>−{fmt(s.totalExpenses)}</span></div>
+                  <div className="flex justify-between font-bold text-base pt-1 border-t">
+                    <span>= Bénéfice net</span>
+                    <span className={s.netProfit >= 0 ? "text-orange-600" : "text-red-600"}>
+                      {s.netProfit >= 0 ? "+" : ""}{fmt(s.netProfit)}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </ProtectedRoute>
+  );
+}

@@ -510,3 +510,36 @@ export const getReceiptStats = (token: string, days = 30) =>
     `/commerce/stock-receipts/stats/overview?days=${days}`,
     token,
   );
+
+// ─── Dépenses ────────────────────────────────────────────────────────────────
+
+export interface CommerceExpense {
+  id: string;
+  tenantId: string;
+  amount: number;
+  category: string;
+  description?: string;
+  date: string;
+  createdAt: string;
+}
+
+export const getExpenses = (token: string, filters: { month?: string; category?: string } = {}) => {
+  const params = new URLSearchParams();
+  if (filters.month)    params.set('month', filters.month);
+  if (filters.category) params.set('category', filters.category);
+  const qs = params.toString();
+  return request<CommerceExpense[]>(`/commerce/expenses${qs ? `?${qs}` : ''}`, token);
+};
+
+export const createExpense = (token: string, data: { amount: number; category: string; description?: string; date?: string }) =>
+  request<CommerceExpense>('/commerce/expenses', token, { method: 'POST', body: JSON.stringify(data) });
+
+export const deleteExpense = (token: string, id: string) =>
+  request<void>(`/commerce/expenses/${id}`, token, { method: 'DELETE' });
+
+// ─── Situation journalière ────────────────────────────────────────────────────
+
+export const getDailySituation = (token: string, date?: string) => {
+  const qs = date ? `?date=${date}` : '';
+  return request<any>(`/commerce/dashboard/daily${qs}`, token);
+};

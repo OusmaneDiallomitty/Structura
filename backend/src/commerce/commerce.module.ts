@@ -6,6 +6,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { SalesModule } from './sales/sales.module';
 import { CommerceDashboardModule } from './dashboard/commerce-dashboard.module';
 import { StockReceiptsModule } from './stock-receipts/stock-receipts.module';
+import { ExpensesModule } from './expenses/expenses.module';
 import { CommerceModuleGuard } from './guards/commerce-module.guard';
 
 @Module({
@@ -17,6 +18,7 @@ import { CommerceModuleGuard } from './guards/commerce-module.guard';
     SalesModule,
     CommerceDashboardModule,
     StockReceiptsModule,
+    ExpensesModule,
   ],
   providers: [CommerceModuleGuard],
   exports: [CommerceModuleGuard],

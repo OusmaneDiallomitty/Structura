@@ -135,6 +135,7 @@ model Tenant {
   stockReceipts         StockReceipt[]
   suppliers             Supplier[]
   commerceCustomers     CommerceCustomer[]
+  commerceExpenses      CommerceExpense[]
 
   @@map("tenants")
 }
@@ -846,7 +847,8 @@ model SaleItem {
   saleId     String
   productId  String
   quantity   Float    // Peut être décimal (ex : 0.5 kg)
-  unitPrice  Float    // Prix unitaire au moment de la vente (snapshot)
+  unitPrice  Float    // Prix de vente unitaire au moment de la vente (snapshot)
+  costPrice  Float    @default(0) // Prix d'achat au moment de la vente (snapshot pour bénéfice)
   totalPrice Float    // quantity × unitPrice
 
   sale       Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
@@ -855,6 +857,24 @@ model SaleItem {
   @@index([saleId])
   @@index([productId])
   @@map("sale_items")
+}
+
+/// Dépenses de la boutique (loyer, salaires, achats divers, etc.)
+model CommerceExpense {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId    String
+  amount      Float
+  category    String   // loyer | salaire | transport | achat_divers | autre
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, date])
+  @@map("commerce_expenses")
 }
 
 /// Mouvements de stock — audit complet (entrées, sorties, ajustements)

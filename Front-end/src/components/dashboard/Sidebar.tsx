@@ -29,6 +29,8 @@ import {
   UserRound,
   Store,
   AlertTriangle,
+  TrendingDown,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -109,6 +111,16 @@ const commerceNavigation: NavItem[] = [
     title: "Dettes",
     href: "/dashboard/commerce/debts",
     icon: AlertTriangle,
+  },
+  {
+    title: "Dépenses",
+    href: "/dashboard/commerce/expenses",
+    icon: TrendingDown,
+  },
+  {
+    title: "Situation du jour",
+    href: "/dashboard/commerce/daily",
+    icon: CalendarDays,
   },
   {
     title: "Fournisseurs",

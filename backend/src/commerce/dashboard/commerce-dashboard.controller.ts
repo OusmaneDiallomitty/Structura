@@ -24,4 +24,12 @@ export class CommerceDashboardController {
       days ? parseInt(days, 10) : 30,
     );
   }
+
+  @Get('daily')
+  getDailySituation(
+    @CurrentUser() user: any,
+    @Query('date') date?: string,
+  ) {
+    return this.dashboardService.getDailySituation(user.tenantId, date);
+  }
 }
