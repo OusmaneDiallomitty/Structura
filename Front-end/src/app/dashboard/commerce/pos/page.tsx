@@ -84,9 +84,9 @@ const PAYMENT_METHODS: {
   icon: React.ComponentType<{ className?: string }>;
   color: string;
 }[] = [
-  { value: "CASH",         label: "Espèces",      icon: Banknote,   color: "text-emerald-600" },
-  { value: "MOBILE_MONEY", label: "Mobile Money", icon: Smartphone, color: "text-blue-600"    },
-  { value: "CREDIT",       label: "Crédit",       icon: CreditCard, color: "text-amber-600"   },
+  { value: "CASH",         label: "Espèces",      icon: Banknote,   color: "text-emerald-600", activeClass: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40" },
+  { value: "MOBILE_MONEY", label: "Mobile Money", icon: Smartphone, color: "text-blue-600",    activeClass: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40"           },
+  { value: "CREDIT",       label: "Crédit",       icon: CreditCard, color: "text-amber-600",   activeClass: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40"       },
 ];
 
 // ─── Cache localStorage ───────────────────────────────────────────────────────
@@ -149,14 +149,20 @@ export default function POSPage() {
         phone: newCustomerForm.phone.trim() || undefined,
       }),
     onSuccess: (created) => {
+      // Mise à jour immédiate de la liste caisse
       queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers-pos", tid], (old = []) =>
         [...old, created]
+      );
+      // Propager vers la page Clients et la page Dettes
+      queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
+        [created, ...old]
       );
       setCustomerId(created.id);
       setShowNewCustomer(false);
       setNewCustomerForm({ name: "", phone: "" });
       toast.success(`Client "${created.name}" ajouté`);
-      queryClient.invalidateQueries({ queryKey: ["commerce-customers"] });
+      // Refetch en arrière-plan pour synchroniser les deux pages
+      queryClient.invalidateQueries({ queryKey: ["commerce-customers", tid] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -331,14 +337,17 @@ export default function POSPage() {
         paymentMethod,
         customerId: customerId || undefined,
       }),
-    onMutate: () => ({ cartSnapshot: [...cart] }),
+    onMutate: () => {
+      // Fermer le checkout immédiatement — pas d'attente réseau
+      setShowCheckout(false);
+      clearCart();
+      return { cartSnapshot: [...cart] };
+    },
     onSuccess: (sale, _vars, context) => {
       toast.success(`Vente confirmée — ${sale.receiptNumber}`);
       setLastReceipt(sale.receiptNumber);
       setLastSale(sale);
       setShowReceiptDialog(true);
-      clearCart();
-      setShowCheckout(false);
 
       const cartItems = context?.cartSnapshot ?? [];
       const decreaseStock = (old: PaginatedResponse<CommerceProduct> | undefined) => {
@@ -361,6 +370,11 @@ export default function POSPage() {
       queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
       queryClient.invalidateQueries({ queryKey: ["commerce-products"] });
       queryClient.invalidateQueries({ queryKey: ["commerce-dashboard"] });
+      // Si vente à crédit → mettre à jour la page dettes immédiatement
+      if (sale.remainingDebt > 0) {
+        queryClient.invalidateQueries({ queryKey: ["commerce-sales-pending", tid] });
+        queryClient.invalidateQueries({ queryKey: ["commerce-customers", tid] });
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -747,7 +761,7 @@ export default function POSPage() {
                     }}
                     className={cn(
                       "flex flex-col items-center gap-1 p-3 rounded-lg border-2 text-xs font-semibold transition-all",
-                      paymentMethod === m.value ? "border-foreground bg-muted/50" : "border-border hover:border-foreground/50"
+                      paymentMethod === m.value ? m.activeClass : "border-border text-muted-foreground hover:border-foreground/50"
                     )}
                   >
                     <m.icon className="h-4 w-4" />

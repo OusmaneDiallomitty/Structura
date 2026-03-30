@@ -173,6 +173,8 @@ export default function DebtsPage() {
       }
     },
     onMutate: async ({ id, amount, type }: any) => {
+      // Fermer le dialog immédiatement — pas d'attente réseau
+      closePay();
       if (type === "customer") {
         await queryClient.cancelQueries({ queryKey: ["commerce-customers", tid] });
         const prev = queryClient.getQueryData<CommerceCustomer[]>(["commerce-customers", tid]);
@@ -203,7 +205,6 @@ export default function DebtsPage() {
           (res.remainingDebt === 0 ? " ✓" : "")
         );
       }
-      closePay();
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["commerce-customers", tid] });
@@ -222,6 +223,8 @@ export default function DebtsPage() {
       throw new Error("Données invalides");
     },
     onMutate: async ({ customerId, saleIds }: any) => {
+      // Fermer immédiatement
+      closePayAll();
       if (customerId) {
         await queryClient.cancelQueries({ queryKey: ["commerce-customers", tid] });
         const prev = queryClient.getQueryData<CommerceCustomer[]>(["commerce-customers", tid]);
@@ -245,7 +248,6 @@ export default function DebtsPage() {
     },
     onSuccess: (res) => {
       setConsolidatedReceipt(res);
-      closePayAll();
       if ("amountPaid" in res) {
         toast.success(
           `Paiement consolidé réussi — ${formatGNF(res.amountPaid)} payés ✓`
