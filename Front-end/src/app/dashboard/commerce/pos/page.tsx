@@ -83,6 +83,7 @@ const PAYMENT_METHODS: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
+  activeClass: string;
 }[] = [
   { value: "CASH",         label: "Espèces",      icon: Banknote,   color: "text-emerald-600", activeClass: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40" },
   { value: "MOBILE_MONEY", label: "Mobile Money", icon: Smartphone, color: "text-blue-600",    activeClass: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40"           },
