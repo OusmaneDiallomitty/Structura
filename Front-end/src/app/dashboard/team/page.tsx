@@ -148,13 +148,37 @@ function classDisplayName(cls: ClassOption): string {
 
 const ROLE_ORDER: RoleType[] = ["director", "teacher", "accountant", "supervisor", "secretary"];
 
-const ROLE_GROUP_LABELS: Record<RoleType, string> = {
+const ROLE_GROUP_LABELS_SCHOOL: Record<RoleType, string> = {
   director:   "Fondateur",
   teacher:    "Professeurs",
   accountant: "Comptabilité",
   supervisor: "Surveillance",
   secretary:  "Secrétariat",
 };
+
+const ROLE_GROUP_LABELS_COMMERCE: Record<RoleType, string> = {
+  director:   "Gérant",
+  teacher:    "Caissiers",
+  accountant: "Comptabilité",
+  supervisor: "Superviseurs",
+  secretary:  "Employés",
+};
+
+/** Labels individuels de rôle (singulier) selon le module */
+function getRoleLabel(role: string, moduleType?: string): string {
+  if (moduleType === 'COMMERCE') {
+    const map: Record<string, string> = {
+      director: 'Gérant', teacher: 'Caissier', accountant: 'Comptable',
+      supervisor: 'Superviseur', secretary: 'Employé',
+    };
+    return map[role] ?? role;
+  }
+  const map: Record<string, string> = {
+    director: 'Fondateur', teacher: 'Professeur', accountant: 'Comptable',
+    supervisor: 'Surveillant', secretary: 'Secrétaire',
+  };
+  return map[role] ?? role;
+}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -709,9 +733,16 @@ export default function TeamPage() {
         <CardContent className="space-y-2 text-sm">
           <p><strong>Directeur :</strong> Accès complet à toutes les fonctionnalités</p>
           <p><strong>Comptable :</strong> Gère les paiements et rapports financiers</p>
-          <p><strong>Professeur :</strong> Gère les présences et notes de ses classes assignées</p>
-          <p><strong>Surveillant :</strong> Gère les présences et surveille les élèves</p>
-          <p><strong>Secrétaire :</strong> Gère les élèves et enregistre les paiements</p>
+          {user?.moduleType !== 'COMMERCE' && <>
+            <p><strong>Professeur :</strong> Gère les présences et notes de ses classes assignées</p>
+            <p><strong>Surveillant :</strong> Gère les présences et surveille les élèves</p>
+            <p><strong>Secrétaire :</strong> Gère les élèves et enregistre les paiements</p>
+          </>}
+          {user?.moduleType === 'COMMERCE' && <>
+            <p><strong>Caissier :</strong> Enregistre les ventes et gère la caisse</p>
+            <p><strong>Superviseur :</strong> Supervise les opérations et l&apos;équipe</p>
+            <p><strong>Employé :</strong> Gère les clients et enregistre les paiements</p>
+          </>}
         </CardContent>
       </Card>
 
@@ -730,7 +761,7 @@ export default function TeamPage() {
         <Card className="border-l-4 border-l-blue-500 shadow-md">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Professeurs
+              {user?.moduleType === 'COMMERCE' ? 'Gestionnaires' : 'Professeurs'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -793,11 +824,11 @@ export default function TeamPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tous les rôles</SelectItem>
-                <SelectItem value="director">Directeur</SelectItem>
+                <SelectItem value="director">{getRoleLabel('director', user?.moduleType)}</SelectItem>
                 <SelectItem value="accountant">Comptable</SelectItem>
-                <SelectItem value="teacher">Professeur</SelectItem>
-                <SelectItem value="supervisor">Surveillant</SelectItem>
-                <SelectItem value="secretary">Secrétaire</SelectItem>
+                <SelectItem value="teacher">{getRoleLabel('teacher', user?.moduleType)}</SelectItem>
+                <SelectItem value="supervisor">{getRoleLabel('supervisor', user?.moduleType)}</SelectItem>
+                <SelectItem value="secretary">{getRoleLabel('secretary', user?.moduleType)}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -827,7 +858,7 @@ export default function TeamPage() {
                       onClick={() => toggleGroup(roleKey)}
                     >
                       <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex-1 text-left">
-                        {ROLE_GROUP_LABELS[roleKey]}
+                        {(user?.moduleType === 'COMMERCE' ? ROLE_GROUP_LABELS_COMMERCE : ROLE_GROUP_LABELS_SCHOOL)[roleKey]}
                       </span>
                       <Badge variant="outline" className="text-xs h-5 px-1.5 rounded-full">
                         {groupedMembers[roleKey].length}
@@ -864,7 +895,9 @@ export default function TeamPage() {
                                   )}
                                 </span>
                                 <Badge className={`${member.permissions?.isCoDirector ? "bg-violet-100 text-violet-700 border-violet-200" : ROLE_COLORS[member.role]} text-xs py-0 h-5`}>
-                                  {getUserRoleLabel(member)}
+                                  {member.permissions?.isCoDirector
+                                    ? (user?.moduleType === 'COMMERCE' ? 'Co-Gérant' : 'Co-directeur')
+                                    : getRoleLabel(member.role, user?.moduleType)}
                                 </Badge>
                                 {member.isActive ? (
                                   <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs py-0 h-5">
@@ -1099,7 +1132,7 @@ export default function TeamPage() {
                   className="border-2"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Laisser vide si le membre est présent depuis le début de l&apos;année scolaire
+                  {user?.moduleType === 'COMMERCE' ? "Laisser vide si le membre est présent depuis l'ouverture" : "Laisser vide si le membre est présent depuis le début de l'année scolaire"}
                 </p>
               </div>
             </div>
@@ -1113,15 +1146,26 @@ export default function TeamPage() {
                   <SelectValue placeholder="Sélectionnez un rôle" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="teacher">Professeur</SelectItem>
-                  <SelectItem value="accountant">Comptable</SelectItem>
-                  <SelectItem value="supervisor">Surveillant</SelectItem>
-                  <SelectItem value="secretary">Secrétaire</SelectItem>
+                  {user?.moduleType === 'COMMERCE' ? (
+                    <>
+                      <SelectItem value="teacher">Caissier</SelectItem>
+                      <SelectItem value="accountant">Comptable</SelectItem>
+                      <SelectItem value="supervisor">Superviseur</SelectItem>
+                      <SelectItem value="secretary">Employé</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="teacher">Professeur</SelectItem>
+                      <SelectItem value="accountant">Comptable</SelectItem>
+                      <SelectItem value="supervisor">Surveillant</SelectItem>
+                      <SelectItem value="secretary">Secrétaire</SelectItem>
+                    </>
+                  )}
                   {isRealDirector && (
                     <SelectItem value="co-director">
                       <span className="flex items-center gap-2">
                         <ShieldCheck className="h-4 w-4 text-violet-600" />
-                        Directeur
+                        {user?.moduleType === 'COMMERCE' ? 'Co-Gérant' : 'Directeur'}
                       </span>
                     </SelectItem>
                   )}
@@ -1134,7 +1178,9 @@ export default function TeamPage() {
                     Accès opérationnel complet
                   </p>
                   <p className="text-xs text-violet-700 mt-0.5">
-                    Élèves, présences, notes, paiements de scolarité, équipe. La comptabilité (paie, stats financières) reste réservée au fondateur — vous pourrez l&apos;activer après l&apos;invitation.
+                    {user?.moduleType === 'COMMERCE'
+                      ? "Ventes, stocks, clients, paiements, équipe. La comptabilité (paie, stats financières) reste réservée au fondateur — vous pourrez l'activer après l'invitation."
+                      : "Élèves, présences, notes, paiements de scolarité, équipe. La comptabilité (paie, stats financières) reste réservée au fondateur — vous pourrez l'activer après l'invitation."}
                   </p>
                 </div>
               ) : addForm.role ? (
@@ -1144,8 +1190,8 @@ export default function TeamPage() {
               ) : null}
             </div>
 
-            {/* Assignation classes + matières — visible si role = teacher */}
-            {addForm.role === "teacher" && (
+            {/* Assignation classes + matières — visible si role = teacher, masqué pour commerce */}
+            {addForm.role === "teacher" && user?.moduleType !== 'COMMERCE' && (
               <div className="space-y-3">
                 <Label className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-blue-500" />
@@ -1348,10 +1394,21 @@ export default function TeamPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="teacher">Professeur</SelectItem>
-                    <SelectItem value="accountant">Comptable</SelectItem>
-                    <SelectItem value="supervisor">Surveillant</SelectItem>
-                    <SelectItem value="secretary">Secrétaire</SelectItem>
+                    {user?.moduleType === 'COMMERCE' ? (
+                      <>
+                        <SelectItem value="teacher">Caissier</SelectItem>
+                        <SelectItem value="accountant">Comptable</SelectItem>
+                        <SelectItem value="supervisor">Superviseur</SelectItem>
+                        <SelectItem value="secretary">Employé</SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="teacher">Professeur</SelectItem>
+                        <SelectItem value="accountant">Comptable</SelectItem>
+                        <SelectItem value="supervisor">Surveillant</SelectItem>
+                        <SelectItem value="secretary">Secrétaire</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
                 {/* Avertissement si le rôle change depuis teacher et que des classes sont assignées */}
@@ -1387,7 +1444,7 @@ export default function TeamPage() {
             )}
 
             {/* Assignation classes + matières — visible si role = teacher et pas soi-même */}
-            {selectedMember?.id !== user?.id && editForm.role === "teacher" && (
+            {selectedMember?.id !== user?.id && editForm.role === "teacher" && user?.moduleType !== 'COMMERCE' && (
               <div className="space-y-3">
                 <Label className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-blue-500" />
@@ -1552,7 +1609,10 @@ export default function TeamPage() {
               Permissions de {selectedMember?.firstName} {selectedMember?.lastName}
             </DialogTitle>
             <DialogDescription>
-              {selectedMember && ROLE_DESCRIPTIONS[selectedMember.role]}
+              {selectedMember && (user?.moduleType === 'COMMERCE'
+                ? { director: "Accès complet à toutes les fonctionnalités", accountant: "Gère les paiements et les rapports financiers", teacher: "Enregistre les ventes et gère la caisse", supervisor: "Supervise les opérations et l'équipe", secretary: "Gère les clients et enregistre les paiements" }[selectedMember.role] ?? getRoleLabel(selectedMember.role, user?.moduleType)
+                : ROLE_DESCRIPTIONS[selectedMember.role]
+              )}
               {selectedMember?.permissions && (
                 <span className="ml-2 text-amber-600 font-medium">• Permissions personnalisées actives</span>
               )}
@@ -1564,6 +1624,7 @@ export default function TeamPage() {
                 permissions={editedPermissions}
                 onChange={setEditedPermissions}
                 readOnly={!isRealDirector || selectedMember.id === user?.id}
+                moduleType={user?.moduleType}
               />
             )}
           </div>

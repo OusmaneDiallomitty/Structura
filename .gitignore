@@ -28,8 +28,9 @@ Thumbs.db
 nul
 backend/nul
 
-# Claude Code (settings locaux)
+# Claude Code (settings locaux + worktrees internes)
 .claude/settings.local.json
+.claude/worktrees/
 
 # Tests
 coverage/

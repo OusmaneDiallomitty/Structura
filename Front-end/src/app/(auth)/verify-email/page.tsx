@@ -5,16 +5,16 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAuth } from '@/contexts/AuthContext';
+import * as storage from '@/lib/storage';
 
 function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const { refreshEmailVerified } = useAuth();
 
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  const [dashboardUrl, setDashboardUrl] = useState('/dashboard');
 
   useEffect(() => {
     if (!token) {
@@ -23,9 +23,6 @@ function VerifyEmailContent() {
       return;
     }
 
-    // AbortController + flag cancelled : empêche le double-appel React (StrictMode / remount)
-    // Sans ça : 1er appel réussit → token supprimé BDD → 2e appel échoue → setStatus('error')
-    // écrase setStatus('success') → l'utilisateur voit l'erreur alors que la vérification a marché.
     let cancelled = false;
     const controller = new AbortController();
 
@@ -40,19 +37,27 @@ function VerifyEmailContent() {
 
         if (cancelled) return;
 
-        if (response.ok) {
-          refreshEmailVerified();
+        const data = await response.json();
+
+        if (response.ok && data.token) {
+          // Sauvegarder le JWT → l'utilisateur est connecté automatiquement
+          storage.setAuthItem('structura_token', data.token, false);
+          storage.setAuthItem('structura_refresh_token', data.refreshToken, false);
+          storage.setAuthItem('structura_user', JSON.stringify(data.user), false);
+
+          const target = data.user?.moduleType === 'COMMERCE' ? '/dashboard/commerce' : '/dashboard';
+          setDashboardUrl(target);
           setStatus('success');
           setMessage('Votre email a été vérifié avec succès !');
           setTimeout(() => {
-            if (!cancelled) router.push('/dashboard');
-          }, 3000);
+            if (!cancelled) router.push(target);
+          }, 2000);
         } else {
           setStatus('error');
           setMessage('Le lien de vérification est invalide ou a expiré.');
         }
       } catch (err: any) {
-        if (err.name === 'AbortError' || cancelled) return; // annulation normale, pas une erreur
+        if (err.name === 'AbortError' || cancelled) return;
         setStatus('error');
         setMessage('Impossible de contacter le serveur. Vérifiez votre connexion.');
       }
@@ -79,13 +84,13 @@ function VerifyEmailContent() {
               <XCircle className="h-16 w-16 text-red-600" />
             )}
           </div>
-          
+
           <CardTitle className="text-2xl">
             {status === 'loading' && 'Vérification en cours...'}
             {status === 'success' && 'Email vérifié !'}
             {status === 'error' && 'Erreur de vérification'}
           </CardTitle>
-          
+
           <CardDescription className="text-base mt-2">
             {message}
           </CardDescription>
@@ -95,12 +100,9 @@ function VerifyEmailContent() {
           {status === 'success' && (
             <div className="text-center space-y-4">
               <p className="text-sm text-gray-600">
-                Votre compte a été activé avec succès. Vous allez être redirigé vers le tableau de bord...
+                Votre compte a été activé. Redirection vers votre tableau de bord...
               </p>
-              <Button
-                onClick={() => router.push('/dashboard')}
-                className="w-full"
-              >
+              <Button onClick={() => router.push(dashboardUrl)} className="w-full">
                 Accéder au tableau de bord
               </Button>
             </div>
@@ -112,17 +114,10 @@ function VerifyEmailContent() {
                 Le lien de vérification est invalide ou a expiré.
               </p>
               <div className="flex flex-col gap-2">
-                <Button
-                  onClick={() => router.push('/login')}
-                  variant="outline"
-                  className="w-full"
-                >
+                <Button onClick={() => router.push('/login')} variant="outline" className="w-full">
                   Retour à la connexion
                 </Button>
-                <Button
-                  onClick={() => router.push('/register')}
-                  className="w-full"
-                >
+                <Button onClick={() => router.push('/register')} className="w-full">
                   Créer un nouveau compte
                 </Button>
               </div>

@@ -28,11 +28,10 @@ export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrateur",
 };
 
-// Types d'organisations
-// comingSoon : fonctionnalité non encore disponible — affiché comme désactivé dans le formulaire
+// Types d'établissements scolaires (module ÉCOLE uniquement)
+// Le module Commerce dispose de son propre espace d'inscription séparé
 export const ORGANIZATION_TYPES = [
-  { value: "school",   label: "École",    description: "Maternelle, Primaire, Secondaire, Lycée", comingSoon: false },
-  { value: "business", label: "Commerce", description: "Boutique, Magasin, Restaurant",           comingSoon: true  },
+  { value: "school", label: "École", description: "Maternelle, Primaire, Secondaire, Lycée", comingSoon: false },
 ] as const;
 
 // Niveaux scolaires par pays

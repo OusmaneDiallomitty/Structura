@@ -22,12 +22,32 @@ import {
   LogOut,
   Wifi,
   WifiOff,
+  ShoppingCart,
+  Package,
+  Receipt,
+  Truck,
+  UserRound,
+  Store,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
-import { getUserRoleLabel, canViewAccounting } from "@/types/permissions";
+import { canViewAccounting } from "@/types/permissions";
+
+function getRoleLabel(user: { role?: string; permissions?: { isCoDirector?: boolean } | null } | null | undefined): string {
+  if (!user) return "—";
+  if (user.role === "director") return "Fondateur";
+  if ((user.permissions as any)?.isCoDirector === true) return "Directeur";
+  const labels: Record<string, string> = {
+    teacher: "Enseignant",
+    secretary: "Secrétaire",
+    accountant: "Comptable",
+    supervisor: "Surveillant",
+  };
+  return labels[user.role ?? ""] ?? user.role ?? "—";
+}
 import { isDirectorLevel, isFounder } from "@/lib/is-director";
 import { toast } from "sonner";
 
@@ -52,6 +72,65 @@ interface NavItem {
   }[];
 }
 
+// Navigation module Commerce
+const commerceNavigation: NavItem[] = [
+  {
+    title: "Tableau de bord",
+    href: "/dashboard/commerce",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Caisse",
+    href: "/dashboard/commerce/pos",
+    icon: Store,
+  },
+  {
+    title: "Produits",
+    href: "/dashboard/commerce/products",
+    icon: Package,
+  },
+  {
+    title: "Bons de Réception",
+    href: "/dashboard/commerce/stock-receipts",
+    icon: FileText,
+    directorOnly: true,
+  },
+  {
+    title: "Ventes",
+    href: "/dashboard/commerce/sales",
+    icon: Receipt,
+  },
+  {
+    title: "Clients",
+    href: "/dashboard/commerce/customers",
+    icon: UserRound,
+  },
+  {
+    title: "Dettes",
+    href: "/dashboard/commerce/debts",
+    icon: AlertTriangle,
+  },
+  {
+    title: "Fournisseurs",
+    href: "/dashboard/commerce/suppliers",
+    icon: Truck,
+    directorOnly: true,
+  },
+  {
+    title: "Équipe",
+    href: "/dashboard/team",
+    icon: UsersRound,
+    directorOnly: true,
+  },
+  {
+    title: "Paramètres",
+    href: "/dashboard/settings",
+    icon: Settings,
+    founderOnly: true,
+  },
+];
+
+// Navigation module École (existant)
 const navigation: NavItem[] = [
   {
     title: "Tableau de bord",
@@ -133,6 +212,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
   const isOnline = useOnline();
+  const isCommerce = user?.moduleType === 'COMMERCE';
+  const isPublicSchool = !isCommerce && typeof window !== 'undefined' && localStorage.getItem('structura_school_type') === 'public';
+  const activeNav = isCommerce ? commerceNavigation : navigation;
+  const activeColor = isCommerce ? 'bg-orange-600' : 'bg-blue-600';
+  const activeChildColor = isCommerce ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
   const [isOpen, setIsOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const [pendingSync, setPendingSync] = useState(0);
@@ -242,18 +326,28 @@ export function Sidebar() {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-            {navigation.filter((item) => {
+            {isCommerce && (
+              <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
+                <ShoppingCart className="h-3.5 w-3.5 text-orange-600" />
+                <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide">Commerce</span>
+              </div>
+            )}
+            {activeNav.filter((item) => {
               if (item.founderOnly) return isFounder(user);
-              if (item.accountingAccess) return canViewAccounting(user);
+              if (item.accountingAccess) {
+                // Masquer "Paie" pour les écoles publiques (les profs sont payés par l'État)
+                if (isPublicSchool && item.href === '/dashboard/payroll') return false;
+                return canViewAccounting(user);
+              }
               if (item.directorOnly) return isDirectorLevel(user);
               if (item.permission) return hasPermission(item.permission.resource, item.permission.action);
               return true;
             }).map((item) => {
               // Vérifier si la page actuelle correspond à cet élément
               const isActive = pathname
-                ? item.href === '/dashboard'
-                  ? pathname === '/dashboard' // Égalité stricte pour le dashboard
-                  : pathname.startsWith(item.href) // Commence par pour les autres
+                ? item.href === '/dashboard' || item.href === '/dashboard/commerce'
+                  ? pathname === item.href
+                  : pathname.startsWith(item.href)
                 : false;
               const isExpanded = expandedItems.includes(item.title);
               const hasChildren = item.children && item.children.length > 0;
@@ -266,7 +360,7 @@ export function Sidebar() {
                       className={cn(
                         "group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.97]",
                         isActive
-                          ? "bg-blue-600 text-white shadow-md"
+                          ? `${activeColor} text-white shadow-md`
                           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
@@ -291,7 +385,7 @@ export function Sidebar() {
                       className={cn(
                         "group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.97]",
                         isActive
-                          ? "bg-blue-600 text-white shadow-md"
+                          ? `${activeColor} text-white shadow-md`
                           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
@@ -322,7 +416,7 @@ export function Sidebar() {
                             className={cn(
                               "block px-3 py-2 rounded-lg text-sm transition-all duration-200 active:scale-[0.97]",
                               isChildActive
-                                ? "bg-blue-100 text-blue-700 font-medium shadow-sm"
+                                ? `${activeChildColor} font-medium shadow-sm`
                                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                             )}
                           >
@@ -397,7 +491,7 @@ export function Sidebar() {
                   {user?.firstName} {user?.lastName}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {getUserRoleLabel(user)}
+                  {getRoleLabel(user)}
                 </p>
               </div>
             </Link>

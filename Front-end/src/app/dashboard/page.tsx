@@ -99,6 +99,13 @@ export default function DashboardPage() {
   const { user, hasPermission, logout } = useAuth();
   const router = useRouter();
   const isOnline = useOnline();
+
+  // Redirection automatique pour les tenants Commerce
+  useEffect(() => {
+    if (user?.moduleType === 'COMMERCE') {
+      router.replace('/dashboard/commerce');
+    }
+  }, [user?.moduleType, router]);
   const [showWelcome, setShowWelcome] = useState(false);
   const { shouldShowOnboarding, isLoading: onboardingLoading } = useOnboarding();
   const [showOnboardingModal, setShowOnboardingModal] = useState(true);
@@ -334,7 +341,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Onboarding Modal - Directeur uniquement, affiché seulement si pas complété */}
-      {isDirectorLevel(user) && shouldShowOnboarding && !onboardingLoading && showOnboardingModal && (
+      {isDirectorLevel(user) && user?.moduleType !== 'COMMERCE' && shouldShowOnboarding && !onboardingLoading && showOnboardingModal && (
         <OnboardingModal
           onComplete={handleOnboardingComplete}
           onSkip={handleOnboardingSkip}

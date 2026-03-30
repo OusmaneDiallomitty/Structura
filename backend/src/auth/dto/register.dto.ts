@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsIn, Matches, MaxLength } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsIn, IsOptional, Matches, MaxLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -34,4 +34,9 @@ export class RegisterDto {
   @IsString()
   @MinLength(2)
   city: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['SCHOOL', 'COMMERCE'])
+  moduleType?: string;
 }

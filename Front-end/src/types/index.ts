@@ -15,6 +15,7 @@ export interface User {
   tenantId: string;
   schoolName?: string | null;
   schoolLogo?: string | null;
+  moduleType?: 'SCHOOL' | 'COMMERCE';
   avatar?: string;
   phone?: string;
   emailVerified?: boolean;

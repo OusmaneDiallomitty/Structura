@@ -1382,3 +1382,237 @@ export function generateSalaryReceipt(data: SalaryReceiptData): void {
     doc.save(filename);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REÇU COMMERCE (Ventes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CommerceSalesReceiptData {
+  receiptNumber: string;           // REC-00042
+  date: string;                    // "20/03/2026"
+  time: string;                    // "14:35"
+  cashierName: string;             // Nom de la caissière
+
+  items: Array<{
+    name: string;                  // Nom du produit
+    quantity: number;              // Quantité achetée
+    unitPrice: number;             // Prix unitaire
+    totalPrice: number;            // quantity * unitPrice
+  }>;
+
+  totalAmount: number;             // Total général
+  paidAmount: number;              // Montant payé par le client
+  remainingAmount?: number;        // Total - paidAmount (si partiel)
+  paymentMethod?: string;          // "Espèces", "Mobile Money", etc.
+  customerName?: string;           // Nom du client (optionnel)
+  customerPhone?: string;          // Téléphone client (optionnel)
+
+  commerceName: string;            // Nom du commerce/école
+  commerceLogo?: string;           // Logo en base64 ou URL
+  commerceAddress?: string;        // Adresse du commerce
+  commercePhone?: string;          // Téléphone du commerce
+}
+
+/**
+ * Génère un reçu commerce détaillé, optimisé pour tous appareils.
+ * Format compact (A5 = 148×210mm) pour impression facile ou affichage mobile.
+ */
+export async function generateCommerceSalesReceipt(
+  data: CommerceSalesReceiptData,
+  mode: ReceiptOutputMode = "download"
+): Promise<void> {
+  // Format A5 (half A4) = 148×210mm — parfait pour reçus caisse
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 210] });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 8;
+  const contentW = W - 2 * margin;
+  let y = margin;
+
+  // ── Logo + En-tête commerce ──────────────────────────────────────────────────
+  let logoHeight = 0;
+  if (data.commerceLogo) {
+    try {
+      const logoBase64 = await loadLogoBase64(data.commerceLogo);
+      if (logoBase64) {
+        const logoWidth = 25;
+        doc.addImage(logoBase64, "PNG", (W - logoWidth) / 2, y, logoWidth, 25);
+        logoHeight = 28;
+        y += logoHeight;
+      }
+    } catch {
+      // Logo non critique
+    }
+  }
+
+  // Nom commerce — centré, gros
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+  doc.text(data.commerceName, W / 2, y, { align: "center" });
+  y += 7;
+
+  // Adresse + Téléphone — petit, gris, centré
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(COLORS.secondary);
+  if (data.commerceAddress) {
+    doc.text(data.commerceAddress, W / 2, y, { align: "center" });
+    y += 4;
+  }
+  if (data.commercePhone) {
+    doc.text(`Tél: ${data.commercePhone}`, W / 2, y, { align: "center" });
+    y += 4;
+  }
+
+  y += 2;
+
+  // Ligne séparatrice
+  doc.setDrawColor(200, 200, 200);
+  doc.line(margin, y, W - margin, y);
+  y += 4;
+
+  // ── N° Reçu | Date | Heure ──────────────────────────────────────────────────
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+  doc.text(`Reçu #${data.receiptNumber}`, margin, y);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.text(`${data.date} ${data.time}`, W - margin, y, { align: "right" });
+  y += 5;
+
+  // Caissier + Client
+  doc.setFontSize(7);
+  doc.setTextColor(COLORS.secondary);
+  doc.text(`Caissier: ${data.cashierName}`, margin, y);
+  if (data.customerName) {
+    doc.text(`Client: ${data.customerName}`, W - margin, y, { align: "right" });
+  }
+  y += 4;
+
+  y += 1;
+  doc.line(margin, y, W - margin, y); // Ligne séparatrice
+  y += 3;
+
+  // ── Tableau produits (compact) ───────────────────────────────────────────────
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+
+  // En-têtes
+  const col = {
+    name: margin,
+    qty: margin + contentW * 0.55,
+    total: margin + contentW * 0.78,
+  };
+
+  doc.text("Article", col.name, y);
+  doc.text("Qté", col.qty, y);
+  doc.text("Montant", col.total, y, { align: "right" });
+  y += 3;
+
+  doc.setDrawColor(220, 220, 220);
+  doc.line(margin, y, W - margin, y);
+  y += 2;
+
+  // Produits
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(COLORS.dark);
+
+  data.items.forEach((item) => {
+    // Nom produit
+    doc.setFontSize(7);
+    doc.text(item.name, col.name, y);
+    doc.text(item.quantity.toString(), col.qty, y);
+    doc.text(fmtAmount(item.totalPrice, ""), col.total, y, { align: "right" });
+    y += 4;
+
+    // Sous-ligne: prix unitaire
+    doc.setFontSize(6);
+    doc.setTextColor(COLORS.secondary);
+    doc.text(`${item.quantity} × ${fmtAmount(item.unitPrice, "")}`, col.name + 2, y);
+    y += 3;
+    doc.setTextColor(COLORS.dark);
+  });
+
+  y += 1;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(margin, y, W - margin, y);
+  y += 4;
+
+  // ── Totaux ───────────────────────────────────────────────────────────────────
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+
+  // Total
+  doc.setTextColor(COLORS.dark);
+  doc.text("TOTAL", margin, y);
+  doc.text(fmtAmount(data.totalAmount, "GNF"), W - margin, y, { align: "right" });
+  y += 5;
+
+  // Montant payé
+  doc.setTextColor(COLORS.success);
+  doc.setFontSize(8);
+  doc.text("Montant payé", margin, y);
+  doc.text(fmtAmount(data.paidAmount, "GNF"), W - margin, y, { align: "right" });
+  y += 5;
+
+  // Reste dû
+  if (data.remainingAmount && data.remainingAmount > 0) {
+    doc.setFontSize(9);
+    doc.setTextColor(COLORS.danger);
+    doc.setFont("helvetica", "bold");
+    doc.text("RESTE DÛ", margin, y);
+    doc.text(fmtAmount(data.remainingAmount, "GNF"), W - margin, y, { align: "right" });
+    y += 6;
+  } else {
+    y += 1;
+  }
+
+  // Méthode paiement
+  if (data.paymentMethod) {
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(COLORS.secondary);
+    doc.text(`Paiement: ${data.paymentMethod}`, margin, y);
+    y += 4;
+  }
+
+  y += 2;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(margin, y, W - margin, y);
+  y += 3;
+
+  // ── Message final ────────────────────────────────────────────────────────────
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+  doc.text("MERCI DE VOTRE ACHAT!", W / 2, y, { align: "center" });
+  y += 4;
+
+  if (data.remainingAmount && data.remainingAmount > 0) {
+    doc.setFontSize(7);
+    doc.setTextColor(COLORS.danger);
+    doc.text(`Solde dû: ${fmtAmount(data.remainingAmount, "GNF")}`, W / 2, y, { align: "center" });
+    y += 3;
+  }
+
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  doc.setFontSize(6);
+  doc.setTextColor(150, 150, 150);
+  doc.setFont("helvetica", "normal");
+  doc.text("Structura Commerce", W / 2, y + 3, { align: "center" });
+
+  // ── Sortie ───────────────────────────────────────────────────────────────────
+  const filename = `recu-${data.receiptNumber.replace(/\//g, "-")}.pdf`;
+
+  if (mode === "preview") {
+    openBlobInTab(doc.output("blob") as Blob);
+  } else if (mode === "print") {
+    doc.autoPrint();
+    openBlobInTab(doc.output("blob") as Blob);
+  } else {
+    doc.save(filename);
+  }
+}

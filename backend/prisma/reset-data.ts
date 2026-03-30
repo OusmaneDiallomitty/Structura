@@ -1,7 +1,7 @@
 /**
- * Script pour réinitialiser les données de la base de données
- * Supprime toutes les données créées par les utilisateurs
- * Garde la structure de la base de données intacte
+ * Script pour réinitialiser TOUTES les données de la base de données
+ * Supprime tous les utilisateurs, tenants et données associées
+ * Garde la structure (schéma) intacte
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -9,44 +9,81 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🔄 Début de la réinitialisation de la base de données...');
+  console.log('🔄 Début de la réinitialisation complète...');
 
   try {
-    // Supprimer dans l'ordre inverse des dépendances
-    console.log('🗑️  Suppression des grades...');
-    await prisma.grade.deleteMany({});
+    // Commerce
+    console.log('🗑️  Commerce — mouvements de stock...');
+    await prisma.stockMovement.deleteMany({});
+    console.log('🗑️  Commerce — lignes de vente...');
+    await prisma.saleItem.deleteMany({});
+    console.log('🗑️  Commerce — ventes...');
+    await prisma.sale.deleteMany({});
+    console.log('🗑️  Commerce — produits...');
+    await prisma.product.deleteMany({});
+    console.log('🗑️  Commerce — catégories produits...');
+    await prisma.productCategory.deleteMany({});
+    console.log('🗑️  Commerce — clients...');
+    await prisma.commerceCustomer.deleteMany({});
+    console.log('🗑️  Commerce — fournisseurs...');
+    await prisma.supplier.deleteMany({});
 
-    console.log('🗑️  Suppression des paiements...');
+    // Scolaire
+    console.log('🗑️  Scolaire — verrouillages trimestre...');
+    await prisma.trimesterLock.deleteMany({});
+    console.log('🗑️  Scolaire — coefficients matières...');
+    await prisma.subjectCoefficient.deleteMany({});
+    console.log('🗑️  Scolaire — compositions...');
+    await prisma.composition.deleteMany({});
+    console.log('🗑️  Scolaire — évaluations...');
+    await prisma.evaluation.deleteMany({});
+    console.log('🗑️  Scolaire — dépenses...');
+    await prisma.expense.deleteMany({});
+    console.log('🗑️  Scolaire — paiements...');
     await prisma.payment.deleteMany({});
-
-    console.log('🗑️  Suppression des présences...');
+    console.log('🗑️  Scolaire — présences...');
     await prisma.attendance.deleteMany({});
-
-    console.log('🗑️  Suppression des élèves...');
+    console.log('🗑️  Scolaire — matières de classe...');
+    await prisma.classSubject.deleteMany({});
+    console.log('🗑️  Scolaire — élèves...');
     await prisma.student.deleteMany({});
-
-    console.log('🗑️  Suppression des classes...');
+    console.log('🗑️  Scolaire — classes...');
     await prisma.class.deleteMany({});
-
-    console.log('🗑️  Suppression des années académiques...');
+    console.log('🗑️  Scolaire — années académiques...');
     await prisma.academicYear.deleteMany({});
 
-    console.log('🗑️  Suppression de l\'historique des abonnements...');
+    // Notifications & alertes
+    console.log('🗑️  Notifications...');
+    await prisma.notification.deleteMany({});
+    console.log('🗑️  Push subscriptions...');
+    await prisma.pushSubscription.deleteMany({});
+    console.log('🗑️  Alertes snoozées...');
+    await prisma.alertSnooze.deleteMany({});
+
+    // Abonnements & facturation
+    console.log('🗑️  Paiements abonnements (Djomy)...');
+    await prisma.subscriptionPayment.deleteMany({});
+    console.log('🗑️  Historique abonnements...');
     await prisma.subscriptionHistory.deleteMany({});
 
-    console.log('🗑️  Suppression des utilisateurs...');
-    await prisma.user.deleteMany({});
+    // Audit & notes admin
+    console.log('🗑️  Logs d\'audit...');
+    await prisma.auditLog.deleteMany({});
+    console.log('🗑️  Notes admin (tenants)...');
+    await prisma.tenantNote.deleteMany({});
 
-    console.log('🗑️  Suppression des tenants...');
+    // Utilisateurs & tenants
+    console.log('🗑️  Utilisateurs...');
+    await prisma.user.deleteMany({});
+    console.log('🗑️  Tenants...');
     await prisma.tenant.deleteMany({});
 
-    console.log('✅ Base de données réinitialisée avec succès !');
     console.log('');
-    console.log('📝 Vous pouvez maintenant :');
-    console.log('   1. Créer un nouveau compte (register)');
-    console.log('   2. Créer une année académique');
-    console.log('   3. Créer vos classes avec le système prédéfini');
-    console.log('   4. Importer vos élèves');
+    console.log('✅ Base de données réinitialisée avec succès !');
+    console.log('   → Tous les utilisateurs et tenants supprimés');
+    console.log('   → Structure (schéma) conservée intacte');
+    console.log('');
+    console.log('📝 Prochaine étape : créer un nouveau compte sur /register');
   } catch (error) {
     console.error('❌ Erreur lors de la réinitialisation:', error);
     throw error;
@@ -55,8 +92,7 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

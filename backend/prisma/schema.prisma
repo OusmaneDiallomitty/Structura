@@ -10,6 +10,31 @@ datasource db {
 }
 
 // Enums
+enum ModuleType {
+  SCHOOL
+  COMMERCE
+}
+
+enum SaleStatus {
+  COMPLETED
+  PARTIAL
+  CANCELLED
+}
+
+enum StockMovementType {
+  IN         // Entrée : livraison fournisseur
+  OUT        // Sortie : vente (automatique)
+  ADJUSTMENT // Inventaire manuel (correction)
+  RETURN     // Retour client
+}
+
+enum ReceiptStatus {
+  DRAFT      // Brouillon — en cours de saisie
+  RECEIVED   // Reçu — stock mis à jour
+  VERIFIED   // Vérifié — par un responsable
+  CANCELLED  // Annulé
+}
+
 enum StudentStatus {
   ACTIVE
   INACTIVE
@@ -68,6 +93,9 @@ model Tenant {
   feeItems         Json?   // [{ id, name, amount, classIds, academicYear, createdAt }]
   schoolDays       Json?   // { saturday: boolean, thursdayOff: boolean }
 
+  // Module actif — détermine quel dashboard est affiché
+  moduleType            ModuleType         @default(SCHOOL)
+
   // Préférences de notifications (email via Resend)
   notifMonthlyReport    Boolean            @default(true)  // Rapport mensuel des paiements
   notifOverdueAlert     Boolean            @default(true)  // Alerte élèves en retard de paiement
@@ -96,6 +124,16 @@ model Tenant {
   trimesterLocks        TrimesterLock[]
   pushSubscriptions     PushSubscription[]
   notifications         Notification[]
+
+  // Commerce — relations isolées (sans lien avec les modèles école)
+  products              Product[]
+  productCategories     ProductCategory[]
+  sales                 Sale[]
+  stockMovements        StockMovement[]
+  stockInbounds         StockInbound[]
+  stockReceipts         StockReceipt[]
+  suppliers             Supplier[]
+  commerceCustomers     CommerceCustomer[]
 
   @@map("tenants")
 }
@@ -564,4 +602,275 @@ model Notification {
   @@index([userId, read])
   @@index([tenantId])
   @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────
+//  MODULE COMMERCE — tables complètement séparées du module école
+//  Aucune relation avec Student, Class, Grade, Attendance, etc.
+// ─────────────────────────────────────────────────────────────
+
+/// Catégories de produits — configurées par le commerçant
+model ProductCategory {
+  id        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  name      String
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products  Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_categories")
+}
+
+/// Produits du catalogue — stock, prix, alertes
+model Product {
+  id           String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId     String
+  categoryId   String?
+  name         String
+  reference    String?          // SKU / code interne
+  barcode      String?          // Code-barre EAN
+  unit         String           @default("pièce") // pièce | kg | litre | boîte | sac | etc
+  buyPrice     Float            @default(0)        // Prix d'achat (unité de vente)
+  sellPrice    Float                               // Prix de vente (unité de vente)
+  stockQty     Float            @default(0)        // Quantité en stock (unité de vente)
+  stockAlert   Float            @default(5)        // Alerte rupture si qty < stockAlert
+  imageUrl     String?
+  expiresAt    DateTime?        // Date de péremption (pharmacie, épicerie)
+
+  // Unités multiples / Conversion
+  purchaseUnit      String?     // Unité d'achat (tonne, palette, carton, boîte, etc)
+  conversionFactor  Float?      // Ex: 1 tonne = 1000 sacs → factor=1000
+  conversionNote    String?     // Ex: "1 tonne de riz = 1000 sacs"
+
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @default(now()) @updatedAt
+
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category            ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  saleItems           SaleItem[]
+  stockMovements      StockMovement[]
+  stockInbounds       StockInbound[]
+  receiptLines        StockReceiptLine[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId])
+  @@index([tenantId, categoryId])
+  @@index([tenantId, isActive])
+  @@map("products")
+}
+
+/// Réception stock — traçabilité des arrivages (fournisseur + conversion)
+model StockInbound {
+  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId        String
+  productId       String
+
+  // Ce qui arrive
+  receivedQty     Float     // Quantité reçue (en purchaseUnit)
+  receivedUnit    String    // Unité reçue (tonne, palette, etc)
+
+  // Conversion automatique en unité de vente
+  convertedQty    Float     // Quantité convertie (en unit produit)
+  conversionFactor Float    // Facteur utilisé pour la conversion
+
+  // Métadonnées
+  supplierId      String?
+  reference       String?   // Numéro bon de commande, facture, etc
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, productId])
+  @@map("stock_inbounds")
+}
+
+/// Bon de Réception — Traçabilité complète des arrivages (jour, heure, fournisseur, produits, etc)
+model StockReceipt {
+  id                String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId          String
+
+  // Numérotation
+  receiptNumber     String    // REC-001, REC-002, etc
+  referenceNumber   String?   // Numéro BC, facture, etc du fournisseur
+
+  // Fournisseur
+  supplierId        String?
+  supplierName      String    // Nom fournisseur (peut être différent si pas dans BDD)
+
+  // Traçabilité temporelle
+  receivedAt        DateTime  @default(now()) // Date + heure réception
+
+  // Qui a enregistré
+  receivedByUserId  String
+  receivedByName    String    // Nom utilisateur qui a enregistré
+
+  // Vérification
+  verifiedByUserId  String?
+  verifiedAt        DateTime?
+
+  // État
+  status            ReceiptStatus @default(RECEIVED)
+
+  // Remarques
+  notes             String?
+
+  // Totaux
+  totalItems        Int       @default(0) // Nombre de lignes
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier  Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  lines     StockReceiptLine[]
+
+  @@unique([tenantId, receiptNumber])
+  @@index([tenantId])
+  @@index([tenantId, receivedAt])
+  @@index([tenantId, status])
+  @@map("stock_receipts")
+}
+
+/// Lignes du Bon de Réception — Produits reçus
+model StockReceiptLine {
+  id                String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  receiptId         String
+  productId         String
+
+  // Quantité reçue
+  quantity          Float     // Quantité (directement en unité finale du produit)
+  unit              String    // Unité (sac, kg, litre, pièce, etc)
+
+  // Montant (optionnel)
+  unitPrice         Float?
+  totalPrice        Float?    // quantity × unitPrice
+
+  // Notes par produit
+  notes             String?
+
+  createdAt         DateTime  @default(now())
+
+  receipt   StockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId])
+  @@index([productId])
+  @@map("stock_receipt_lines")
+}
+
+
+/// Clients commerce — pour le suivi crédit (≠ Student)
+model CommerceCustomer {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId   String
+  name       String
+  phone      String?
+  address    String?
+  totalDebt  Float    @default(0) // Solde dû (mis à jour à chaque vente/paiement)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales      Sale[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@map("commerce_customers")
+}
+
+/// Fournisseurs — entrées de stock
+model Supplier {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipts  StockReceipt[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+/// Ventes (caisse / PDV) — chaque passage en caisse
+model Sale {
+  id            String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId      String
+  receiptNumber String           // Numéro de reçu unique par tenant
+  cashierId     String           // User.id du caissier
+  customerId    String?          // CommerceCustomer.id (optionnel — vente anonyme possible)
+  totalAmount   Float            // Total de la vente
+  paidAmount    Float            // Montant réellement encaissé
+  changeAmount  Float            @default(0)  // Monnaie rendue
+  remainingDebt Float            @default(0)  // Reste dû (si paiement partiel)
+  paymentMethod String           @default("CASH") // CASH | MOBILE_MONEY | CREDIT
+  status        SaleStatus       @default(COMPLETED)
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @default(now()) @updatedAt
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer      CommerceCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items         SaleItem[]
+
+  @@unique([tenantId, receiptNumber])
+  @@index([tenantId])
+  @@index([tenantId, createdAt(sort: Desc)])  // Ventes récentes + rapports journaliers
+  @@index([tenantId, status])
+  @@index([tenantId, cashierId])
+  @@map("sales")
+}
+
+/// Lignes d'une vente — chaque produit vendu
+model SaleItem {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  saleId     String
+  productId  String
+  quantity   Float    // Peut être décimal (ex : 0.5 kg)
+  unitPrice  Float    // Prix unitaire au moment de la vente (snapshot)
+  totalPrice Float    // quantity × unitPrice
+
+  sale       Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: NoAction)
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+/// Mouvements de stock — audit complet (entrées, sorties, ajustements)
+model StockMovement {
+  id        String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  productId String
+  userId    String            // Qui a effectué le mouvement
+  type      StockMovementType
+  quantity  Float             // Quantité du mouvement (toujours positive)
+  reason    String?           // Commentaire libre (ex: "Livraison Orange Fournisseur")
+  createdAt DateTime          @default(now())
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("stock_movements")
 }

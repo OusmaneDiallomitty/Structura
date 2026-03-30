@@ -44,7 +44,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean, tenantId?: string) => Promise<void | { status: 'SELECT_TENANT'; tenants: { tenantId: string; tenantName: string; moduleType: 'SCHOOL' | 'COMMERCE'; role: string; emailVerified: boolean }[] }>;
   register: (data: RegisterPayload) => Promise<{ needsOnboarding: boolean; organizationType: string }>;
   logout: () => void;
   updateUser: (data: Partial<User>) => Promise<void>;
@@ -216,7 +216,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Assure que les données IndexedDB sont fraîches même après une longue absence.
           const currentToken = storage.getAuthItem(TOKEN_KEY);
           if (currentToken) {
-            prefetchOfflineData(currentToken).catch(() => {});
+            const parsedUser = JSON.parse(freshUserData);
+            prefetchOfflineData(currentToken, {
+              moduleType: parsedUser?.moduleType,
+              tenantId: parsedUser?.tenantId,
+            }).catch(() => {});
           }
         }
       }
@@ -227,7 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string, rememberMe: boolean = false) => {
+  const login = async (email: string, password: string, rememberMe: boolean = false, tenantId?: string) => {
     try {
       // Si un utilisateur différent est déjà connecté sur ce navigateur, fermer
       // proprement sa session en BDD avant de procéder. Sans ça, son currentSessionId
@@ -250,7 +254,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('structura_device_id', deviceId);
       }
 
-      const response = await loginUser({ email, password, deviceId });
+      const response = await loginUser({ email, password, deviceId, tenantId });
+
+      // Plusieurs espaces trouvés → le frontend doit afficher un sélecteur
+      if ('status' in response && response.status === 'SELECT_TENANT') {
+        return response as { status: 'SELECT_TENANT'; tenants: { tenantId: string; tenantName: string; moduleType: 'SCHOOL' | 'COMMERCE'; role: string; emailVerified: boolean }[] };
+      }
 
       // Approbation requise — une session active existait sur un autre appareil
       if ('status' in response && response.status === 'PENDING_APPROVAL') {
@@ -284,10 +293,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Pre-fetch en arrière-plan : charge élèves, classes, paiements dans IndexedDB
       // pour que toutes les pages soient disponibles hors ligne sans visite préalable.
       // Force=true : on vient de se connecter → données fraîches garanties.
-      prefetchOfflineData(authResponse.token, { force: true }).catch(() => {});
+      prefetchOfflineData(authResponse.token, {
+        force: true,
+        moduleType: authResponse.user.moduleType,
+        tenantId: authResponse.user.tenantId,
+      }).catch(() => {});
 
       if (!authResponse.user.emailVerified) {
         router.push("/check-email");
+      } else if (authResponse.user.moduleType === 'COMMERCE') {
+        router.push("/dashboard/commerce");
       } else {
         router.push("/dashboard");
       }

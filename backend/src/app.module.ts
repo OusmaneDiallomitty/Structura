@@ -23,6 +23,7 @@ import { ContactModule } from './contact/contact.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { CommerceModule } from './commerce/commerce.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { PayrollModule } from './payroll/payroll.module';
     NotificationsModule,
     ExpensesModule,
     PayrollModule,
+    CommerceModule,
   ],
   providers: [
     // ThrottlerGuard appliqué UNIQUEMENT sur les endpoints auth et checkout via @UseGuards()

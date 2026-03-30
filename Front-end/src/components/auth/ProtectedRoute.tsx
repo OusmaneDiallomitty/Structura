@@ -19,7 +19,12 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     if (!isLoading) {
       // 1. Non authentifié → login
       if (!isAuthenticated) {
-        sessionStorage.setItem("redirectAfterLogin", pathname);
+        // Ne pas sauvegarder l'URL si c'est une déconnexion manuelle
+        // (sinon ProtectedRoute re-sauvegarde l'URL juste après clearAuth)
+        const isManualLogout = sessionStorage.getItem("structura_manual_logout") === "true";
+        if (!isManualLogout) {
+          sessionStorage.setItem("redirectAfterLogin", pathname);
+        }
         router.push("/login");
         return;
       }

@@ -23,12 +23,20 @@ export interface RegisterPayload {
   organizationType: string;
   country: string;
   city: string;
+  moduleType?: 'SCHOOL' | 'COMMERCE';
 }
 
 export interface LoginPayload {
   email: string;
   password: string;
   deviceId?: string;  // UUID persistant localStorage — skip approbation si même appareil
+  tenantId?: string;  // Sélection explicite quand plusieurs espaces existent
+}
+
+/** Retourné quand le même email est associé à plusieurs tenants avec le même mot de passe */
+export interface SelectTenantResponse {
+  status: 'SELECT_TENANT';
+  tenants: { tenantId: string; tenantName: string; moduleType: 'SCHOOL' | 'COMMERCE'; role: string; emailVerified: boolean }[];
 }
 
 export interface AuthResponse {
@@ -103,7 +111,7 @@ export async function registerUser(data: RegisterPayload): Promise<AuthResponse>
  * Peut retourner AuthResponse (connexion directe) ou PendingApprovalResponse
  * si l'utilisateur avait déjà une session active sur un autre appareil.
  */
-export async function loginUser(data: LoginPayload): Promise<AuthResponse | PendingApprovalResponse> {
+export async function loginUser(data: LoginPayload): Promise<AuthResponse | PendingApprovalResponse | SelectTenantResponse> {
   if (USE_MOCK) {
     return mockLogin(data);
   }

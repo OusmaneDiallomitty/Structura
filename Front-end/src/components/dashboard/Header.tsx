@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, LayoutDashboard, Users, GraduationCap, UserCheck, DollarSign, FileText, UsersRound, Settings, CreditCard, UserCircle } from "lucide-react";
+import { Search, LayoutDashboard, Users, GraduationCap, UserCheck, DollarSign, FileText, UsersRound, Settings, CreditCard, UserCircle, ShoppingCart, Package, Receipt, Truck, UserRound, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +13,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 
 const PAGE_INFO: { pattern: string; title: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  // School pages
   { pattern: "/dashboard/students/add",      title: "Ajouter un élève",    Icon: Users },
   { pattern: "/dashboard/students/",         title: "Fiche élève",         Icon: Users },
   { pattern: "/dashboard/grades/bulletins",  title: "Bulletins scolaires", Icon: FileText },
@@ -21,6 +22,14 @@ const PAGE_INFO: { pattern: string; title: string; Icon: React.ComponentType<{ c
   { pattern: "/dashboard/attendance",        title: "Présences",           Icon: UserCheck },
   { pattern: "/dashboard/payments",          title: "Paiements",           Icon: DollarSign },
   { pattern: "/dashboard/grades",            title: "Notes",               Icon: FileText },
+  // Commerce pages
+  { pattern: "/dashboard/commerce/pos",       title: "Caisse",              Icon: ShoppingCart },
+  { pattern: "/dashboard/commerce/products",  title: "Produits",            Icon: Package },
+  { pattern: "/dashboard/commerce/sales",     title: "Ventes",              Icon: Receipt },
+  { pattern: "/dashboard/commerce/customers", title: "Clients",             Icon: UserRound },
+  { pattern: "/dashboard/commerce/suppliers", title: "Fournisseurs",        Icon: Truck },
+  { pattern: "/dashboard/commerce",           title: "Tableau de bord",     Icon: Store },
+  // Shared pages
   { pattern: "/dashboard/team",              title: "Équipe",              Icon: UsersRound },
   { pattern: "/dashboard/billing",           title: "Abonnement",          Icon: CreditCard },
   { pattern: "/dashboard/settings",          title: "Paramètres",          Icon: Settings },
@@ -65,8 +74,8 @@ export function Header() {
 
           {/* Page indicator — desktop only */}
           {currentPage && (
-            <div className="hidden lg:flex items-center gap-2.5 flex-shrink-0 border-l-[3px] border-blue-600 pl-3 mr-2">
-              <currentPage.Icon className="h-4 w-4 text-blue-600 flex-shrink-0" />
+            <div className={`hidden lg:flex items-center gap-2.5 shrink-0 border-l-[3px] pl-3 mr-2 ${user?.moduleType === 'COMMERCE' ? 'border-orange-600' : 'border-blue-600'}`}>
+              <currentPage.Icon className={`h-4 w-4 shrink-0 ${user?.moduleType === 'COMMERCE' ? 'text-orange-600' : 'text-blue-600'}`} />
               <span className="font-semibold text-sm text-foreground whitespace-nowrap">
                 {currentPage.title}
               </span>
@@ -90,8 +99,8 @@ export function Header() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            {/* Academic Year Badge */}
-            <CurrentYearBadge />
+            {/* Academic Year Badge — masqué pour les tenants commerce */}
+            {user?.moduleType !== 'COMMERCE' && <CurrentYearBadge />}
 
             {/* Notification Center */}
             <NotificationCenter />

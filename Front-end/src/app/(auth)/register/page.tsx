@@ -14,6 +14,9 @@ import {
   Briefcase,
   ArrowRight,
   Sparkles,
+  GraduationCap,
+  ShoppingCart,
+  Check,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,7 +34,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { registerSchema, type RegisterFormData } from "@/lib/validations";
-import { ROUTES, APP_NAME, ORGANIZATION_TYPES, COUNTRIES, getCountryData } from "@/lib/constants";
+import { ROUTES, APP_NAME, COUNTRIES, getCountryData } from "@/lib/constants";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -48,6 +51,20 @@ function RegisterContent() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Type de module sélectionné — détermine le flux d'inscription
+  const [moduleType, setModuleType] = useState<'SCHOOL' | 'COMMERCE' | null>(null);
+
+  const handleModuleTypeSelect = (type: 'SCHOOL' | 'COMMERCE') => {
+    setModuleType(type);
+    // Pour commerce, pré-remplir organizationType pour passer la validation Zod
+    if (type === 'COMMERCE') {
+      setValue('organizationType', 'business' as any, { shouldValidate: false });
+    } else {
+      setValue('organizationType', undefined as any, { shouldValidate: false });
+    }
+  };
+
   // Sélection de pays → dérive le placeholder de ville
   const [selectedCountryCode, setSelectedCountryCode] = useState<string>("");
   // Guinée uniquement — préfixe +224 fixe
@@ -78,7 +95,7 @@ function RegisterContent() {
       password: "",
       confirmPassword: "",
       organizationName: "",
-      organizationType: undefined,
+      organizationType: "school" as any,
       country: "",
       city: "",
       acceptTerms: false,
@@ -141,9 +158,11 @@ function RegisterContent() {
         phone: data.phone,
         password: data.password,
         organizationName: data.organizationName,
-        organizationType: data.organizationType,
+        // Pour commerce : forcer organizationType à 'business'
+        organizationType: moduleType === 'COMMERCE' ? 'business' : data.organizationType,
         country: data.country,
         city: data.city,
+        moduleType: moduleType ?? 'SCHOOL',
       };
 
       // Appel à l'API via AuthContext (connexion automatique)
@@ -211,12 +230,82 @@ function RegisterContent() {
             <img src="/logo.png" alt="Structura" className="h-16 w-auto rounded-xl shadow-md" />
           </Link>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Créez votre espace de travail
+            {moduleType === null ? "Quel type d'espace voulez-vous créer ?" : "Créez votre espace de travail"}
           </h1>
+          {moduleType !== null && (
+            <button
+              type="button"
+              onClick={() => setModuleType(null)}
+              className="mt-2 text-sm text-indigo-600 hover:text-indigo-700 hover:underline underline-offset-4 transition-colors"
+            >
+              ← Changer de type
+            </button>
+          )}
         </div>
 
-        {/* Forme Card */}
-        <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-700 ring-1 ring-gray-200/50">
+        {/* ── Étape 0 : choix École / Commerce ─────────────────────────── */}
+        {moduleType === null && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* École */}
+            <button
+              type="button"
+              onClick={() => handleModuleTypeSelect('SCHOOL')}
+              className="group flex flex-col items-center gap-4 p-8 rounded-2xl border-2 border-blue-200 bg-white/90 hover:border-blue-500 hover:shadow-xl transition-all duration-300 active:scale-95 text-left"
+            >
+              <div className="h-16 w-16 rounded-2xl bg-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                <GraduationCap className="h-8 w-8 text-white" />
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold text-gray-900">École</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Maternelle, Primaire, Secondaire, Lycée
+                </p>
+                <ul className="mt-3 space-y-1 text-xs text-gray-400 text-left">
+                  {["Gestion des élèves & classes", "Présences & notes", "Paiements scolaires", "Bulletins PDF"].map((f) => (
+                    <li key={f} className="flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <span className="mt-auto w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold text-center group-hover:bg-blue-700 transition-colors">
+                Créer un espace École
+              </span>
+            </button>
+
+            {/* Commerce */}
+            <button
+              type="button"
+              onClick={() => handleModuleTypeSelect('COMMERCE')}
+              className="group flex flex-col items-center gap-4 p-8 rounded-2xl border-2 border-orange-200 bg-white/90 hover:border-orange-500 hover:shadow-xl transition-all duration-300 active:scale-95 text-left"
+            >
+              <div className="h-16 w-16 rounded-2xl bg-orange-500 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                <ShoppingCart className="h-8 w-8 text-white" />
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold text-gray-900">Commerce</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Boutique, Magasin, Pharmacie, Restaurant
+                </p>
+                <ul className="mt-3 space-y-1 text-xs text-gray-400 text-left">
+                  {["Caisse enregistreuse (POS)", "Gestion des stocks", "Clients & fournisseurs", "Tableau de bord ventes"].map((f) => (
+                    <li key={f} className="flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <span className="mt-auto w-full py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold text-center group-hover:bg-orange-600 transition-colors">
+                Créer un espace Commerce
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Forme Card — visible uniquement après sélection du type */}
+        {moduleType !== null && <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-700 ring-1 ring-gray-200/50">
           <CardContent className="p-5 sm:p-8">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               {/* Message d'erreur */}
@@ -529,22 +618,24 @@ function RegisterContent() {
 
               {/* Section 2: Informations de l'organisation */}
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-indigo-700 uppercase tracking-wide">
-                  <div className="h-8 w-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-                    <Briefcase className="h-4 w-4 text-indigo-600" />
+                <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wide ${moduleType === 'COMMERCE' ? 'text-orange-700' : 'text-indigo-700'}`}>
+                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${moduleType === 'COMMERCE' ? 'bg-orange-100' : 'bg-indigo-100'}`}>
+                    {moduleType === 'COMMERCE'
+                      ? <ShoppingCart className="h-4 w-4 text-orange-600" />
+                      : <Briefcase className="h-4 w-4 text-indigo-600" />}
                   </div>
-                  <span>Votre organisation</span>
+                  <span>{moduleType === 'COMMERCE' ? 'Votre commerce' : 'Votre organisation'}</span>
                 </div>
 
                 {/* Nom de l'organisation */}
                 <div className="space-y-2">
                   <Label htmlFor="organizationName" className="text-sm font-semibold text-gray-800">
-                    Nom de l'organisation
+                    {moduleType === 'COMMERCE' ? 'Nom de votre commerce' : "Nom de l'organisation"}
                   </Label>
                   <Input
                     id="organizationName"
                     type="text"
-                    placeholder="Ex : École Primaire Al-Nour, Lycée Moderne…"
+                    placeholder={moduleType === 'COMMERCE' ? "Ex : Boutique Al-Amine, Pharmacie Centrale…" : "Ex : École Primaire Al-Nour, Lycée Moderne…"}
                     disabled={isLoading}
                     className="h-10 border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all duration-200 bg-white hover:border-indigo-400"
                     aria-invalid={errors.organizationName ? "true" : "false"}
@@ -566,54 +657,7 @@ function RegisterContent() {
                   )}
                 </div>
 
-                {/* Type d'organisation */}
-                <div className="space-y-2">
-                  <Label htmlFor="organizationType" className="text-sm font-semibold text-gray-800">Type d'organisation</Label>
-                  <Select
-                    onValueChange={(value) =>
-                      setValue("organizationType", value as any)
-                    }
-                    disabled={isLoading}
-                  >
-                    <SelectTrigger
-                      id="organizationType"
-                      className="h-10 border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 bg-white hover:border-indigo-400"
-                      aria-invalid={errors.organizationType ? "true" : "false"}
-                    >
-                      <SelectValue placeholder="Sélectionnez un type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ORGANIZATION_TYPES.map((type) => (
-                        <SelectItem
-                          key={type.value}
-                          value={type.value}
-                          disabled={type.comingSoon}
-                        >
-                          <div className="flex flex-col">
-                            <span className="flex items-center gap-2 font-medium">
-                              {type.label}
-                              {type.comingSoon && (
-                                <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium leading-none">
-                                  En cours
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-xs text-gray-500">{type.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.organizationType && (
-                    <p
-                      id="organizationType-error"
-                      className="text-sm text-red-600"
-                      role="alert"
-                    >
-                      {errors.organizationType.message}
-                    </p>
-                  )}
-                </div>
+                {/* Type d'organisation — toujours "school" pour le module École, champ masqué */}
 
                 {/* Ville de l'organisation — auto-remplie selon le pays, modifiable */}
                 <div className="space-y-2">
@@ -744,7 +788,7 @@ function RegisterContent() {
 
             </form>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
     </div>
   );

@@ -146,6 +146,9 @@ export function CurrentYearBadge() {
     setTimeout(() => window.location.reload(), 1000);
   }
 
+  // Pas d'année scolaire pour les tenants commerce — après tous les hooks
+  if (user?.moduleType === 'COMMERCE') return null;
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100">

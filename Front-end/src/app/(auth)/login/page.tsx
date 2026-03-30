@@ -14,6 +14,9 @@ import {
   AlertCircle,
   Lock,
   Mail,
+  ShoppingCart,
+  GraduationCap,
+  ChevronRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { loginSchema, type LoginFormData } from "@/lib/validations";
 import { ROUTES, APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/contexts/AuthContext";
@@ -35,6 +39,11 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sélecteur d'espace multi-tenant
+  const [tenantList, setTenantList] = useState<{ tenantId: string; tenantName: string; moduleType: 'SCHOOL' | 'COMMERCE'; role: string; emailVerified: boolean }[]>([]);
+  const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string; rememberMe: boolean } | null>(null);
+  const [resendingFor, setResendingFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -70,10 +79,16 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      await login(data.email, data.password, data.rememberMe ?? false);
-      toast.success("Connexion réussie !", {
-        description: "Bienvenue sur Structura",
-      });
+      const result = await login(data.email, data.password, data.rememberMe ?? false);
+
+      // Plusieurs espaces disponibles → afficher le sélecteur
+      if (result && 'status' in result && result.status === 'SELECT_TENANT') {
+        setPendingCredentials({ email: data.email, password: data.password, rememberMe: data.rememberMe ?? false });
+        setTenantList(result.tenants);
+        return;
+      }
+
+      toast.success("Connexion réussie !", { description: "Bienvenue sur Structura" });
     } catch (err: unknown) {
       const errorDetails = getErrorDetails(err);
       console.error("Login error:", errorDetails);
@@ -87,6 +102,47 @@ export default function LoginPage() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSelectTenant = async (tenantId: string) => {
+    if (!pendingCredentials) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      await login(pendingCredentials.email, pendingCredentials.password, pendingCredentials.rememberMe, tenantId);
+      setTenantList([]);
+      setPendingCredentials(null);
+      toast.success("Connexion réussie !", { description: "Bienvenue sur Structura" });
+    } catch (err: unknown) {
+      const msg = (err as any)?.message ?? '';
+      if (msg === 'EMAIL_NOT_VERIFIED') {
+        // Ne pas fermer le dialog — afficher l'erreur inline
+        toast.error("Email non vérifié", { description: "Vérifiez votre boîte mail ou renvoyez le lien." });
+      } else {
+        const userMessage = getUserFriendlyErrorMessage(err);
+        setError(userMessage);
+        setTenantList([]);
+        setPendingCredentials(null);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async (tenantId: string, email: string) => {
+    setResendingFor(tenantId);
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, tenantId }),
+      });
+      toast.success("Email envoyé !", { description: "Vérifiez votre boîte mail." });
+    } catch {
+      toast.error("Erreur lors de l'envoi");
+    } finally {
+      setResendingFor(null);
     }
   };
 
@@ -354,6 +410,75 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Dialog sélecteur d'espace — affiché quand le même email a plusieurs tenants */}
+      <Dialog open={tenantList.length > 0} onOpenChange={() => { setTenantList([]); setPendingCredentials(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Choisissez votre espace</DialogTitle>
+            <DialogDescription>
+              Votre compte est associé à plusieurs espaces. Sélectionnez celui auquel vous souhaitez accéder.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            {tenantList.map((t) => {
+              const verified = t.emailVerified;
+              const isResending = resendingFor === t.tenantId;
+              return (
+                <div key={t.tenantId} className="space-y-1.5">
+                  <button
+                    onClick={() => verified && handleSelectTenant(t.tenantId)}
+                    disabled={isLoading || !verified}
+                    className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all duration-200 ${
+                      !verified
+                        ? 'border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed'
+                        : t.moduleType === 'COMMERCE'
+                          ? 'border-orange-200 hover:border-orange-400 bg-orange-50/50 hover:bg-orange-50 hover:shadow-md active:scale-[0.98]'
+                          : 'border-blue-200 hover:border-blue-400 bg-blue-50/50 hover:bg-blue-50 hover:shadow-md active:scale-[0.98]'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-lg shrink-0 ${!verified ? 'bg-gray-400' : t.moduleType === 'COMMERCE' ? 'bg-orange-500' : 'bg-blue-600'}`}>
+                      {t.moduleType === 'COMMERCE'
+                        ? <ShoppingCart className="h-5 w-5 text-white" />
+                        : <GraduationCap className="h-5 w-5 text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm text-gray-900 truncate">{t.tenantName}</p>
+                        {!verified && (
+                          <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full shrink-0">
+                            Email non vérifié
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {t.moduleType === 'COMMERCE' ? 'Espace Commerce' : 'Espace École'} · {t.role === 'director' ? 'Fondateur' : t.role}
+                      </p>
+                    </div>
+                    {verified && <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />}
+                  </button>
+                  {!verified && pendingCredentials && (
+                    <button
+                      onClick={() => handleResendVerification(t.tenantId, pendingCredentials.email)}
+                      disabled={isResending}
+                      className="w-full text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg py-2 px-3 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      {isResending
+                        ? <><Loader2 className="h-3 w-3 animate-spin" /> Envoi en cours...</>
+                        : <>Renvoyer le lien de vérification pour cet espace</>}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {isLoading && (
+            <div className="flex items-center justify-center py-2">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

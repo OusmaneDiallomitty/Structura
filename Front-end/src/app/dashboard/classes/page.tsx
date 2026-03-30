@@ -444,6 +444,7 @@ export default function ClassesPage() {
         (old = []) => [mapClass(created), ...old]
       );
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la création');
     } finally {
@@ -508,6 +509,7 @@ export default function ClassesPage() {
         (old = []) => old.map((c) => c.id === selectedClass.id ? mapClass(updated) : c)
       );
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la modification');
     } finally {
@@ -595,6 +597,7 @@ export default function ClassesPage() {
       queryClient.setQueryData<Class[]>(CLASSES_QUERY_KEY(user?.tenantId), optimisticList);
       checkForSingleClassWithSection(selectedClass.name, optimisticList);
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la suppression', { id: 'delete-progress' });
     } finally {
@@ -657,6 +660,7 @@ export default function ClassesPage() {
       setShowRemoveSectionDialog(false);
       setSingleClassToUpdate(null);
       queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] });
     } catch (error: any) {
       toast.error(error.message || 'Erreur lors de la modification');
     } finally {
@@ -738,7 +742,7 @@ export default function ClassesPage() {
         {isDirector && (
           <CreateDefaultClassesDialog
             academicYearId={academicYearId}
-            onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
+            onSuccess={() => { queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) }); queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] }); }}
           />
         )}
       </div>
@@ -1000,7 +1004,7 @@ export default function ClassesPage() {
                             {isDirector && (
                               <EditClassDialog
                                 classItem={classItem}
-                                onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
+                                onSuccess={() => { queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) }); queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] }); }}
                               />
                             )}
                             {isDirector && (
@@ -1064,7 +1068,7 @@ export default function ClassesPage() {
                               {isDirector && (
                                 <EditClassDialog
                                   classItem={classItem}
-                                  onSuccess={() => queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) })}
+                                  onSuccess={() => { queryClient.invalidateQueries({ queryKey: CLASSES_QUERY_KEY(user?.tenantId) }); queryClient.invalidateQueries({ queryKey: ["dashboard", user?.tenantId] }); }}
                                 />
                               )}
                               {isDirector && (

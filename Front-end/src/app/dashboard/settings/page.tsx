@@ -72,6 +72,7 @@ function loadRegionalPrefs(): RegionalPrefs {
 
 export default function SettingsPage() {
   const { user, patchUserLocally } = useAuth();
+  const isCommerce = user?.moduleType === 'COMMERCE';
 
   // Accès réservé au fondateur
   if (!isFounder(user)) {
@@ -421,7 +422,9 @@ export default function SettingsPage() {
             Logo de l'établissement
           </CardTitle>
           <CardDescription>
-            Apparaît sur les reçus de paiement et les bulletins. JPEG, PNG ou WebP — max 2 Mo.
+            {isCommerce
+              ? "Apparaît sur les reçus de vente. JPEG, PNG ou WebP — max 2 Mo."
+              : "Apparaît sur les reçus de paiement et les bulletins. JPEG, PNG ou WebP — max 2 Mo."}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-5">
@@ -513,7 +516,9 @@ export default function SettingsPage() {
             Informations de l'établissement
           </CardTitle>
           <CardDescription>
-            Ces informations apparaissent sur les reçus de paiement et documents officiels.
+            {isCommerce
+              ? "Ces informations apparaissent sur les reçus de vente."
+              : "Ces informations apparaissent sur les reçus de paiement et documents officiels."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-5">
@@ -656,8 +661,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Notifications email ──────────────────────────────────────────── */}
-      <Card className="border shadow-sm">
+      {/* ── Notifications email — masqué pour le commerce ───────────────── */}
+      {!isCommerce && <Card className="border shadow-sm">
         <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 border-b rounded-t-xl pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <Bell className="h-4 w-4 text-primary" />
@@ -704,10 +709,10 @@ export default function SettingsPage() {
           </div>
 
         </CardContent>
-      </Card>
+      </Card>}
 
-      {/* ── Jours de cours ───────────────────────────────────────────────── */}
-      <Card className="border shadow-sm">
+      {/* ── Jours de cours — masqué pour le commerce ─────────────────────── */}
+      {!isCommerce && <Card className="border shadow-sm">
         <CardHeader className="bg-gradient-to-r from-amber-50 to-orange-50 border-b rounded-t-xl pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarDays className="h-4 w-4 text-amber-600" />
@@ -767,7 +772,7 @@ export default function SettingsPage() {
             </span>
           </p>
         </CardContent>
-      </Card>
+      </Card>}
 
       {/* ── Vos données ──────────────────────────────────────────────────── */}
       <Card className="border shadow-sm">
@@ -794,43 +799,49 @@ export default function SettingsPage() {
           </div>
 
           {/* Boutons export */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Button
-              variant="outline"
-              onClick={handleExportStudents}
-              disabled={isExportingStudents || isExportingAll}
-              className="gap-2 justify-start"
-            >
-              {isExportingStudents
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Download className="h-4 w-4" />}
-              Élèves (.xlsx)
-            </Button>
+          {isCommerce ? (
+            <p className="text-sm text-muted-foreground">
+              L&apos;export des ventes et produits sera disponible prochainement.
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Button
+                variant="outline"
+                onClick={handleExportStudents}
+                disabled={isExportingStudents || isExportingAll}
+                className="gap-2 justify-start"
+              >
+                {isExportingStudents
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Download className="h-4 w-4" />}
+                Élèves (.xlsx)
+              </Button>
 
-            <Button
-              variant="outline"
-              onClick={handleExportPayments}
-              disabled={isExportingPayments || isExportingAll}
-              className="gap-2 justify-start"
-            >
-              {isExportingPayments
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Download className="h-4 w-4" />}
-              Paiements (.xlsx)
-            </Button>
+              <Button
+                variant="outline"
+                onClick={handleExportPayments}
+                disabled={isExportingPayments || isExportingAll}
+                className="gap-2 justify-start"
+              >
+                {isExportingPayments
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Download className="h-4 w-4" />}
+                Paiements (.xlsx)
+              </Button>
 
-            <Button
-              variant="outline"
-              onClick={handleExportAll}
-              disabled={isExportingAll || isExportingStudents || isExportingPayments}
-              className="gap-2 justify-start border-primary/40 text-primary hover:bg-primary/5"
-            >
-              {isExportingAll
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Download className="h-4 w-4" />}
-              Tout exporter
-            </Button>
-          </div>
+              <Button
+                variant="outline"
+                onClick={handleExportAll}
+                disabled={isExportingAll || isExportingStudents || isExportingPayments}
+                className="gap-2 justify-start border-primary/40 text-primary hover:bg-primary/5"
+              >
+                {isExportingAll
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Download className="h-4 w-4" />}
+                Tout exporter
+              </Button>
+            </div>
+          )}
 
           <p className="text-xs text-muted-foreground">
             Conseil : exportez une fois par mois pour conserver une copie locale de vos données.

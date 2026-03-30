@@ -11,4 +11,8 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   deviceId?: string;  // UUID persistant localStorage — skip approbation si même appareil
+
+  @IsOptional()
+  @IsString()
+  tenantId?: string;  // Sélection explicite d'un tenant quand plusieurs espaces existent
 }

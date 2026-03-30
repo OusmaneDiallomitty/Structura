@@ -24,6 +24,7 @@ const SCHOOL_PUBLIC_SELECT = {
   city: true,
   country: true,
   logo: true,
+  moduleType: true,
   notifMonthlyReport: true,
   notifOverdueAlert: true,
   createdAt: true,
@@ -51,16 +52,21 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    // Un directeur ne peut créer qu'une seule école par email.
-    // Les membres d'équipe (professeurs, secrétaires…) peuvent partager le même email
-    // entre plusieurs établissements — l'unicité est alors limitée au tenant.
+    // Un directeur ne peut créer qu'un seul espace par type de module (SCHOOL ou COMMERCE).
+    // Même email autorisé si moduleType différent (ex: directeur d'école + gérant de commerce).
+    // Les membres d'équipe peuvent partager le même email entre plusieurs établissements.
+    const targetModuleType = registerDto.moduleType
+      ?? (registerDto.organizationType === 'business' ? 'COMMERCE' : 'SCHOOL');
+
     const existingDirector = await this.prisma.user.findFirst({
       where: { email: registerDto.email, role: 'DIRECTOR' },
+      include: { tenant: { select: { moduleType: true } } },
     });
 
-    if (existingDirector) {
+    if (existingDirector && existingDirector.tenant?.moduleType === targetModuleType) {
+      const typeLabel = targetModuleType === 'COMMERCE' ? 'commerce' : 'école';
       throw new BadRequestException(
-        'Un compte directeur existe déjà avec cet email. Veuillez utiliser une autre adresse email.',
+        `Un compte directeur existe déjà avec cet email pour un espace ${typeLabel}. Veuillez utiliser une autre adresse email.`,
       );
     }
 
@@ -77,6 +83,10 @@ export class AuthService {
       // Créer le tenant (organisation)
       // schoolType dérivé de organizationType : "public" → "public", tout le reste → "private"
       const schoolType = registerDto.organizationType?.toLowerCase() === 'public' ? 'public' : 'private';
+      // moduleType : explicite si fourni, sinon déduit du organizationType
+      const moduleType = registerDto.moduleType
+        ?? (registerDto.organizationType === 'business' ? 'COMMERCE' : 'SCHOOL');
+
       const tenant = await tx.tenant.create({
         data: {
           name: registerDto.organizationName,
@@ -86,6 +96,7 @@ export class AuthService {
           phone: registerDto.phone,
           isActive: true,
           schoolType,
+          moduleType: moduleType as any,
         },
       });
 
@@ -155,6 +166,7 @@ export class AuthService {
         tenantId: result.user.tenantId,
         schoolName: result.tenant.name,
         schoolLogo: result.tenant.logo ?? null,
+        moduleType: result.tenant.moduleType,
         phone: result.user.phone,
         avatar: result.user.avatar,
         emailVerified: result.user.emailVerified,
@@ -181,25 +193,42 @@ export class AuthService {
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
-    // Identifier le compte dont le hash de mot de passe correspond.
-    // Chaque établissement impose un mot de passe distinct → un seul match possible.
-    let matchedUser: (typeof candidates)[number] | null = null;
+    // Identifier tous les comptes dont le hash de mot de passe correspond.
+    const matchedUsers: (typeof candidates)[number][] = [];
     for (const candidate of candidates) {
       const valid = await bcrypt.compare(loginDto.password, candidate.password);
-      if (valid) {
-        matchedUser = candidate;
-        break;
-      }
+      if (valid) matchedUsers.push(candidate);
     }
 
-    if (!matchedUser) {
+    if (matchedUsers.length === 0) {
       this.logSecurityEvent('LOGIN_FAILED', loginDto.email, null, 'Mot de passe incorrect').catch(() => {});
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
+    // Si plusieurs tenants correspondent au même email+mot de passe,
+    // on retourne la liste pour que le frontend affiche un sélecteur d'espace.
+    if (matchedUsers.length > 1 && !loginDto.tenantId) {
+      const tenants = matchedUsers.map((u) => ({
+        tenantId:      u.tenantId,
+        tenantName:    u.tenant?.name ?? '',
+        moduleType:    u.tenant?.moduleType ?? 'SCHOOL',
+        role:          u.role.toLowerCase(),
+        emailVerified: u.emailVerified,
+      }));
+      return { status: 'SELECT_TENANT', tenants };
+    }
+
+    // Sélection explicite d'un tenant (après affichage du sélecteur)
+    let matchedUser = matchedUsers[0];
+    if (loginDto.tenantId && matchedUsers.length > 1) {
+      const found = matchedUsers.find((u) => u.tenantId === loginDto.tenantId);
+      if (!found) throw new UnauthorizedException('Tenant introuvable');
+      matchedUser = found;
+    }
+
     // Vérifications de sécurité sur le compte correspondant
     if (!matchedUser.emailVerified) {
-      throw new UnauthorizedException('Veuillez vérifier votre adresse email avant de vous connecter');
+      throw new UnauthorizedException('EMAIL_NOT_VERIFIED');
     }
 
     if (!matchedUser.isActive) {
@@ -295,6 +324,7 @@ export class AuthService {
         tenantId:         matchedUser.tenantId,
         schoolName:       matchedUser.tenant?.name ?? null,
         schoolLogo:       matchedUser.tenant?.logo ?? null,
+        moduleType:       matchedUser.tenant?.moduleType ?? 'SCHOOL',
         phone:            matchedUser.phone,
         avatar:           matchedUser.avatar,
         emailVerified:    matchedUser.emailVerified,
@@ -315,7 +345,7 @@ export class AuthService {
    * Après logout, tout JWT existant est rejeté par la JwtStrategy (sessionId null).
    */
   async logout(userId: string): Promise<void> {
-    await this.prisma.user.update({
+    await this.prisma.user.updateMany({
       where: { id: userId },
       data: { currentSessionId: null, refreshTokenHash: null },
     });
@@ -522,6 +552,7 @@ export class AuthService {
         tenantId:         user.tenantId,
         schoolName:       user.tenant?.name ?? null,
         schoolLogo:       user.tenant?.logo ?? null,
+        moduleType:       user.tenant?.moduleType ?? 'SCHOOL',
         phone:            user.phone,
         avatar:           user.avatar,
         emailVerified:    user.emailVerified,
@@ -661,15 +692,22 @@ export class AuthService {
     const user = await this.prisma.user.findFirst({
       where: {
         emailVerificationToken: token,
-        emailVerificationExpiry: {
-          gte: new Date(),
-        },
+        emailVerificationExpiry: { gte: new Date() },
       },
+      include: { tenant: true },
     });
 
     if (!user) {
       throw new BadRequestException('Token de vérification invalide ou expiré');
     }
+
+    // Générer les tokens avant la mise à jour (besoin du sessionId)
+    const tokens = await this.generateTokens({
+      id: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      role: user.role,
+    });
 
     // Mettre à jour l'utilisateur
     await this.prisma.user.update({
@@ -678,11 +716,13 @@ export class AuthService {
         emailVerified: true,
         emailVerificationToken: null,
         emailVerificationExpiry: null,
-        lastLoginAt: new Date(), // 1ère activation = 1ère connexion effective
+        lastLoginAt: new Date(),
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: await bcrypt.hash(tokens.refreshToken, 10),
       },
     });
 
-    // Envoyer l'email de bienvenue
+    // Envoyer l'email de bienvenue (fire-and-forget)
     this.emailService
       .sendWelcomeEmail(user.email, user.firstName)
       .catch((error) => {
@@ -692,6 +732,27 @@ export class AuthService {
     return {
       message: 'Email vérifié avec succès',
       emailVerified: true,
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
+      expiresIn: tokens.expiresIn,
+      user: {
+        id:               user.id,
+        email:            user.email,
+        firstName:        user.firstName,
+        lastName:         user.lastName,
+        role:             user.role.toLowerCase(),
+        tenantId:         user.tenantId,
+        schoolName:       user.tenant?.name ?? null,
+        schoolLogo:       user.tenant?.logo ?? null,
+        moduleType:       user.tenant?.moduleType ?? 'SCHOOL',
+        phone:            user.phone,
+        avatar:           user.avatar,
+        emailVerified:    true,
+        isActive:         user.isActive,
+        permissions:      user.permissions ?? null,
+        classAssignments: user.classAssignments ?? [],
+        createdAt:        user.createdAt,
+      },
     };
   }
 
@@ -814,6 +875,7 @@ export class AuthService {
         tenantId: user.tenantId,
         schoolName: user.tenant?.name ?? null,
         schoolLogo: user.tenant?.logo ?? null,
+        moduleType: user.tenant?.moduleType ?? 'SCHOOL',
         phone: user.phone,
         avatar: user.avatar,
         emailVerified: user.emailVerified,
@@ -1018,10 +1080,10 @@ export class AuthService {
   /**
    * Resend verification email
    */
-  async resendVerificationEmail(email: string) {
-    // Email non globalement unique → findFirst (uniquement les directeurs s'inscrivent par email)
+  async resendVerificationEmail(email: string, tenantId?: string) {
+    // Si tenantId fourni → cibler ce tenant précisément (cas multi-compte même email)
     const user = await this.prisma.user.findFirst({
-      where: { email },
+      where: tenantId ? { email, tenantId } : { email },
     });
 
     // Réponse générique : ne pas révéler si l'email existe ou non (anti-énumération)

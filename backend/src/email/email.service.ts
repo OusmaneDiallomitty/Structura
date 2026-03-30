@@ -440,6 +440,31 @@ export class EmailService {
   }
 
   /**
+   * Email de reçu de vente commerce
+   */
+  async sendSalesReceiptEmail(
+    email: string,
+    receiptNumber: string,
+    totalAmount: number,
+    paidAmount: number,
+    remainingDebt: number,
+    itemCount: number,
+    commerceName: string,
+  ): Promise<void> {
+    try {
+      await this.send(
+        email,
+        `Reçu d'achat #${receiptNumber} — ${commerceName}`,
+        this.getSalesReceiptEmailTemplate(receiptNumber, totalAmount, paidAmount, remainingDebt, itemCount, commerceName),
+      );
+      this.logger.log(`Email reçu commerce envoyé à ${email} (Reçu #${receiptNumber})`);
+    } catch (error) {
+      this.logger.error(`Échec envoi email reçu à ${email}`, error?.body || error);
+      throw new Error('Échec envoi email reçu commerce');
+    }
+  }
+
+  /**
    * Email d'approbation de connexion depuis un nouvel appareil (Option B).
    * L'utilisateur doit cliquer Approuver ou Refuser avant que le nouvel appareil obtienne l'accès.
    */
@@ -540,6 +565,96 @@ export class EmailService {
                   <td style="background-color: #f9fafb; padding: 30px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
                     <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px;">© ${new Date().getFullYear()} Structura. Tous droits réservés.</p>
                     <p style="margin: 0; color: #9ca3af; font-size: 12px;">Plateforme de gestion scolaire moderne</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+  }
+
+  private getSalesReceiptEmailTemplate(
+    receiptNumber: string,
+    totalAmount: number,
+    paidAmount: number,
+    remainingDebt: number,
+    itemCount: number,
+    commerceName: string,
+  ): string {
+    const formattedTotal = new Intl.NumberFormat('fr-GN').format(totalAmount);
+    const formattedPaid = new Intl.NumberFormat('fr-GN').format(paidAmount);
+    const formattedRemaining = new Intl.NumberFormat('fr-GN').format(remainingDebt);
+
+    const remainingSection = remainingDebt > 0 ? `
+      <tr>
+        <td style="padding: 12px 20px; border-top: 1px solid #e5e7eb;">
+          <p style="margin: 0; color: #991b1b; font-size: 16px; font-weight: 700;">Reste dû : ${formattedRemaining} GNF</p>
+        </td>
+      </tr>
+    ` : '';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reçu d'achat</title>
+      </head>
+      <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 0;">
+          <tr>
+            <td align="center">
+              <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <tr>
+                  <td style="background: linear-gradient(135deg, #ea580c 0%, #d97706 100%); padding: 40px 40px 30px; text-align: center;">
+                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">${commerceName}</h1>
+                    <p style="margin: 10px 0 0; color: #fef3c7; font-size: 16px;">Reçu d'achat</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 40px;">
+                    <div style="margin: 0 0 30px; padding: 20px; background-color: #f9fafb; border-left: 4px solid #ea580c; border-radius: 4px;">
+                      <p style="margin: 0 0 8px; color: #6b7280; font-size: 14px;">Reçu #<strong>${receiptNumber}</strong></p>
+                      <p style="margin: 0; color: #6b7280; font-size: 14px;">Date : <strong>${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></p>
+                    </div>
+
+                    <div style="margin: 0 0 30px;">
+                      <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px;">Articles achetés : <strong>${itemCount}</strong></p>
+                    </div>
+
+                    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
+                      <tr style="background-color: #f3f4f6;">
+                        <td style="padding: 12px 20px; font-weight: 700; font-size: 14px; color: #111827;">Total</td>
+                        <td style="padding: 12px 20px; font-weight: 700; font-size: 14px; color: #111827; text-align: right;">${formattedTotal} GNF</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 20px; border-top: 1px solid #e5e7eb;">
+                          <p style="margin: 0; color: #059669; font-size: 16px; font-weight: 600;">Montant payé</p>
+                        </td>
+                        <td style="padding: 12px 20px; border-top: 1px solid #e5e7eb; text-align: right;">
+                          <p style="margin: 0; color: #059669; font-size: 16px; font-weight: 600;">${formattedPaid} GNF</p>
+                        </td>
+                      </tr>
+                      ${remainingSection}
+                    </table>
+
+                    <div style="margin: 30px 0; padding: 20px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-radius: 8px; border-left: 4px solid #10b981; text-align: center;">
+                      <p style="margin: 0; color: #065f46; font-size: 18px; font-weight: 700;">Merci de votre achat !</p>
+                    </div>
+
+                    <p style="margin: 0; color: #6b7280; font-size: 13px; line-height: 1.6; text-align: center;">
+                      Ce reçu atteste de votre achat. Conservez-le précieusement.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color: #f9fafb; padding: 30px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+                    <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px;">© ${new Date().getFullYear()} Structura Commerce. Tous droits réservés.</p>
+                    <p style="margin: 0; color: #9ca3af; font-size: 12px;">Gestion commerciale moderne</p>
                   </td>
                 </tr>
               </table>

@@ -178,8 +178,8 @@ export class AuthController {
   // 3 renvois max par minute par IP (anti-spam email)
   @Throttle({ auth: { limit: 3, ttl: 60_000 } })
   @Post('resend-verification')
-  async resendVerification(@Body() body: { email: string }) {
-    return this.authService.resendVerificationEmail(body.email);
+  async resendVerification(@Body() body: { email: string; tenantId?: string }) {
+    return this.authService.resendVerificationEmail(body.email, body.tenantId);
   }
 
   // ─── Échange de code d'impersonation ────────────────────────────────────────

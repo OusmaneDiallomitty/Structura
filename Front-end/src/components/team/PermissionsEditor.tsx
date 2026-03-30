@@ -9,13 +9,16 @@ interface PermissionsEditorProps {
   permissions: UserPermissions;
   onChange: (permissions: UserPermissions) => void;
   readOnly?: boolean;
+  moduleType?: string;
 }
 
 export function PermissionsEditor({
   permissions,
   onChange,
   readOnly = false,
+  moduleType,
 }: PermissionsEditorProps) {
+  const isCommerce = moduleType === 'COMMERCE';
   const isCoDirector = permissions.isCoDirector === true;
   const accountingView = permissions.accounting?.view === true;
   const canCreatePayments = permissions.payments?.create === true;
@@ -73,10 +76,12 @@ export function PermissionsEditor({
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-sm font-semibold ${isCoDirector ? "text-violet-800" : "text-gray-700"}`}>
-              Rôle Directeur
+              {isCommerce ? "Rôle Gérant" : "Rôle Directeur"}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Accès opérationnel complet — élèves, présences, notes, paiements scolarité, équipe
+              {isCommerce
+                ? "Accès opérationnel complet — ventes, stocks, clients, équipe"
+                : "Accès opérationnel complet — élèves, présences, notes, paiements scolarité, équipe"}
             </p>
             {isCoDirector && (
               <p className="mt-2 text-xs text-violet-700 bg-violet-100 rounded px-3 py-2">
@@ -145,7 +150,9 @@ export function PermissionsEditor({
                 Enregistrer des paiements
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Autoriser le directeur à encaisser les frais de scolarité — par défaut réservé au secrétaire/comptable
+                {isCommerce
+                  ? "Autoriser le gérant à enregistrer des ventes — par défaut réservé au caissier/comptable"
+                  : "Autoriser le directeur à encaisser les frais de scolarité — par défaut réservé au secrétaire/comptable"}
               </p>
             </div>
             <div className="flex flex-col items-center gap-1 shrink-0">
@@ -274,9 +281,9 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="payments-configure" className="cursor-pointer">
-                Configurer les frais de scolarité
+                {isCommerce ? "Configurer les tarifs et prix" : "Configurer les frais de scolarité"}
                 <span className="text-xs text-muted-foreground ml-2">
-                  (montants, fréquence, calendrier)
+                  {isCommerce ? "(montants, promotions)" : "(montants, fréquence, calendrier)"}
                 </span>
               </Label>
             </div>
@@ -285,10 +292,10 @@ export function PermissionsEditor({
 
         <Separator className="my-4" />
 
-        {/* Gestion des Élèves */}
+        {/* Gestion des Élèves / Clients */}
         <div className="space-y-3">
           <h4 className="font-semibold flex items-center gap-2">
-            👥 Gestion des Élèves
+            {isCommerce ? "🛒 Gestion des Clients" : "👥 Gestion des Élèves"}
           </h4>
           <div className="space-y-2 pl-6">
             <div className="flex items-center space-x-2">
@@ -301,7 +308,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="students-view" className="cursor-pointer">
-                Voir les élèves
+                {isCommerce ? "Voir les clients" : "Voir les élèves"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -314,7 +321,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="students-create" className="cursor-pointer">
-                Ajouter des élèves
+                {isCommerce ? "Ajouter des clients" : "Ajouter des élèves"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -327,7 +334,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="students-edit" className="cursor-pointer">
-                Modifier les élèves
+                {isCommerce ? "Modifier les clients" : "Modifier les élèves"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -340,7 +347,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="students-delete" className="cursor-pointer">
-                Supprimer des élèves
+                {isCommerce ? "Supprimer des clients" : "Supprimer des élèves"}
               </Label>
             </div>
           </div>
@@ -348,10 +355,10 @@ export function PermissionsEditor({
 
         <Separator className="my-4" />
 
-        {/* Gestion Académique */}
+        {/* Gestion Académique / Commerciale */}
         <div className="space-y-3">
           <h4 className="font-semibold flex items-center gap-2">
-            📚 Gestion Académique
+            {isCommerce ? "📦 Gestion Commerciale" : "📚 Gestion Académique"}
           </h4>
           <div className="space-y-2 pl-6">
             <div className="flex items-center space-x-2">
@@ -364,7 +371,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="attendance-view" className="cursor-pointer">
-                Voir les présences
+                {isCommerce ? "Voir les stocks" : "Voir les présences"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -377,7 +384,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="attendance-create" className="cursor-pointer">
-                Gérer les présences
+                {isCommerce ? "Gérer les stocks" : "Gérer les présences"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -390,7 +397,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="grades-view" className="cursor-pointer">
-                Voir les notes
+                {isCommerce ? "Voir les ventes" : "Voir les notes"}
               </Label>
             </div>
             <div className="flex items-center space-x-2">
@@ -403,7 +410,7 @@ export function PermissionsEditor({
                 disabled={readOnly || isCoDirector}
               />
               <Label htmlFor="grades-create" className="cursor-pointer">
-                Gérer les notes
+                {isCommerce ? "Annuler des ventes" : "Gérer les notes"}
               </Label>
             </div>
           </div>
