@@ -633,7 +633,7 @@ export default function DebtsPage() {
 
       {/* ── Dialog paiement ────────────────────────────────────────────────── */}
       <Dialog open={!!payingCustomer || !!payingSale} onOpenChange={(o) => !o && closePay()}>
-        <DialogContent className="max-w-sm p-0 overflow-hidden gap-0">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm max-h-[95dvh] p-0 overflow-hidden gap-0">
           <DialogHeader className="px-5 pt-5 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2 text-base">
               <Banknote className="h-4 w-4 text-emerald-600" />
@@ -810,7 +810,7 @@ export default function DebtsPage() {
 
       {/* ── Dialog paiement consolidé ─────────────────────────────────────── */}
       <Dialog open={!!payingAllCustomer || !!payingAllSalesGroup} onOpenChange={(o) => !o && closePayAll()}>
-        <DialogContent className="max-w-sm p-0 overflow-hidden gap-0">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm max-h-[95dvh] p-0 overflow-hidden gap-0">
           <DialogHeader className="px-5 pt-5 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2 text-base">
               <CheckCircle2 className="h-4 w-4 text-orange-600" />
@@ -912,7 +912,7 @@ export default function DebtsPage() {
 
       {/* ── Dialog reçu paiement individuel ──────────────────────────── */}
       <Dialog open={!!debtReceipt} onOpenChange={(o) => !o && setDebtReceipt(null)}>
-        <DialogContent className="max-w-sm p-0 overflow-hidden gap-0">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm max-h-[95dvh] p-0 overflow-hidden gap-0">
           <DialogHeader className="px-5 pt-5 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2 text-base">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -1018,7 +1018,7 @@ export default function DebtsPage() {
 
       {/* ── Dialog reçu consolidé ─────────────────────────────────────── */}
       <Dialog open={!!consolidatedReceipt} onOpenChange={(o) => !o && setConsolidatedReceipt(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-2xl max-h-[95dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />

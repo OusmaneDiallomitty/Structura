@@ -117,7 +117,7 @@ function HistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-2xl max-h-[95dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-base">{product.name}</DialogTitle>
           <p className="text-xs text-muted-foreground mt-1">Traçabilité des mouvements</p>
@@ -728,7 +728,7 @@ export default function ProductsPage() {
 
       {/* Dialog création / modification */}
       <Dialog open={showDialog} onOpenChange={(o) => { setShowDialog(o); if (!o) { setEditing(null); setForm(EMPTY_FORM); } }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[95dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base">{editing ? form.name || "Modifier" : "Nouveau produit"}</DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">{editing ? "Mettre à jour les informations" : "Ajouter un nouveau produit"}</p>
@@ -804,7 +804,7 @@ export default function ProductsPage() {
 
       {/* Dialog ajustement stock */}
       <Dialog open={!!stockDialog} onOpenChange={(o) => !o && setStockDialog(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm max-h-[95dvh]">
           <DialogHeader>
             <DialogTitle className="text-base">{stockDialog?.name}</DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">Ajustement de stock</p>

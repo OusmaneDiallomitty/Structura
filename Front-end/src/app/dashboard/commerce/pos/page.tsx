@@ -122,6 +122,7 @@ export default function POSPage() {
 
   const priceInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const cartSnapshotRef = useRef<CartItem[]>([]);
   const cartContainerRef = useRef<HTMLDivElement>(null);
 
   const [showCheckout, setShowCheckout] = useState(false);
@@ -138,6 +139,7 @@ export default function POSPage() {
 
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [lastSale, setLastSale] = useState<CommerceSale | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"products" | "cart">("products");
 
   const token = () => storage.getAuthItem("structura_token") ?? "";
 
@@ -281,6 +283,8 @@ export default function POSPage() {
       }
       return [...prev, { product, quantity: qty, customPrice: product.sellPrice }];
     });
+    // Sur mobile, switcher vers le panier après ajout
+    if (window.innerWidth < 768) setMobilePanel("cart");
   };
 
   const updateQty = (productId: string, delta: number) =>
@@ -327,22 +331,26 @@ export default function POSPage() {
   };
 
   const saleMutation = useMutation({
-    mutationFn: () =>
-      createSale(token(), {
-        items: cart.map((i) => ({
-          productId: i.product.id,
-          quantity: i.quantity,
-          unitPrice: i.customPrice,
-        })),
+    mutationFn: () => {
+      // Utiliser le snapshot capturé avant clearCart()
+      const items = cartSnapshotRef.current.map((i) => ({
+        productId: i.product.id,
+        quantity: i.quantity,
+        unitPrice: i.customPrice,
+      }));
+      return createSale(token(), {
+        items,
         paidAmount: paymentMethod === "CREDIT" ? 0 : paid || totalNet,
         paymentMethod,
         customerId: customerId || undefined,
-      }),
+      });
+    },
     onMutate: () => {
-      // Fermer le checkout immédiatement — pas d'attente réseau
+      // Sauvegarder le panier AVANT de le vider
+      cartSnapshotRef.current = [...cart];
       setShowCheckout(false);
       clearCart();
-      return { cartSnapshot: [...cart] };
+      return { cartSnapshot: cartSnapshotRef.current };
     },
     onSuccess: (sale, _vars, context) => {
       toast.success(`Vente confirmée — ${sale.receiptNumber}`);
@@ -412,12 +420,12 @@ export default function POSPage() {
   // ─── Rendu ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-muted/30">
+    <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)] overflow-hidden bg-muted/30 relative">
 
       {/* ════════════════════════════════════════════════════════════════════ */}
       {/* GAUCHE — Catalogue                                                  */}
       {/* ════════════════════════════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className={cn("flex-1 flex flex-col overflow-hidden pb-14 md:pb-0", mobilePanel === "cart" ? "hidden md:flex" : "flex")}>
 
         {/* Barre recherche + catégories */}
         <div className="bg-background border-b px-4 pt-4 pb-3 space-y-3">
@@ -595,15 +603,23 @@ export default function POSPage() {
       {/* ════════════════════════════════════════════════════════════════════ */}
       {/* DROITE — Panier DENSE                                              */}
       {/* ════════════════════════════════════════════════════════════════════ */}
-      <div className="w-85 xl:w-95 flex flex-col bg-background border-l">
+      <div className={cn("flex flex-col bg-background border-l transition-all", mobilePanel === "products" ? "hidden md:flex md:w-85 xl:w-95" : "flex w-full md:w-85 xl:w-95")}>
 
         {/* En-tête */}
         <div className="px-4 py-2 border-b">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-sm flex items-center gap-1">
-              <ShoppingCart className="h-4 w-4 text-orange-600" />
-              {itemCount} art.
-            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setMobilePanel("products")}
+                className="md:hidden text-muted-foreground hover:text-foreground"
+              >
+                <ChevronRight className="h-4 w-4 rotate-180" />
+              </button>
+              <p className="font-semibold text-sm flex items-center gap-1">
+                <ShoppingCart className="h-4 w-4 text-orange-600" />
+                {itemCount} art.
+              </p>
+            </div>
             {cart.length > 0 && (
               <button onClick={clearCart} className="text-xs text-muted-foreground hover:text-destructive">
                 Vider
@@ -695,7 +711,7 @@ export default function POSPage() {
 
         {/* Footer — Total + Encaisser */}
         {cart.length > 0 && (
-          <div className="border-t bg-background p-3 space-y-2">
+          <div className="border-t bg-background p-3 space-y-2 pb-16 md:pb-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Total</p>
               <p className="text-lg font-bold text-orange-600">{formatGNF(totalNet)}</p>
@@ -720,9 +736,38 @@ export default function POSPage() {
       </div>
 
 
+      {/* ── Navigation mobile bas ──────────────────────────────────────────── */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-background border-t flex h-14">
+        <button
+          onClick={() => setMobilePanel("products")}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center text-xs font-semibold gap-0.5 transition-colors",
+            mobilePanel === "products" ? "text-orange-600" : "text-muted-foreground"
+          )}
+        >
+          <Tag className="h-5 w-5" />
+          Catalogue
+        </button>
+        <button
+          onClick={() => setMobilePanel("cart")}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center text-xs font-semibold gap-0.5 transition-colors relative",
+            mobilePanel === "cart" ? "text-orange-600" : "text-muted-foreground"
+          )}
+        >
+          <ShoppingCart className="h-5 w-5" />
+          {itemCount > 0 && (
+            <span className="absolute top-1 right-8 h-4 w-4 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center font-bold">
+              {itemCount}
+            </span>
+          )}
+          Panier
+        </button>
+      </div>
+
       {/* ── Dialog Checkout ────────────────────────────────────────────────── */}
       <Dialog open={showCheckout} onOpenChange={setShowCheckout}>
-        <DialogContent className="max-w-sm p-0">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm p-0 max-h-[95dvh]">
           <DialogHeader className="px-5 pt-5 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-4 w-4 text-orange-600" />
