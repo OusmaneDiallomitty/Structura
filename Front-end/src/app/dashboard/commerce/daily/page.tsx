@@ -41,7 +41,7 @@ export default function DailySituationPage() {
 
   const tid = user?.tenantId ?? "";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["commerce-daily", tid, date],
     queryFn: async () => {
       const result = await getDailySituation(token(), date);
@@ -66,13 +66,20 @@ export default function DailySituationPage() {
             <h1 className="text-2xl font-bold">Situation journalière</h1>
             <p className="text-sm text-muted-foreground">Recettes, dépenses et bénéfice du jour</p>
           </div>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44 h-9" />
+          <div className="flex items-center gap-2">
+            {isFetching && !isLoading && (
+              <span className="text-xs text-muted-foreground animate-pulse">Actualisation…</span>
+            )}
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44 h-9" />
+          </div>
         </div>
 
-        {isLoading ? (
+        {isLoading && !data ? (
           <div className="text-center text-muted-foreground py-12">Chargement…</div>
         ) : !s ? (
-          <div className="text-center text-muted-foreground py-12">Aucune donnée pour ce jour</div>
+          <div className="text-center text-muted-foreground py-12">
+            {isFetching ? "Chargement…" : "Aucune donnée pour ce jour"}
+          </div>
         ) : (
           <>
             {/* Résumé principal */}

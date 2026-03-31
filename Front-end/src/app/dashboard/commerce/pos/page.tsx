@@ -382,6 +382,7 @@ export default function POSPage() {
       queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
       queryClient.invalidateQueries({ queryKey: ["commerce-products"] });
       queryClient.invalidateQueries({ queryKey: ["commerce-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-daily"] });
       // Si vente à crédit → mettre à jour la page dettes immédiatement
       if (sale.remainingDebt > 0) {
         queryClient.invalidateQueries({ queryKey: ["commerce-sales-pending", tid] });
