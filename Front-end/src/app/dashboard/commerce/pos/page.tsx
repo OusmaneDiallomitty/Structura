@@ -124,6 +124,9 @@ export default function POSPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const cartSnapshotRef = useRef<CartItem[]>([]);
   const cartContainerRef = useRef<HTMLDivElement>(null);
+  const paidAmountRef = useRef<number>(0);
+  const paymentMethodRef = useRef<PaymentMethod>("CASH");
+  const customerIdRef = useRef<string>("");
 
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
@@ -341,25 +344,52 @@ export default function POSPage() {
         quantity: i.quantity,
         unitPrice: i.customPrice,
       }));
-      const totalFromSnapshot = snapshot.reduce((s, i) => s + i.customPrice * i.quantity, 0);
       return createSale(token(), {
         items,
-        paidAmount: paymentMethod === "CREDIT" ? 0 : (parseFloat(paidAmount) || totalFromSnapshot),
-        paymentMethod,
-        customerId: customerId || undefined,
+        paidAmount: paymentMethodRef.current === "CREDIT" ? 0 : paidAmountRef.current,
+        paymentMethod: paymentMethodRef.current,
+        customerId: customerIdRef.current || undefined,
       });
     },
     onMutate: () => {
-      // cartSnapshotRef déjà rempli dans le handler du bouton Confirmer
+      const snapshot = cartSnapshotRef.current;
+      const totalFromSnapshot = snapshot.reduce((s, i) => s + i.customPrice * i.quantity, 0);
+      const paid = paidAmountRef.current;
+      const remaining = paymentMethodRef.current === "CREDIT" ? totalFromSnapshot : Math.max(totalFromSnapshot - paid, 0);
+
+      // Afficher le reçu IMMÉDIATEMENT avec données estimées (avant réponse API)
+      const now = new Date();
+      setLastSale({
+        id: "pending",
+        receiptNumber: "…",
+        createdAt: now.toISOString(),
+        totalAmount: totalFromSnapshot,
+        paidAmount: paymentMethodRef.current === "CREDIT" ? 0 : paid,
+        remainingDebt: remaining,
+        paymentMethod: paymentMethodRef.current,
+        status: remaining > 0 ? "PARTIAL" : "COMPLETED",
+        customerId: customerIdRef.current || null,
+        customer: customers?.find((c: CommerceCustomer) => c.id === customerIdRef.current) ?? null,
+        items: snapshot.map((i) => ({
+          id: i.product.id,
+          productId: i.product.id,
+          quantity: i.quantity,
+          unitPrice: i.customPrice,
+          totalPrice: i.customPrice * i.quantity,
+          costPrice: i.product.buyPrice,
+          product: { id: i.product.id, name: i.product.name, unit: i.product.unit },
+        })),
+      } as any);
+      setShowReceiptDialog(true);
       setShowCheckout(false);
       clearCart();
-      return { cartSnapshot: cartSnapshotRef.current };
+      return { cartSnapshot: snapshot };
     },
     onSuccess: (sale, _vars, context) => {
+      // Mettre à jour avec les vraies données API (numéro de reçu, etc.)
       toast.success(`Vente confirmée — ${sale.receiptNumber}`);
       setLastReceipt(sale.receiptNumber);
       setLastSale(sale);
-      setShowReceiptDialog(true);
 
       const cartItems = context?.cartSnapshot ?? [];
       const decreaseStock = (old: PaginatedResponse<CommerceProduct> | undefined) => {
@@ -877,8 +907,11 @@ export default function POSPage() {
             <Button
               className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold"
               onClick={() => {
-                // Capturer le panier ICI, avant tout appel React Query
+                // Capturer TOUT ici avant que React ne vide les états
                 cartSnapshotRef.current = [...cart];
+                paidAmountRef.current = paymentMethod === "CREDIT" ? 0 : (parseFloat(paidAmount) || totalNet);
+                paymentMethodRef.current = paymentMethod;
+                customerIdRef.current = customerId;
                 saleMutation.mutate();
               }}
               disabled={saleMutation.isPending || cart.length === 0 || (paymentMethod !== "CREDIT" && (!paid || paid < 0))}
