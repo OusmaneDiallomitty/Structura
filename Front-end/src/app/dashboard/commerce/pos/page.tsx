@@ -332,22 +332,25 @@ export default function POSPage() {
 
   const saleMutation = useMutation({
     mutationFn: () => {
-      // Utiliser le snapshot capturé avant clearCart()
-      const items = cartSnapshotRef.current.map((i) => ({
+      const snapshot = cartSnapshotRef.current;
+      if (!snapshot || snapshot.length === 0) {
+        return Promise.reject(new Error("Panier vide — veuillez réessayer"));
+      }
+      const items = snapshot.map((i) => ({
         productId: i.product.id,
         quantity: i.quantity,
         unitPrice: i.customPrice,
       }));
+      const totalFromSnapshot = snapshot.reduce((s, i) => s + i.customPrice * i.quantity, 0);
       return createSale(token(), {
         items,
-        paidAmount: paymentMethod === "CREDIT" ? 0 : paid || totalNet,
+        paidAmount: paymentMethod === "CREDIT" ? 0 : (parseFloat(paidAmount) || totalFromSnapshot),
         paymentMethod,
         customerId: customerId || undefined,
       });
     },
     onMutate: () => {
-      // Sauvegarder le panier AVANT de le vider
-      cartSnapshotRef.current = [...cart];
+      // cartSnapshotRef déjà rempli dans le handler du bouton Confirmer
       setShowCheckout(false);
       clearCart();
       return { cartSnapshot: cartSnapshotRef.current };
@@ -870,7 +873,15 @@ export default function POSPage() {
 
           <div className="px-5 pb-4 flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setShowCheckout(false)}>Annuler</Button>
-            <Button className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold" onClick={() => saleMutation.mutate()} disabled={saleMutation.isPending || (paymentMethod !== "CREDIT" && (!paid || paid < 0))}>
+            <Button
+              className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold"
+              onClick={() => {
+                // Capturer le panier ICI, avant tout appel React Query
+                cartSnapshotRef.current = [...cart];
+                saleMutation.mutate();
+              }}
+              disabled={saleMutation.isPending || cart.length === 0 || (paymentMethod !== "CREDIT" && (!paid || paid < 0))}
+            >
               {saleMutation.isPending ? "..." : "Confirmer"}
             </Button>
           </div>
