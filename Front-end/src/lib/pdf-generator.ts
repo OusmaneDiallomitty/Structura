@@ -1616,3 +1616,122 @@ export async function generateCommerceSalesReceipt(
     doc.save(filename);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REÇU RÈGLEMENT DETTE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DebtPaymentReceiptData {
+  customerName: string;
+  amountPaid: number;
+  previousDebt: number;
+  remainingDebt: number;
+  receiptNumber?: string;   // numéro de vente concernée (optionnel)
+  paidAt: string;           // ISO string
+  commerceName: string;
+  commerceAddress?: string;
+  commercePhone?: string;
+}
+
+export function generateDebtPaymentReceiptPdf(
+  data: DebtPaymentReceiptData,
+  mode: ReceiptOutputMode = "download"
+): void {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 160] });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  let y = margin;
+
+  // ── En-tête ──────────────────────────────────────────────────────────────────
+  doc.setFillColor(16, 185, 129); // emerald-500
+  doc.rect(0, 0, W, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.commerceName, W / 2, 12, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("REÇU DE RÈGLEMENT DE DETTE", W / 2, 21, { align: "center" });
+  doc.setTextColor(COLORS.dark);
+  y = 34;
+
+  // ── Montant encaissé ─────────────────────────────────────────────────────────
+  doc.setFillColor(240, 253, 244); // emerald-50
+  doc.roundedRect(margin, y, W - 2 * margin, 22, 3, 3, "F");
+  doc.setFontSize(9);
+  doc.setTextColor(COLORS.secondary);
+  doc.setFont("helvetica", "normal");
+  doc.text("Montant encaissé", W / 2, y + 8, { align: "center" });
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(16, 185, 129);
+  doc.text(fmtAmount(data.amountPaid, "GNF"), W / 2, y + 18, { align: "center" });
+  y += 28;
+
+  // ── Infos ────────────────────────────────────────────────────────────────────
+  doc.setFontSize(8);
+  const lineH = 6;
+
+  const row = (label: string, value: string, bold = false) => {
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(COLORS.secondary);
+    doc.text(label, margin, y);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setTextColor(COLORS.dark);
+    doc.text(value, W - margin, y, { align: "right" });
+    y += lineH;
+    doc.setDrawColor(230, 230, 230);
+    doc.line(margin, y - 1, W - margin, y - 1);
+  };
+
+  row("Client", data.customerName, true);
+  if (data.receiptNumber) row("Reçu vente N°", data.receiptNumber);
+  row("Date de paiement", new Date(data.paidAt).toLocaleString("fr-FR", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }));
+  row("Dette avant paiement", fmtAmount(data.previousDebt, "GNF"));
+
+  // Reste dû — coloré
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(COLORS.secondary);
+  doc.text("Solde restant", margin, y);
+  if (data.remainingDebt === 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(16, 185, 129);
+    doc.text("✓ SOLDÉ", W - margin, y, { align: "right" });
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(245, 158, 11); // amber
+    doc.text(fmtAmount(data.remainingDebt, "GNF"), W - margin, y, { align: "right" });
+  }
+  y += lineH;
+
+  y += 6;
+
+  // ── Infos commerce ───────────────────────────────────────────────────────────
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(150, 150, 150);
+  if (data.commerceAddress) {
+    doc.text(data.commerceAddress, W / 2, y, { align: "center" });
+    y += 4;
+  }
+  if (data.commercePhone) {
+    doc.text(`Tél: ${data.commercePhone}`, W / 2, y, { align: "center" });
+    y += 4;
+  }
+  doc.text("Structura Commerce", W / 2, y + 2, { align: "center" });
+
+  // ── Sortie ───────────────────────────────────────────────────────────────────
+  const filename = `reglement-dette-${data.customerName.replace(/\s+/g, "-").toLowerCase()}-${new Date(data.paidAt).toISOString().slice(0, 10)}.pdf`;
+
+  if (mode === "preview") {
+    openBlobInTab(doc.output("blob") as Blob);
+  } else if (mode === "print") {
+    doc.autoPrint();
+    openBlobInTab(doc.output("blob") as Blob);
+  } else {
+    doc.save(filename);
+  }
+}

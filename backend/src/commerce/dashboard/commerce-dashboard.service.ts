@@ -90,7 +90,7 @@ export class CommerceDashboardService {
     target.setHours(0,0,0,0);
     const end = new Date(target); end.setHours(23,59,59,999);
 
-    const [sales, expenses, cogAgg] = await Promise.all([
+    const [sales, expenses, cogAgg, debtPayments] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: target, lte: end } },
         include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } }, customer: { select: { id: true, name: true } } },
@@ -98,6 +98,11 @@ export class CommerceDashboardService {
       }),
       this.prisma.commerceExpense.findMany({ where: { tenantId, date: { gte: target, lte: end } }, orderBy: { date: 'asc' } }),
       this.prisma.saleItem.aggregate({ where: { sale: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: target, lte: end } } }, _sum: { totalPrice: true, costPrice: true } }),
+      this.prisma.salesPayment.findMany({
+        where: { tenantId, createdAt: { gte: target, lte: end } },
+        include: { sale: { select: { receiptNumber: true, customer: { select: { name: true } } } } },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
 
     const totalRevenue   = sales.reduce((s, v) => s + v.totalAmount, 0);
@@ -107,14 +112,19 @@ export class CommerceDashboardService {
     const totalCog       = cogAgg._sum.costPrice ?? 0;
     const grossProfit    = totalRevenue - totalCog;
     const netProfit      = grossProfit - totalExpenses;
+    const totalDebtRecovered = (debtPayments as any[]).reduce((s: number, p: any) => s + p.amount, 0);
 
     const byMethod: Record<string, number> = {};
     for (const s of sales) { if (s.paidAmount > 0) byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] ?? 0) + s.paidAmount; }
+    // Ajouter les encaissements de dettes récupérées
+    for (const p of debtPayments as any[]) {
+      if (p.amount > 0) byMethod['DEBT_RECOVERY'] = (byMethod['DEBT_RECOVERY'] ?? 0) + p.amount;
+    }
 
     return {
       date: target.toISOString().slice(0, 10),
-      summary: { totalRevenue, totalCollected, totalDebt, totalExpenses, totalCog, grossProfit, netProfit, salesCount: sales.length },
-      byMethod, sales, expenses,
+      summary: { totalRevenue, totalCollected, totalDebt, totalExpenses, totalCog, grossProfit, netProfit, salesCount: sales.length, totalDebtRecovered },
+      byMethod, sales, expenses, debtPayments,
     };
   }
 }

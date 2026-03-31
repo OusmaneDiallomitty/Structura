@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
-  Banknote, Smartphone, CreditCard, Calendar, Package,
+  Banknote, Smartphone, CreditCard, Calendar, Package, RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -21,9 +21,10 @@ const token = () => storage.getItem("structura_token") as string;
 const today = () => new Date().toISOString().slice(0, 10);
 
 const METHOD_LABEL: Record<string, { label: string; icon: any; color: string }> = {
-  CASH:         { label: "Espèces",      icon: Banknote,    color: "text-emerald-600" },
-  MOBILE_MONEY: { label: "Mobile Money", icon: Smartphone,  color: "text-blue-600"   },
-  CREDIT:       { label: "Crédit",       icon: CreditCard,  color: "text-amber-600"  },
+  CASH:          { label: "Espèces",          icon: Banknote,   color: "text-emerald-600" },
+  MOBILE_MONEY:  { label: "Mobile Money",     icon: Smartphone, color: "text-blue-600"    },
+  CREDIT:        { label: "Crédit",           icon: CreditCard, color: "text-amber-600"   },
+  DEBT_RECOVERY: { label: "Recouvrement dettes", icon: RefreshCw, color: "text-purple-600" },
 };
 
 export default function DailySituationPage() {
@@ -38,6 +39,7 @@ export default function DailySituationPage() {
   });
 
   const s = data?.summary;
+  const debtPayments: any[] = data?.debtPayments ?? [];
 
   return (
     <ProtectedRoute>
@@ -74,7 +76,7 @@ export default function DailySituationPage() {
               <Card className="border-l-4 border-l-emerald-500">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Banknote className="h-3.5 w-3.5" /> Encaissé
+                    <Banknote className="h-3.5 w-3.5" /> Encaissé (ventes)
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -82,6 +84,19 @@ export default function DailySituationPage() {
                   {s.totalDebt > 0 && (
                     <p className="text-xs text-amber-600">+ {fmt(s.totalDebt)} en crédit</p>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Dettes recouvrées aujourd'hui */}
+              <Card className="border-l-4 border-l-purple-500">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <RefreshCw className="h-3.5 w-3.5" /> Dettes recouvrées
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-purple-600">{fmt(s.totalDebtRecovered ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">{debtPayments.length} règlement{debtPayments.length > 1 ? "s" : ""}</p>
                 </CardContent>
               </Card>
 
@@ -96,21 +111,31 @@ export default function DailySituationPage() {
                   <p className="text-xs text-muted-foreground">Coût stock: {fmt(s.totalCog)}</p>
                 </CardContent>
               </Card>
+            </div>
 
-              <Card className={`border-l-4 ${s.netProfit >= 0 ? "border-l-orange-500" : "border-l-red-600"}`}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <TrendingUp className="h-3.5 w-3.5" /> Bénéfice net
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className={`text-xl font-bold ${s.netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>
+            {/* Cash total du jour */}
+            <Card className={`border-l-4 ${s.netProfit >= 0 ? "border-l-orange-500" : "border-l-red-600"}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <TrendingUp className="h-3.5 w-3.5" /> Bénéfice net du jour
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex items-center gap-6">
+                <div>
+                  <p className={`text-2xl font-bold ${s.netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>
                     {s.netProfit >= 0 ? "+" : ""}{fmt(s.netProfit)}
                   </p>
                   <p className="text-xs text-muted-foreground">Brut: {fmt(s.grossProfit)}</p>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+                <div className="flex-1 text-right">
+                  <p className="text-xs text-muted-foreground">Total cash reçu</p>
+                  <p className="text-lg font-bold text-emerald-600">
+                    {fmt(s.totalCollected + (s.totalDebtRecovered ?? 0))}
+                  </p>
+                  <p className="text-xs text-muted-foreground">ventes + recouvrements</p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Répartition par mode de paiement */}
             {Object.keys(data.byMethod).length > 0 && (
@@ -183,6 +208,39 @@ export default function DailySituationPage() {
               </Card>
             )}
 
+            {/* Dettes recouvrées */}
+            {debtPayments.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2 text-purple-600">
+                    <RefreshCw className="h-4 w-4" /> Dettes recouvrées ({debtPayments.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {debtPayments.map((p: any) => (
+                      <div key={p.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {p.sale?.customer?.name && (
+                              <span className="text-sm font-medium">{p.sale.customer.name}</span>
+                            )}
+                            {p.sale?.receiptNumber && (
+                              <span className="text-xs text-muted-foreground font-mono">#{p.sale.receiptNumber}</span>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {format(new Date(p.createdAt), "HH:mm", { locale: fr })}
+                          </span>
+                        </div>
+                        <p className="font-bold text-purple-600 shrink-0">{fmt(p.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Dépenses du jour */}
             {data.expenses.length > 0 && (
               <Card>
@@ -227,6 +285,15 @@ export default function DailySituationPage() {
                       {s.netProfit >= 0 ? "+" : ""}{fmt(s.netProfit)}
                     </span>
                   </div>
+                  {(s.totalDebtRecovered ?? 0) > 0 && (
+                    <>
+                      <div className="flex justify-between text-muted-foreground pt-1 border-t"><span>+ Dettes recouvrées</span><span className="text-purple-600">+{fmt(s.totalDebtRecovered ?? 0)}</span></div>
+                      <div className="flex justify-between font-bold text-base">
+                        <span>= Cash total reçu</span>
+                        <span className="text-emerald-600">{fmt(s.totalCollected + (s.totalDebtRecovered ?? 0))}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>

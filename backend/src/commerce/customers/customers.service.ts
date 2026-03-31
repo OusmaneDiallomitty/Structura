@@ -109,16 +109,30 @@ export class CustomersService {
         oldestPartialSale.remainingDebt - payment,
         0,
       );
-      await this.prisma.sale.update({
-        where: { id: oldestPartialSale.id },
-        data: {
-          remainingDebt: newRemaining,
-          paidAmount: { increment: payment },
-          status: newRemaining === 0 ? 'COMPLETED' : 'PARTIAL',
-        },
-      });
+      await Promise.all([
+        this.prisma.sale.update({
+          where: { id: oldestPartialSale.id },
+          data: {
+            remainingDebt: newRemaining,
+            paidAmount: { increment: payment },
+            status: newRemaining === 0 ? 'COMPLETED' : 'PARTIAL',
+          },
+        }),
+        this.prisma.salesPayment.create({
+          data: {
+            tenantId,
+            saleId: oldestPartialSale.id,
+            amount: payment,
+            method: 'CASH',
+            notes: `Remboursement dette — ${customer.name}`,
+          },
+        }),
+      ]);
     }
-    await this.invalidate(tenantId);
+    await Promise.all([
+      this.invalidate(tenantId),
+      this.cache.del(`commerce:dashboard:${tenantId}`),
+    ]);
     return {
       customerId: id,
       amountPaid: payment,

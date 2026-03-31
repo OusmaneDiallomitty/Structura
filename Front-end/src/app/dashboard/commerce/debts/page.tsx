@@ -15,6 +15,7 @@ import {
   type CommerceCustomer,
   type CommerceSale,
 } from "@/lib/api/commerce.service";
+import { generateDebtPaymentReceiptPdf } from "@/lib/pdf-generator";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -178,6 +179,7 @@ export default function DebtsPage() {
       const customerSnapshot = payingCustomer;
       const saleSnapshot = payingSale;
       const amountSnapshot = parseFloat(payAmount);
+      const previousDebtSnapshot = payingCustomer ? payingCustomer.totalDebt : (payingSale?.remainingDebt ?? 0);
       // Fermer le dialog immédiatement — pas d'attente réseau
       closePay();
       if (type === "customer") {
@@ -188,11 +190,11 @@ export default function DebtsPage() {
             c.id === id ? { ...c, totalDebt: Math.max(0, c.totalDebt - amount) } : c
           )
         );
-        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot };
+        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot, previousDebt: previousDebtSnapshot };
       } else {
         await queryClient.cancelQueries({ queryKey: ["commerce-sales-pending", tid] });
         const prev = queryClient.getQueryData(["commerce-sales-pending", tid]);
-        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot };
+        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot, previousDebt: previousDebtSnapshot };
       }
     },
     onError: (_e, _v, ctx: any) => {
@@ -208,11 +210,13 @@ export default function DebtsPage() {
       const customerName = ctx?.customer?.name ?? ctx?.sale?.customer?.name ?? "Client anonyme";
       const receiptNumber = ctx?.sale?.receiptNumber ?? null;
       const remainingDebt = "remainingDebt" in res ? res.remainingDebt : 0;
+      const previousDebt = ctx?.previousDebt ?? amountPaid + remainingDebt;
       setDebtReceipt({
         amountPaid,
         customerName,
         receiptNumber,
         remainingDebt,
+        previousDebt,
         paidAt: new Date().toISOString(),
       });
       toast.success(
@@ -924,30 +928,85 @@ export default function DebtsPage() {
                 </p>
                 <p className="text-xs text-emerald-600 mt-1">Montant encaissé</p>
               </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between py-1 border-b">
+              <div className="space-y-0 text-sm divide-y">
+                <div className="flex justify-between py-2">
                   <span className="text-muted-foreground">Client</span>
                   <span className="font-semibold">{debtReceipt.customerName}</span>
                 </div>
                 {debtReceipt.receiptNumber && (
-                  <div className="flex justify-between py-1 border-b">
-                    <span className="text-muted-foreground">Reçu N°</span>
-                    <span className="font-mono">{debtReceipt.receiptNumber}</span>
+                  <div className="flex justify-between py-2">
+                    <span className="text-muted-foreground">Reçu vente N°</span>
+                    <span className="font-mono text-xs">{debtReceipt.receiptNumber}</span>
                   </div>
                 )}
-                <div className="flex justify-between py-1 border-b">
+                <div className="flex justify-between py-2">
                   <span className="text-muted-foreground">Date</span>
                   <span>{new Date(debtReceipt.paidAt).toLocaleString("fr-FR")}</span>
                 </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-muted-foreground">Reste dû</span>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted-foreground">Dette avant</span>
+                  <span className="text-amber-600 tabular-nums">{formatGNF(debtReceipt.previousDebt)}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted-foreground">Solde restant</span>
                   <span className={cn("font-bold tabular-nums", debtReceipt.remainingDebt === 0 ? "text-emerald-600" : "text-amber-600")}>
                     {debtReceipt.remainingDebt === 0 ? "✓ Soldé" : formatGNF(debtReceipt.remainingDebt)}
                   </span>
                 </div>
               </div>
+              {/* Actions PDF */}
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl text-xs"
+                  onClick={() => generateDebtPaymentReceiptPdf({
+                    customerName: debtReceipt.customerName,
+                    amountPaid: debtReceipt.amountPaid,
+                    previousDebt: debtReceipt.previousDebt,
+                    remainingDebt: debtReceipt.remainingDebt,
+                    receiptNumber: debtReceipt.receiptNumber,
+                    paidAt: debtReceipt.paidAt,
+                    commerceName: user?.schoolName ?? "Commerce",
+                  }, "preview")}
+                >
+                  Voir
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl text-xs"
+                  onClick={() => generateDebtPaymentReceiptPdf({
+                    customerName: debtReceipt.customerName,
+                    amountPaid: debtReceipt.amountPaid,
+                    previousDebt: debtReceipt.previousDebt,
+                    remainingDebt: debtReceipt.remainingDebt,
+                    receiptNumber: debtReceipt.receiptNumber,
+                    paidAt: debtReceipt.paidAt,
+                    commerceName: user?.schoolName ?? "Commerce",
+                  }, "download")}
+                >
+                  <Printer className="h-3 w-3 mr-1" /> PDF
+                </Button>
+                <Button
+                  size="sm"
+                  className="rounded-xl text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => generateDebtPaymentReceiptPdf({
+                    customerName: debtReceipt.customerName,
+                    amountPaid: debtReceipt.amountPaid,
+                    previousDebt: debtReceipt.previousDebt,
+                    remainingDebt: debtReceipt.remainingDebt,
+                    receiptNumber: debtReceipt.receiptNumber,
+                    paidAt: debtReceipt.paidAt,
+                    commerceName: user?.schoolName ?? "Commerce",
+                  }, "print")}
+                >
+                  Imprimer
+                </Button>
+              </div>
               <Button
-                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                variant="ghost"
+                className="w-full text-muted-foreground text-sm"
                 onClick={() => setDebtReceipt(null)}
               >
                 Fermer
