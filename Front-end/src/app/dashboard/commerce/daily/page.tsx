@@ -20,6 +20,14 @@ const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
 const token = () => storage.getItem("structura_token") as string;
 const today = () => new Date().toISOString().slice(0, 10);
 
+const CACHE_KEY = (tid: string, date: string) => `structura_commerce_daily_${tid}_${date}`;
+function readCache(tid: string, date: string) {
+  try { const r = localStorage.getItem(CACHE_KEY(tid, date)); return r ? JSON.parse(r) : undefined; } catch { return undefined; }
+}
+function writeCache(tid: string, date: string, data: unknown) {
+  try { localStorage.setItem(CACHE_KEY(tid, date), JSON.stringify(data)); } catch { /* quota */ }
+}
+
 const METHOD_LABEL: Record<string, { label: string; icon: any; color: string }> = {
   CASH:          { label: "Espèces",          icon: Banknote,   color: "text-emerald-600" },
   MOBILE_MONEY:  { label: "Mobile Money",     icon: Smartphone, color: "text-blue-600"    },
@@ -31,11 +39,19 @@ export default function DailySituationPage() {
   const { user } = useAuth();
   const [date, setDate] = useState(today());
 
+  const tid = user?.tenantId ?? "";
+
   const { data, isLoading } = useQuery({
-    queryKey: ["commerce-daily", user?.tenantId, date],
-    queryFn: () => getDailySituation(token(), date),
+    queryKey: ["commerce-daily", tid, date],
+    queryFn: async () => {
+      const result = await getDailySituation(token(), date);
+      if (tid) writeCache(tid, date, result);
+      return result;
+    },
     enabled: !!user,
-    staleTime: 30_000,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    placeholderData: () => readCache(tid, date),
   });
 
   const s = data?.summary;

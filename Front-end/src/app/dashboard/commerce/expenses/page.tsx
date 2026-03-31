@@ -35,6 +35,14 @@ const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
 const token = () => storage.getItem("structura_token") as string;
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
+const CACHE_KEY = (tid: string, month: string) => `structura_commerce_expenses_${tid}_${month}`;
+function readCache(tid: string, month: string): CommerceExpense[] | undefined {
+  try { const r = localStorage.getItem(CACHE_KEY(tid, month)); return r ? JSON.parse(r) : undefined; } catch { return undefined; }
+}
+function writeCache(tid: string, month: string, data: CommerceExpense[]) {
+  try { localStorage.setItem(CACHE_KEY(tid, month), JSON.stringify(data)); } catch { /* quota */ }
+}
+
 export default function ExpensesPage() {
   const { user } = useAuth();
   const tid = user?.tenantId;
@@ -46,9 +54,15 @@ export default function ExpensesPage() {
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["commerce-expenses", tid, month],
-    queryFn: () => getExpenses(token(), { month }),
+    queryFn: async () => {
+      const result = await getExpenses(token(), { month });
+      if (tid) writeCache(tid as string, month, result);
+      return result;
+    },
     enabled: !!user,
-    staleTime: 30_000,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    placeholderData: () => (tid ? readCache(tid as string, month) ?? [] : []),
   });
 
   const createMutation = useMutation({
@@ -59,10 +73,12 @@ export default function ExpensesPage() {
       date: form.date,
     }),
     onSuccess: (created) => {
-      queryClient.setQueryData<CommerceExpense[]>(["commerce-expenses", tid, month], (old = []) =>
+      const updated = queryClient.setQueryData<CommerceExpense[]>(["commerce-expenses", tid, month], (old = []) =>
         [created, ...old].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       );
+      if (tid && updated) writeCache(tid as string, month, updated);
       queryClient.invalidateQueries({ queryKey: ["commerce-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-daily"] });
       toast.success("Dépense enregistrée");
       setShowDialog(false);
       setForm({ amount: "", category: "", description: "", date: new Date().toISOString().slice(0, 10) });
@@ -74,13 +90,15 @@ export default function ExpensesPage() {
     mutationFn: (id: string) => deleteExpense(token(), id),
     onMutate: async (id) => {
       const prev = queryClient.getQueryData<CommerceExpense[]>(["commerce-expenses", tid, month]);
-      queryClient.setQueryData<CommerceExpense[]>(["commerce-expenses", tid, month], (old = []) =>
+      const updated = queryClient.setQueryData<CommerceExpense[]>(["commerce-expenses", tid, month], (old = []) =>
         old.filter((e) => e.id !== id)
       );
+      if (tid && updated) writeCache(tid as string, month, updated);
       return { prev };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["commerce-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-daily"] });
       toast.success("Dépense supprimée");
     },
     onError: (_e, _id, ctx: any) => {
