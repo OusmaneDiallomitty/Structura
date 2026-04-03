@@ -180,8 +180,20 @@ export default function DebtsPage() {
       const saleSnapshot = payingSale;
       const amountSnapshot = parseFloat(payAmount);
       const previousDebtSnapshot = payingCustomer ? payingCustomer.totalDebt : (payingSale?.remainingDebt ?? 0);
-      // Fermer le dialog immédiatement — pas d'attente réseau
+      const remainingEstimated = Math.max(previousDebtSnapshot - amountSnapshot, 0);
+
+      // Afficher le reçu IMMÉDIATEMENT — pas d'attente réseau
+      setDebtReceipt({
+        amountPaid: amountSnapshot,
+        customerName: customerSnapshot?.name ?? saleSnapshot?.customer?.name ?? "Client anonyme",
+        receiptNumber: saleSnapshot?.receiptNumber ?? null,
+        remainingDebt: remainingEstimated,
+        previousDebt: previousDebtSnapshot,
+        paidAt: new Date().toISOString(),
+      });
+
       closePay();
+
       if (type === "customer") {
         await queryClient.cancelQueries({ queryKey: ["commerce-customers", tid] });
         const prev = queryClient.getQueryData<CommerceCustomer[]>(["commerce-customers", tid]);
@@ -190,35 +202,28 @@ export default function DebtsPage() {
             c.id === id ? { ...c, totalDebt: Math.max(0, c.totalDebt - amount) } : c
           )
         );
-        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot, previousDebt: previousDebtSnapshot };
+        return { prev, type, remainingEstimated };
       } else {
         await queryClient.cancelQueries({ queryKey: ["commerce-sales-pending", tid] });
         const prev = queryClient.getQueryData(["commerce-sales-pending", tid]);
-        return { prev, type, customer: customerSnapshot, sale: saleSnapshot, amount: amountSnapshot, previousDebt: previousDebtSnapshot };
+        return { prev, type, remainingEstimated };
       }
     },
     onError: (_e, _v, ctx: any) => {
+      // Rollback cache
       if (ctx?.type === "customer" && ctx?.prev) {
         queryClient.setQueryData(["commerce-customers", tid], ctx.prev);
       } else if (ctx?.type === "sale" && ctx?.prev) {
         queryClient.setQueryData(["commerce-sales-pending", tid], ctx.prev);
       }
+      // Fermer le reçu optimiste car l'opération a échoué
+      setDebtReceipt(null);
       toast.error("Erreur lors de l'enregistrement");
     },
     onSuccess: (res, _vars, ctx: any) => {
-      const amountPaid = ctx?.amount ?? 0;
-      const customerName = ctx?.customer?.name ?? ctx?.sale?.customer?.name ?? "Client anonyme";
-      const receiptNumber = ctx?.sale?.receiptNumber ?? null;
-      const remainingDebt = "remainingDebt" in res ? res.remainingDebt : 0;
-      const previousDebt = ctx?.previousDebt ?? amountPaid + remainingDebt;
-      setDebtReceipt({
-        amountPaid,
-        customerName,
-        receiptNumber,
-        remainingDebt,
-        previousDebt,
-        paidAt: new Date().toISOString(),
-      });
+      // Mettre à jour le reçu avec le vrai solde retourné par l'API
+      const remainingDebt = "remainingDebt" in res ? res.remainingDebt : (ctx?.remainingEstimated ?? 0);
+      setDebtReceipt((prev: any) => prev ? { ...prev, remainingDebt } : prev);
       toast.success(
         `Paiement enregistré — Reste : ${formatGNF(remainingDebt)}` +
         (remainingDebt === 0 ? " ✓" : "")
