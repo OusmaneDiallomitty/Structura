@@ -65,8 +65,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(amount: number) {
-  return new Intl.NumberFormat("fr-GN").format(amount) + " GNF";
+  return _gnf.format(amount) + " GNF";
 }
 
 const UNITS = [

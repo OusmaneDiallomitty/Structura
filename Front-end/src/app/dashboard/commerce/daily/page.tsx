@@ -16,7 +16,8 @@ import {
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
-const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
+const _gnf = new Intl.NumberFormat("fr-GN");
+const fmt = (n: number) => _gnf.format(Math.round(n)) + " GNF";
 const token = () => storage.getAuthItem("structura_token") ?? "";
 const today = () => new Date().toISOString().slice(0, 10);
 

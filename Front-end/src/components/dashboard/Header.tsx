@@ -67,7 +67,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-30 w-full border-b bg-background">
         <div className="flex h-16 items-center gap-2 sm:gap-4 px-4 lg:px-8">
           {/* Spacer for mobile menu button */}
           <div className="w-12 lg:hidden flex-shrink-0" />

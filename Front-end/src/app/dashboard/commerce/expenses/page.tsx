@@ -31,7 +31,8 @@ const CATEGORIES = [
   { value: "autre",        label: "Autre",           color: "bg-gray-100 text-gray-700" },
 ];
 
-const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
+const _gnf = new Intl.NumberFormat("fr-GN");
+const fmt = (n: number) => _gnf.format(Math.round(n)) + " GNF";
 const token = () => storage.getAuthItem("structura_token") ?? "";
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 

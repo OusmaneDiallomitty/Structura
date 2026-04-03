@@ -49,8 +49,9 @@ import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(n: number) {
-  return new Intl.NumberFormat("fr-GN").format(Math.round(n)) + " GNF";
+  return _gnf.format(Math.round(n)) + " GNF";
 }
 
 function timeAgo(date: string) {

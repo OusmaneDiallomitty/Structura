@@ -64,8 +64,9 @@ type PaymentMethod = "CASH" | "MOBILE_MONEY" | "CREDIT";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(n: number) {
-  return new Intl.NumberFormat("fr-GN").format(Math.round(n)) + " GNF";
+  return _gnf.format(Math.round(n)) + " GNF";
 }
 
 function roundGNF(n: number) {
@@ -720,13 +721,13 @@ export default function POSPage() {
                               : "border border-dashed border-muted-foreground/30 hover:bg-orange-50"
                           )}
                         >
-                          {new Intl.NumberFormat("fr-GN").format(item.customPrice)}
+                          {_gnf.format(item.customPrice)}
                         </button>
                       )}
 
                       {/* Sous-total */}
                       <span className="ml-auto font-bold text-orange-600">
-                        {new Intl.NumberFormat("fr-GN").format(item.customPrice * item.quantity)}
+                        {_gnf.format(item.customPrice * item.quantity)}
                       </span>
                     </div>
 

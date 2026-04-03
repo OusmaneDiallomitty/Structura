@@ -25,8 +25,9 @@ import {
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(n: number) {
-  return new Intl.NumberFormat("fr-GN").format(n) + " GNF";
+  return _gnf.format(n) + " GNF";
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {

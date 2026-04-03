@@ -44,8 +44,9 @@ import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(n: number) {
-  return new Intl.NumberFormat("fr-GN").format(Math.round(n)) + " GNF";
+  return _gnf.format(Math.round(n)) + " GNF";
 }
 
 function roundGNF(n: number) {
@@ -721,7 +722,7 @@ export default function DebtsPage() {
                             : "border-border hover:border-emerald-300 hover:bg-emerald-50"
                         )}
                       >
-                        {new Intl.NumberFormat("fr-GN").format(s)}
+                        {_gnf.format(s)}
                       </button>
                     ));
                   })()}

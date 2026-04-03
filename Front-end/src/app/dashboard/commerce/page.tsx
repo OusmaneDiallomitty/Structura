@@ -37,11 +37,9 @@ import { fr } from "date-fns/locale";
 
 const CACHE_KEY = (tenantId: string) => `structura_commerce_dashboard:${tenantId}`;
 
+const _gnf = new Intl.NumberFormat("fr-GN", { style: "decimal", minimumFractionDigits: 0 });
 function formatGNF(amount: number) {
-  return new Intl.NumberFormat("fr-GN", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-  }).format(amount) + " GNF";
+  return _gnf.format(amount) + " GNF";
 }
 
 function StatCard({

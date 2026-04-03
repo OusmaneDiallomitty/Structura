@@ -50,8 +50,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+const _gnf = new Intl.NumberFormat("fr-GN");
 function formatGNF(amount: number) {
-  return new Intl.NumberFormat("fr-GN").format(amount) + " GNF";
+  return _gnf.format(amount) + " GNF";
 }
 
 function formatDate(isoString: string) {
