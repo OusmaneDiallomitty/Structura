@@ -131,36 +131,36 @@ export default function CustomersPage() {
       if (ctx?.prev) queryClient.setQueryData(["commerce-customers", tid], ctx.prev);
     },
     onSuccess: (created) => {
-      queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
+      const updated = queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
         old.map((c) => (c.id.startsWith("__tmp_") ? created : c))
       );
       toast.success(`"${created.name}" ajouté`);
       closeDialog();
-      writeCache(tid, []);
+      if (updated) writeCache(tid, updated);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: () => updateCustomer(token(), editing!.id, form),
     onSuccess: (updated) => {
-      queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
+      const result = queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
         old.map((c) => (c.id === editing!.id ? updated : c))
       );
       toast.success("Client modifié");
       closeDialog();
-      writeCache(tid, []);
+      if (result) writeCache(tid, result);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteCustomer(token(), deleting!.id),
     onSuccess: () => {
-      queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
+      const result = queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
         old.filter((c) => c.id !== deleting!.id)
       );
       toast.success("Client supprimé");
       setDeleting(null);
-      writeCache(tid, []);
+      if (result) writeCache(tid, result);
     },
     onError: (e: Error) => toast.error(e.message),
   });

@@ -32,7 +32,7 @@ const CATEGORIES = [
 ];
 
 const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
-const token = () => storage.getItem("structura_token") as string;
+const token = () => storage.getAuthItem("structura_token") ?? "";
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 const CACHE_KEY = (tid: string, month: string) => `structura_commerce_expenses_${tid}_${month}`;

@@ -17,7 +17,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
 const fmt = (n: number) => n.toLocaleString("fr-GN") + " GNF";
-const token = () => storage.getItem("structura_token") as string;
+const token = () => storage.getAuthItem("structura_token") ?? "";
 const today = () => new Date().toISOString().slice(0, 10);
 
 const CACHE_KEY = (tid: string, date: string) => `structura_commerce_daily_${tid}_${date}`;

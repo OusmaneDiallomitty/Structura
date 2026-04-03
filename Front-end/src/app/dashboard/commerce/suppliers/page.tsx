@@ -127,36 +127,36 @@ export default function SuppliersPage() {
       if (ctx?.prev) queryClient.setQueryData(["commerce-suppliers", tid], ctx.prev);
     },
     onSuccess: (created) => {
-      queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
+      const updated = queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
         old.map((s) => (s.id.startsWith("__tmp_") ? created : s))
       );
       toast.success(`"${created.name}" ajouté`);
       closeDialog();
-      writeCache(tid, []);
+      if (updated) writeCache(tid, updated);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: () => updateSupplier(token(), editing!.id, form),
     onSuccess: (updated) => {
-      queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
+      const result = queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
         old.map((s) => (s.id === editing!.id ? updated : s))
       );
       toast.success("Fournisseur modifié");
       closeDialog();
-      writeCache(tid, []);
+      if (result) writeCache(tid, result);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteSupplier(token(), deleting!.id),
     onSuccess: () => {
-      queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
+      const result = queryClient.setQueryData<CommerceSupplier[]>(["commerce-suppliers", tid], (old = []) =>
         old.filter((s) => s.id !== deleting!.id)
       );
       toast.success("Fournisseur supprimé");
       setDeleting(null);
-      writeCache(tid, []);
+      if (result) writeCache(tid, result);
     },
     onError: (e: Error) => toast.error(e.message),
   });

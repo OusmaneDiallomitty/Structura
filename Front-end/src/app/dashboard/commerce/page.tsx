@@ -117,7 +117,7 @@ export default function CommerceDashboardPage() {
     },
     enabled: !!user,
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    gcTime: 10 * 60_000,
   });
 
   const { data: chartData } = useQuery({
