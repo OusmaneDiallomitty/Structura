@@ -420,7 +420,16 @@ export default function POSPage() {
         queryClient.invalidateQueries({ queryKey: ["commerce-customers", tid] });
       }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, context: any) => {
+      // Fermer le reçu optimiste — la vente n'a pas abouti
+      setShowReceiptDialog(false);
+      setLastSale(null);
+      // Restaurer le panier depuis le snapshot capturé dans onMutate
+      if (context?.cartSnapshot?.length) {
+        setCart(context.cartSnapshot);
+      }
+      toast.error(`Vente échouée — ${e.message}`);
+    },
   });
 
   // ─── Raccourcis clavier ────────────────────────────────────────────────────
