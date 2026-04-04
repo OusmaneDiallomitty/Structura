@@ -543,3 +543,98 @@ export const getDailySituation = (token: string, date?: string) => {
   const qs = date ? `?date=${date}` : '';
   return request<any>(`/commerce/dashboard/daily${qs}`, token);
 };
+
+// ─── Dettes fournisseurs ──────────────────────────────────────────────────────
+
+export interface SupplierPayment {
+  id: string;
+  tenantId: string;
+  receiptId: string;
+  supplierId?: string;
+  supplierName: string;
+  amount: number;
+  paymentMethod: string;
+  notes?: string;
+  paidByUserId: string;
+  paidByName: string;
+  createdAt: string;
+  receipt?: {
+    id: string;
+    receiptNumber: string;
+    amountDue?: number;
+    amountPaid: number;
+    paymentStatus: string;
+  };
+}
+
+export interface SupplierDebtReceipt {
+  id: string;
+  receiptNumber: string;
+  supplierName: string;
+  supplierId?: string;
+  receivedAt: string;
+  amountDue: number;
+  amountPaid: number;
+  paymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
+  referenceNumber?: string;
+  notes?: string;
+  supplier?: { id: string; name: string; phone?: string };
+  supplierPayments: SupplierPayment[];
+}
+
+export interface SupplierDebtsResponse {
+  totalOwed: number;
+  receiptCount: number;
+  suppliers: {
+    supplierName: string;
+    supplierId: string | null;
+    phone: string | null;
+    totalOwed: number;
+    receipts: SupplierDebtReceipt[];
+  }[];
+}
+
+export interface SupplierPaymentResult {
+  paymentId: string;
+  receiptId: string;
+  receiptNumber: string;
+  supplierName: string;
+  supplierId?: string;
+  amountPaid: number;
+  totalAmountPaid: number;
+  amountDue: number;
+  remainingDebt: number;
+  paymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
+  paymentMethod: string;
+  paidAt: string;
+}
+
+export const getSupplierDebts = (token: string, supplierId?: string) => {
+  const qs = supplierId ? `?supplierId=${supplierId}` : '';
+  return request<SupplierDebtsResponse>(`/commerce/supplier-debts${qs}`, token);
+};
+
+export const getSupplierDebtStats = (token: string) =>
+  request<{ totalOwed: number; paidThisMonth: number; unpaidCount: number; partialCount: number }>(
+    '/commerce/supplier-debts/stats', token
+  );
+
+export const getSupplierPaymentHistory = (token: string, filters: { supplierId?: string; month?: string } = {}) => {
+  const params = new URLSearchParams();
+  if (filters.supplierId) params.set('supplierId', filters.supplierId);
+  if (filters.month)      params.set('month', filters.month);
+  const qs = params.toString();
+  return request<{ payments: SupplierPayment[]; totalPaid: number }>(
+    `/commerce/supplier-debts/history${qs ? `?${qs}` : ''}`, token
+  );
+};
+
+export const paySupplierDebt = (
+  token: string,
+  receiptId: string,
+  data: { amount: number; paymentMethod?: string; notes?: string },
+) =>
+  request<SupplierPaymentResult>(`/commerce/supplier-debts/${receiptId}/pay`, token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });

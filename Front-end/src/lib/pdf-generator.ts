@@ -1633,6 +1633,19 @@ export interface DebtPaymentReceiptData {
   commercePhone?: string;
 }
 
+export interface SupplierPaymentReceiptData {
+  supplierName: string;
+  amountPaid: number;
+  amountDue: number;
+  remainingDebt: number;
+  receiptNumber: string;    // numéro du bon de réception
+  referenceNumber?: string; // référence fournisseur (BC, facture)
+  paidAt: string;           // ISO string
+  commerceName: string;
+  commerceAddress?: string;
+  commercePhone?: string;
+}
+
 export function generateDebtPaymentReceiptPdf(
   data: DebtPaymentReceiptData,
   mode: ReceiptOutputMode = "download"
@@ -1725,6 +1738,111 @@ export function generateDebtPaymentReceiptPdf(
 
   // ── Sortie ───────────────────────────────────────────────────────────────────
   const filename = `reglement-dette-${data.customerName.replace(/\s+/g, "-").toLowerCase()}-${new Date(data.paidAt).toISOString().slice(0, 10)}.pdf`;
+
+  if (mode === "preview") {
+    openBlobInTab(doc.output("blob") as Blob);
+  } else if (mode === "print") {
+    doc.autoPrint();
+    openBlobInTab(doc.output("blob") as Blob);
+  } else {
+    doc.save(filename);
+  }
+}
+
+// ─── Reçu paiement fournisseur ────────────────────────────────────────────────
+
+export function generateSupplierPaymentReceiptPdf(
+  data: SupplierPaymentReceiptData,
+  mode: ReceiptOutputMode = "download"
+): void {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 160] });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  let y = margin;
+
+  // ── En-tête (orange fournisseur) ─────────────────────────────────────────────
+  doc.setFillColor(234, 88, 12); // orange-600
+  doc.rect(0, 0, W, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.commerceName, W / 2, 12, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("REÇU DE PAIEMENT FOURNISSEUR", W / 2, 21, { align: "center" });
+  doc.setTextColor(COLORS.dark);
+  y = 34;
+
+  // ── Montant payé ─────────────────────────────────────────────────────────────
+  doc.setFillColor(255, 247, 237); // orange-50
+  doc.roundedRect(margin, y, W - 2 * margin, 22, 3, 3, "F");
+  doc.setFontSize(9);
+  doc.setTextColor(COLORS.secondary);
+  doc.setFont("helvetica", "normal");
+  doc.text("Montant payé", W / 2, y + 8, { align: "center" });
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(234, 88, 12);
+  doc.text(fmtAmount(data.amountPaid, "GNF"), W / 2, y + 18, { align: "center" });
+  y += 28;
+
+  // ── Infos ────────────────────────────────────────────────────────────────────
+  doc.setFontSize(8);
+  const lineH = 6;
+
+  const row = (label: string, value: string, bold = false) => {
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(COLORS.secondary);
+    doc.text(label, margin, y);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setTextColor(COLORS.dark);
+    doc.text(value, W - margin, y, { align: "right" });
+    y += lineH;
+    doc.setDrawColor(230, 230, 230);
+    doc.line(margin, y - 1, W - margin, y - 1);
+  };
+
+  row("Fournisseur", data.supplierName, true);
+  row("Bon de réception N°", data.receiptNumber);
+  if (data.referenceNumber) row("Réf. fournisseur", data.referenceNumber);
+  row("Date de paiement", new Date(data.paidAt).toLocaleString("fr-FR", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }));
+  row("Total de la facture", fmtAmount(data.amountDue, "GNF"));
+
+  // Solde restant — coloré
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(COLORS.secondary);
+  doc.text("Solde restant", margin, y);
+  if (data.remainingDebt <= 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(16, 185, 129);
+    doc.text("✓ SOLDÉ", W - margin, y, { align: "right" });
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(245, 158, 11);
+    doc.text(fmtAmount(data.remainingDebt, "GNF"), W - margin, y, { align: "right" });
+  }
+  y += lineH;
+  y += 6;
+
+  // ── Infos commerce ───────────────────────────────────────────────────────────
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(150, 150, 150);
+  if (data.commerceAddress) {
+    doc.text(data.commerceAddress, W / 2, y, { align: "center" });
+    y += 4;
+  }
+  if (data.commercePhone) {
+    doc.text(`Tél: ${data.commercePhone}`, W / 2, y, { align: "center" });
+    y += 4;
+  }
+  doc.text("Structura Commerce", W / 2, y + 2, { align: "center" });
+
+  // ── Sortie ───────────────────────────────────────────────────────────────────
+  const filename = `paiement-fournisseur-${data.supplierName.replace(/\s+/g, "-").toLowerCase()}-${data.receiptNumber}-${new Date(data.paidAt).toISOString().slice(0, 10)}.pdf`;
 
   if (mode === "preview") {
     openBlobInTab(doc.output("blob") as Blob);

@@ -35,6 +35,12 @@ enum ReceiptStatus {
   CANCELLED  // Annulé
 }
 
+enum SupplierPaymentStatus {
+  UNPAID   // Aucun paiement effectué
+  PARTIAL  // Paiement partiel
+  PAID     // Soldé
+}
+
 enum StudentStatus {
   ACTIVE
   INACTIVE
@@ -136,6 +142,7 @@ model Tenant {
   suppliers             Supplier[]
   commerceCustomers     CommerceCustomer[]
   commerceExpenses      CommerceExpense[]
+  supplierPayments      SupplierPayment[]
 
   @@map("tenants")
 }
@@ -730,12 +737,18 @@ model StockReceipt {
   // Totaux
   totalItems        Int       @default(0) // Nombre de lignes
 
+  // Paiement fournisseur
+  amountDue         Float?                         // Montant total dû au fournisseur (snapshot à la réception)
+  amountPaid        Float                @default(0) // Montant déjà payé
+  paymentStatus     SupplierPaymentStatus @default(UNPAID)
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @default(now()) @updatedAt
 
   tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   supplier  Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   lines     StockReceiptLine[]
+  supplierPayments  SupplierPayment[]
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
@@ -914,4 +927,28 @@ model SalesPayment {
   @@index([saleId])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("sales_payments")
+}
+
+/// Paiements aux fournisseurs — historique des règlements sur les bons de réception
+model SupplierPayment {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId      String
+  receiptId     String
+  supplierId    String?  // Peut être null si fournisseur non enregistré en BDD
+  supplierName  String   // Snapshot nom fournisseur au moment du paiement
+  amount        Float    // Montant payé
+  paymentMethod String   @default("CASH") // CASH | MOBILE_MONEY | BANK_TRANSFER
+  notes         String?
+  paidByUserId  String
+  paidByName    String   // Snapshot nom utilisateur
+  createdAt     DateTime @default(now())
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipt StockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([receiptId])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("supplier_payments")
 }

@@ -50,7 +50,15 @@ export class StockReceiptsService {
 
     // Transaction: créer bon + lignes + mettre à jour stock
     const receipt = await this.prisma.$transaction(async (tx) => {
-      // 1. Créer le bon
+      // 1. Calculer le montant dû (fourni explicitement ou calculé depuis les lignes si tous les prix sont renseignés)
+      const computedAmountDue =
+        dto.amountDue !== undefined
+          ? dto.amountDue
+          : dto.lines.every((l) => l.unitPrice !== undefined && l.unitPrice > 0)
+            ? dto.lines.reduce((s, l) => s + l.quantity * (l.unitPrice ?? 0), 0)
+            : null;
+
+      // 2. Créer le bon
       const newReceipt = await tx.stockReceipt.create({
         data: {
           tenantId,
@@ -63,6 +71,8 @@ export class StockReceiptsService {
           status: 'RECEIVED' as ReceiptStatus,
           notes: dto.notes,
           totalItems: dto.lines.length,
+          amountDue: computedAmountDue,
+          paymentStatus: computedAmountDue && computedAmountDue > 0 ? 'UNPAID' : 'PAID',
         },
       });
 

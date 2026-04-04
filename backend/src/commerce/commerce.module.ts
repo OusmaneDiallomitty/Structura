@@ -7,6 +7,7 @@ import { SalesModule } from './sales/sales.module';
 import { CommerceDashboardModule } from './dashboard/commerce-dashboard.module';
 import { StockReceiptsModule } from './stock-receipts/stock-receipts.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { SupplierDebtsModule } from './supplier-debts/supplier-debts.module';
 import { CommerceModuleGuard } from './guards/commerce-module.guard';
 
 @Module({
@@ -19,6 +20,7 @@ import { CommerceModuleGuard } from './guards/commerce-module.guard';
     CommerceDashboardModule,
     StockReceiptsModule,
     ExpensesModule,
+    SupplierDebtsModule,
   ],
   providers: [CommerceModuleGuard],
   exports: [CommerceModuleGuard],

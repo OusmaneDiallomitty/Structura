@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   TrendingDown,
   CalendarDays,
+  HandshakeIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -121,6 +122,11 @@ const commerceNavigation: NavItem[] = [
     title: "Situation du jour",
     href: "/dashboard/commerce/daily",
     icon: CalendarDays,
+  },
+  {
+    title: "Dettes fourn.",
+    href: "/dashboard/commerce/supplier-debts",
+    icon: HandshakeIcon,
   },
   {
     title: "Fournisseurs",

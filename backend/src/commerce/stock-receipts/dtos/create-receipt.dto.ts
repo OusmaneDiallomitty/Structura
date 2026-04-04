@@ -41,4 +41,9 @@ export class CreateReceiptDto {
   @IsOptional()
   @IsString()
   notes?: string; // Remarques globales
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  amountDue?: number; // Montant total dû au fournisseur pour cette réception
 }
