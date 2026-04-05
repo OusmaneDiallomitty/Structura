@@ -154,15 +154,17 @@ async function request<T>(
       ...options.headers,
     },
   });
+  const text = await res.text();
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err.message || 'Erreur API');
+    try {
+      const err = JSON.parse(text);
+      throw new Error(err.message || 'Erreur API');
+    } catch {
+      throw new Error(text || res.statusText || 'Erreur API');
+    }
   }
-  // Réponse vide (204 No Content) — retourner undefined
-  if (res.status === 204 || res.headers.get('content-length') === '0') {
-    return undefined as unknown as T;
-  }
-  return res.json();
+  if (!text) return undefined as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 // ─── Catégories ───────────────────────────────────────────────────────────────

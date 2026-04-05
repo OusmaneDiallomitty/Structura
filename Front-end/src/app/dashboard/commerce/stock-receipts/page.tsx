@@ -206,6 +206,11 @@ export default function StockReceiptsPage() {
 
   // ─── Mutations réceptions ─────────────────────────────────────────────────
 
+  const resetCreateForm = () => {
+    setCreateForm({ supplierId: "", supplierName: "", referenceNumber: "", notes: "", amountDue: "" });
+    setReceiptLines([{ productId: "", quantity: "", unitPrice: "", notes: "" }]);
+  };
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const lines = receiptLines
@@ -227,16 +232,23 @@ export default function StockReceiptsPage() {
         amountDue: createForm.amountDue ? parseFloat(createForm.amountDue) : undefined,
       });
     },
-    onSuccess: (result) => {
-      toast.success(`Bon ${result.receiptNumber} créé`);
+    onMutate: () => {
+      // Fermer le dialog immédiatement — ne pas faire attendre l'utilisateur
       setShowCreateDialog(false);
-      setCreateForm({ supplierId: "", supplierName: "", referenceNumber: "", notes: "", amountDue: "" });
-      setReceiptLines([{ productId: "", quantity: "", unitPrice: "", notes: "" }]);
+      resetCreateForm();
+      toast.loading("Création du bon en cours…", { id: "create-receipt" });
+    },
+    onSuccess: (result) => {
+      toast.success(`Bon ${result.receiptNumber} créé`, { id: "create-receipt" });
       queryClient.invalidateQueries({ queryKey: ["commerce-receipts", tid] });
       queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
       queryClient.invalidateQueries({ queryKey: ["commerce-supplier-debts", tid] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      toast.error(`Échec création — ${e.message}`, { id: "create-receipt" });
+      // Réouvrir le dialog pour que l'utilisateur puisse corriger
+      setShowCreateDialog(true);
+    },
   });
 
   const verifyMutation = useMutation({
@@ -596,7 +608,7 @@ export default function StockReceiptsPage() {
       )}
 
       {/* ── Dialog Créer bon ── */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) { setShowCreateDialog(false); resetCreateForm(); } else setShowCreateDialog(true); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nouveau bon de réception</DialogTitle>
@@ -674,7 +686,7 @@ export default function StockReceiptsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => { setShowCreateDialog(false); resetCreateForm(); }}>Annuler</Button>
             <Button className="bg-orange-600 hover:bg-orange-700 text-white"
               onClick={() => createMutation.mutate()}
               disabled={!createForm.supplierName || receiptLines.filter((l) => l.productId && l.quantity).length === 0 || createMutation.isPending}>
