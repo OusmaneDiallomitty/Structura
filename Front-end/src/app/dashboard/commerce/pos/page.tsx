@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -909,7 +910,9 @@ export default function POSPage() {
             {paymentMethod !== "CREDIT" && (
               <div>
                 <p className="text-xs font-semibold mb-2">Reçu</p>
-                <Input type="number" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} className="h-10 text-lg font-bold text-center" />
+                <NumberInput value={paidAmount ? parseFloat(paidAmount) : null}
+                  onChange={(v) => setPaidAmount(v != null ? String(v) : "")}
+                  className="h-10 text-lg font-bold text-center" />
               </div>
             )}
 

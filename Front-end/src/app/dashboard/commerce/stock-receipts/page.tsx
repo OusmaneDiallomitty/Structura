@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
@@ -262,6 +263,8 @@ export default function StockReceiptsPage() {
       toast.success(`Bon ${result.receiptNumber} vérifié`);
       setShowDetailDialog(false);
       queryClient.invalidateQueries({ queryKey: ["commerce-receipts", tid] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-for-receipt", tid] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -279,31 +282,31 @@ export default function StockReceiptsPage() {
 
   // ─── Mutation paiement dette ───────────────────────────────────────────────
 
+  type PayPayload = { receiptId: string; amount: number; paymentMethod: string; notes?: string; snap: SupplierDebtReceipt };
+
   const payMutation = useMutation({
-    mutationFn: () => paySupplierDebt(token(), payingReceipt!.id, {
-      amount: parseFloat(payAmount),
-      paymentMethod: payMethod,
-      notes: payNotes || undefined,
+    mutationFn: (p: PayPayload) => paySupplierDebt(token(), p.receiptId, {
+      amount: p.amount,
+      paymentMethod: p.paymentMethod,
+      notes: p.notes,
     }),
-    onMutate: () => {
-      const snap = payingReceipt;
-      const amt = parseFloat(payAmount);
-      const remaining = Math.max((snap?.amountDue ?? 0) - (snap?.amountPaid ?? 0) - amt, 0);
+    onMutate: (p: PayPayload) => {
+      const remaining = Math.max((p.snap.amountDue ?? 0) - p.snap.amountPaid - p.amount, 0);
       setReceipt({
         paymentId: "pending",
-        receiptId: snap?.id ?? "",
-        receiptNumber: snap?.receiptNumber ?? "",
-        supplierName: snap?.supplierName ?? "",
-        amountPaid: amt,
-        totalAmountPaid: (snap?.amountPaid ?? 0) + amt,
-        amountDue: snap?.amountDue ?? 0,
+        receiptId: p.snap.id,
+        receiptNumber: p.snap.receiptNumber,
+        supplierName: p.snap.supplierName,
+        amountPaid: p.amount,
+        totalAmountPaid: p.snap.amountPaid + p.amount,
+        amountDue: p.snap.amountDue ?? 0,
         remainingDebt: remaining,
         paymentStatus: remaining <= 0 ? "PAID" : "PARTIAL",
-        paymentMethod: payMethod,
+        paymentMethod: p.paymentMethod,
         paidAt: new Date().toISOString(),
       } as SupplierPaymentResult);
       closePay();
-      return { snap };
+      return { snap: p.snap };
     },
     onSuccess: (result) => {
       setReceipt(result);
@@ -320,6 +323,19 @@ export default function StockReceiptsPage() {
       toast.error(`Paiement échoué — ${e.message}`);
     },
   });
+
+  const handlePay = () => {
+    if (!payingReceipt) return;
+    const amount = parseFloat(payAmount);
+    if (!amount || amount <= 0) { toast.error("Montant invalide"); return; }
+    payMutation.mutate({
+      receiptId: payingReceipt.id,
+      amount,
+      paymentMethod: payMethod,
+      notes: payNotes || undefined,
+      snap: payingReceipt,
+    });
+  };
 
   // ─── Helpers paiement ─────────────────────────────────────────────────────
 
@@ -669,10 +685,12 @@ export default function StockReceiptsPage() {
                       {productsArray.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.unit})</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Input type="number" placeholder="0" className="text-center" value={line.quantity}
-                    onChange={(e) => { const u = [...receiptLines]; u[idx].quantity = e.target.value; setReceiptLines(u); }} />
-                  <Input type="number" placeholder="GNF" value={line.unitPrice}
-                    onChange={(e) => { const u = [...receiptLines]; u[idx].unitPrice = e.target.value; setReceiptLines(u); }} />
+                  <NumberInput placeholder="0" className="text-center"
+                    value={line.quantity ? parseFloat(line.quantity) : null}
+                    onChange={(v) => { const u = [...receiptLines]; u[idx].quantity = v != null ? String(v) : ""; setReceiptLines(u); }} />
+                  <NumberInput placeholder="GNF"
+                    value={line.unitPrice ? parseFloat(line.unitPrice) : null}
+                    onChange={(v) => { const u = [...receiptLines]; u[idx].unitPrice = v != null ? String(v) : ""; setReceiptLines(u); }} />
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
                     onClick={() => setReceiptLines(receiptLines.filter((_, i) => i !== idx))}>
                     <Trash2 className="h-4 w-4" />
@@ -700,8 +718,9 @@ export default function StockReceiptsPage() {
               <p className="text-xs text-muted-foreground -mt-1">
                 Le total que vous devez payer au fournisseur pour cette livraison. Si vous avez renseigné les prix d'achat ci-dessus, ce montant est calculé automatiquement — laissez vide pour utiliser le calcul auto.
               </p>
-              <Input type="number" placeholder="Laisser vide = calculé automatiquement" value={createForm.amountDue}
-                onChange={(e) => setCreateForm({ ...createForm, amountDue: e.target.value })} />
+              <NumberInput placeholder="Laisser vide = calculé automatiquement"
+                value={createForm.amountDue ? parseFloat(createForm.amountDue) : null}
+                onChange={(v) => setCreateForm({ ...createForm, amountDue: v != null ? String(v) : "" })} />
             </div>
 
             <div className="grid gap-2">
@@ -830,7 +849,8 @@ export default function StockReceiptsPage() {
 
               <div className="space-y-1">
                 <Label>Montant payé (GNF)</Label>
-                <Input type="number" placeholder="Ex: 200000" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
+                <NumberInput placeholder="Ex: 200 000" value={payAmount ? parseFloat(payAmount) : null}
+                  onChange={(v) => setPayAmount(v != null ? String(v) : "")} autoFocus />
                 {amountNum > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Reste : <span className={cn("font-medium", amountNum >= payingRemaining ? "text-emerald-600" : "text-orange-600")}>
@@ -858,7 +878,7 @@ export default function StockReceiptsPage() {
               <div className="flex gap-2 pt-1">
                 <Button variant="outline" className="flex-1" onClick={closePay}>Annuler</Button>
                 <Button className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
-                  onClick={() => payMutation.mutate()}
+                  onClick={handlePay}
                   disabled={amountNum <= 0 || amountNum > payingRemaining || payMutation.isPending}>
                   {payMutation.isPending ? "Enregistrement…" : isFullPayment ? "Solder" : "Payer"}
                 </Button>

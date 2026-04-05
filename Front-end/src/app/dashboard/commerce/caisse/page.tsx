@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import * as storage from "@/lib/storage";
@@ -34,6 +34,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -239,13 +240,12 @@ export default function CaissePage() {
                 </p>
                 {editingOpening ? (
                   <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      value={openingInput}
-                      onChange={(e) => setOpeningInput(e.target.value)}
-                      className="h-8 w-28 text-sm"
+                    <NumberInput
+                      value={openingInput ? parseFloat(openingInput) : null}
+                      onChange={(v) => setOpeningInput(v != null ? String(v) : "")}
+                      className="h-8 w-36 text-sm"
                       autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") sessionMutation.mutate(); if (e.key === "Escape") setEditingOpening(false); }}
+                      onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") sessionMutation.mutate(); if (e.key === "Escape") setEditingOpening(false); }}
                     />
                     <Button size="icon" className="h-8 w-8 bg-emerald-500 hover:bg-emerald-600" onClick={() => sessionMutation.mutate()} disabled={sessionMutation.isPending}>
                       <Check className="h-4 w-4 text-white" />

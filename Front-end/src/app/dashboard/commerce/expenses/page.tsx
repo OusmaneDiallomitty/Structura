@@ -11,6 +11,7 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -224,10 +225,10 @@ export default function ExpensesPage() {
             <div className="space-y-4 py-2">
               <div className="space-y-1">
                 <Label>Montant (GNF)</Label>
-                <Input
-                  type="number" placeholder="Ex: 500000"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                <NumberInput
+                  placeholder="Ex: 500 000"
+                  value={form.amount ? parseFloat(form.amount) : null}
+                  onChange={(v) => setForm((f) => ({ ...f, amount: v != null ? String(v) : "" }))}
                   autoFocus
                 />
               </div>

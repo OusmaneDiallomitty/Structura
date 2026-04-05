@@ -21,8 +21,17 @@ export class StockReceiptsService {
     return `commerce:receipts:list:${tenantId}`;
   }
 
+  // Clés du cache produits (doit correspondre à products.service.ts)
+  private productsListKey(tenantId: string) { return `commerce:products:list:${tenantId}`; }
+  private productsAlertsKey(tenantId: string) { return `commerce:products:alerts:${tenantId}`; }
+
   private async invalidateList(tenantId: string) {
-    await this.cache.del(this.listKey(tenantId));
+    // Invalider receipts ET produits (le stock change quand un bon est créé/annulé)
+    await Promise.all([
+      this.cache.del(this.listKey(tenantId)),
+      this.cache.del(this.productsListKey(tenantId)),
+      this.cache.del(this.productsAlertsKey(tenantId)),
+    ]);
   }
 
   /**
