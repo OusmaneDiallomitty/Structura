@@ -211,29 +211,13 @@ export default function StockReceiptsPage() {
     setReceiptLines([{ productId: "", quantity: "", unitPrice: "", notes: "" }]);
   };
 
+  // Les données sont capturées AU MOMENT du clic, pas dans la closure de mutationFn
+  // (évite le bug React où onMutate reset le state avant que mutationFn le lise)
+  type CreatePayload = Parameters<typeof createStockReceipt>[1];
+
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const lines = receiptLines
-        .filter((l) => l.productId && l.quantity)
-        .map((l) => ({
-          productId: l.productId,
-          quantity: parseFloat(l.quantity),
-          unit: productsArray.find((p) => p.id === l.productId)?.unit || "pièce",
-          unitPrice: l.unitPrice ? parseFloat(l.unitPrice) : undefined,
-          notes: l.notes || undefined,
-        }));
-      if (lines.length === 0) throw new Error("Au moins 1 produit requis");
-      return createStockReceipt(token(), {
-        supplierId: createForm.supplierId || undefined,
-        supplierName: createForm.supplierName,
-        referenceNumber: createForm.referenceNumber || undefined,
-        lines,
-        notes: createForm.notes || undefined,
-        amountDue: createForm.amountDue ? parseFloat(createForm.amountDue) : undefined,
-      });
-    },
+    mutationFn: (payload: CreatePayload) => createStockReceipt(token(), payload),
     onMutate: () => {
-      // Fermer le dialog immédiatement — ne pas faire attendre l'utilisateur
       setShowCreateDialog(false);
       resetCreateForm();
       toast.loading("Création du bon en cours…", { id: "create-receipt" });
@@ -246,10 +230,31 @@ export default function StockReceiptsPage() {
     },
     onError: (e: Error) => {
       toast.error(`Échec création — ${e.message}`, { id: "create-receipt" });
-      // Réouvrir le dialog pour que l'utilisateur puisse corriger
       setShowCreateDialog(true);
     },
   });
+
+  const handleCreate = () => {
+    const lines = receiptLines
+      .filter((l) => l.productId && l.quantity)
+      .map((l) => ({
+        productId: l.productId,
+        quantity: parseFloat(l.quantity),
+        unit: productsArray.find((p) => p.id === l.productId)?.unit || "pièce",
+        unitPrice: l.unitPrice ? parseFloat(l.unitPrice) : undefined,
+        notes: l.notes || undefined,
+      }));
+    if (lines.length === 0) { toast.error("Ajoutez au moins 1 produit avec une quantité"); return; }
+    if (!createForm.supplierName) { toast.error("Le nom du fournisseur est requis"); return; }
+    createMutation.mutate({
+      supplierId: createForm.supplierId || undefined,
+      supplierName: createForm.supplierName,
+      referenceNumber: createForm.referenceNumber || undefined,
+      lines,
+      notes: createForm.notes || undefined,
+      amountDue: createForm.amountDue ? parseFloat(createForm.amountDue) : undefined,
+    });
+  };
 
   const verifyMutation = useMutation({
     mutationFn: (id: string) => verifyStockReceipt(token(), id),
@@ -645,37 +650,57 @@ export default function StockReceiptsPage() {
 
             {/* Lignes produits */}
             <div className="space-y-3">
-              <Label className="font-semibold">Produits reçus *</Label>
+              <div>
+                <Label className="font-semibold">Produits reçus *</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  "Prix d'achat" = ce que vous avez payé par unité au fournisseur (sert au calcul de votre bénéfice)
+                </p>
+              </div>
+              <div className="grid grid-cols-[1fr_72px_100px_32px] gap-2 text-xs text-muted-foreground font-medium px-1">
+                <span>Produit</span><span>Qté</span><span>Prix achat/unité</span><span></span>
+              </div>
               {receiptLines.map((line, idx) => (
-                <div key={idx} className="flex gap-2 items-end">
+                <div key={idx} className="grid grid-cols-[1fr_72px_100px_32px] gap-2 items-center">
                   <Select value={line.productId} onValueChange={(v) => {
                     const u = [...receiptLines]; u[idx].productId = v; setReceiptLines(u);
                   }}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="Produit..." /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Choisir produit..." /></SelectTrigger>
                     <SelectContent>
                       {productsArray.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.unit})</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Input type="number" placeholder="Qté" className="w-20" value={line.quantity}
+                  <Input type="number" placeholder="0" className="text-center" value={line.quantity}
                     onChange={(e) => { const u = [...receiptLines]; u[idx].quantity = e.target.value; setReceiptLines(u); }} />
-                  <Input type="number" placeholder="Prix unit." className="w-28" value={line.unitPrice}
+                  <Input type="number" placeholder="GNF" value={line.unitPrice}
                     onChange={(e) => { const u = [...receiptLines]; u[idx].unitPrice = e.target.value; setReceiptLines(u); }} />
-                  <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive"
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
                     onClick={() => setReceiptLines(receiptLines.filter((_, i) => i !== idx))}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
+              {/* Récap montant calculé */}
+              {receiptLines.some((l) => l.unitPrice && l.quantity) && (
+                <div className="flex justify-end text-sm font-medium text-orange-600">
+                  Total calculé :{" "}
+                  {new Intl.NumberFormat("fr-GN").format(
+                    receiptLines.reduce((sum, l) => sum + (parseFloat(l.unitPrice || "0") * parseFloat(l.quantity || "0")), 0)
+                  )} GNF
+                </div>
+              )}
               <Button variant="outline" size="sm"
                 onClick={() => setReceiptLines([...receiptLines, { productId: "", quantity: "", unitPrice: "", notes: "" }])}>
-                + Ajouter produit
+                + Ajouter un produit
               </Button>
             </div>
 
             {/* Montant dû */}
             <div className="grid gap-2">
-              <Label>Montant total dû au fournisseur <span className="text-muted-foreground text-xs">(optionnel — calculé auto si prix renseignés)</span></Label>
-              <Input type="number" placeholder="Ex: 500000" value={createForm.amountDue}
+              <Label>Montant total de la facture fournisseur</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Le total que vous devez payer au fournisseur pour cette livraison. Si vous avez renseigné les prix d'achat ci-dessus, ce montant est calculé automatiquement — laissez vide pour utiliser le calcul auto.
+              </p>
+              <Input type="number" placeholder="Laisser vide = calculé automatiquement" value={createForm.amountDue}
                 onChange={(e) => setCreateForm({ ...createForm, amountDue: e.target.value })} />
             </div>
 
@@ -688,9 +713,9 @@ export default function StockReceiptsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); resetCreateForm(); }}>Annuler</Button>
             <Button className="bg-orange-600 hover:bg-orange-700 text-white"
-              onClick={() => createMutation.mutate()}
-              disabled={!createForm.supplierName || receiptLines.filter((l) => l.productId && l.quantity).length === 0 || createMutation.isPending}>
-              {createMutation.isPending ? "Création..." : "Créer bon"}
+              onClick={handleCreate}
+              disabled={createMutation.isPending}>
+              Créer bon
             </Button>
           </DialogFooter>
         </DialogContent>
