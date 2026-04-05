@@ -19,6 +19,7 @@ import {
   type CommerceProduct,
   type SupplierDebtReceipt,
   type SupplierPaymentResult,
+  type SupplierPayment,
 } from "@/lib/api/commerce.service";
 import {
   generateSupplierPaymentReceiptPdf,
@@ -134,6 +135,7 @@ export default function StockReceiptsPage() {
   // ── État onglet À payer ──
   const [debtSearch, setDebtSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [showPaid, setShowPaid] = useState(false);
   const [payingReceipt, setPayingReceipt] = useState<SupplierDebtReceipt | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState("CASH");
@@ -190,7 +192,7 @@ export default function StockReceiptsPage() {
   const { data: historyData, isLoading: isHistoryLoading } = useQuery({
     queryKey: ["commerce-supplier-payments-history", tid, historyMonth],
     queryFn: () => getSupplierPaymentHistory(token(), { month: historyMonth }),
-    enabled: showHistory && !!user,
+    enabled: (showHistory || showPaid) && !!user,
     staleTime: 60_000,
   });
 
@@ -365,6 +367,18 @@ export default function StockReceiptsPage() {
       remainingDebt: receipt.remainingDebt,
       receiptNumber: receipt.receiptNumber,
       paidAt: receipt.paidAt,
+      commerceName,
+    }, mode);
+  };
+
+  const printHistoryReceipt = (p: SupplierPayment, mode: ReceiptOutputMode = "download") => {
+    generateSupplierPaymentReceiptPdf({
+      supplierName: p.supplierName,
+      amountPaid: p.amount,
+      amountDue: p.receipt?.amountDue ?? 0,
+      remainingDebt: Math.max((p.receipt?.amountDue ?? 0) - (p.receipt?.amountPaid ?? 0), 0),
+      receiptNumber: p.receipt?.receiptNumber ?? "—",
+      paidAt: p.createdAt,
       commerceName,
     }, mode);
   };
@@ -547,11 +561,22 @@ export default function StockReceiptsPage() {
             </CardContent>
           </Card>
 
-          {/* Recherche */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Rechercher un fournisseur…" value={debtSearch}
-              onChange={(e) => setDebtSearch(e.target.value)} className="pl-9" />
+          {/* Barre recherche + toggle soldés */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Rechercher un fournisseur…" value={debtSearch}
+                onChange={(e) => setDebtSearch(e.target.value)} className="pl-9" />
+            </div>
+            <Button
+              variant={showPaid ? "default" : "outline"}
+              size="sm"
+              className={cn("gap-1.5 shrink-0", showPaid && "bg-emerald-600 hover:bg-emerald-700 text-white")}
+              onClick={() => setShowPaid(!showPaid)}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Soldés</span>
+            </Button>
           </div>
 
           {/* Liste */}
@@ -628,6 +653,93 @@ export default function StockReceiptsPage() {
                   </Card>
                 );
               })}
+            </div>
+          )}
+
+          {/* ── Section bons soldés ── */}
+          {showPaid && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Bons soldés</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              {isHistoryLoading ? (
+                <div className="space-y-2">{[1,2].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
+              ) : !historyData || historyData.payments.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-4">Aucun paiement trouvé</p>
+              ) : (
+                (() => {
+                  // Grouper les paiements par fournisseur
+                  const bySupplier = historyData.payments.reduce<Record<string, { name: string; payments: SupplierPayment[] }>>((acc, p) => {
+                    const key = p.supplierName;
+                    if (!acc[key]) acc[key] = { name: p.supplierName, payments: [] };
+                    acc[key].payments.push(p);
+                    return acc;
+                  }, {});
+                  const filtered = Object.values(bySupplier).filter((s) =>
+                    !debtSearch || s.name.toLowerCase().includes(debtSearch.toLowerCase())
+                  );
+                  if (filtered.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">Aucun résultat</p>;
+                  return (
+                    <div className="space-y-3">
+                      {filtered.map((supplier) => {
+                        const key = `paid-${supplier.name}`;
+                        const isOpen = expanded === key;
+                        const totalPaid = supplier.payments.reduce((s, p) => s + p.amount, 0);
+                        return (
+                          <Card key={key} className="overflow-hidden border-emerald-100">
+                            <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                              onClick={() => setExpanded(isOpen ? null : key)}>
+                              <div className="flex-1 min-w-0">
+                                <span className="font-semibold truncate">{supplier.name}</span>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {supplier.payments.length} paiement{supplier.payments.length > 1 ? "s" : ""}
+                                </p>
+                              </div>
+                              <p className="font-bold text-emerald-600 shrink-0">{formatGNF(totalPaid)}</p>
+                              {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                                       : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                            </button>
+                            {isOpen && (
+                              <div className="border-t divide-y bg-muted/10">
+                                {supplier.payments.map((p) => (
+                                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-medium text-sm">{p.receipt?.receiptNumber ?? "—"}</span>
+                                        <Badge className="bg-emerald-100 text-emerald-700 border-0 text-xs">Payé</Badge>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        {format(new Date(p.createdAt), "d MMM yyyy HH:mm", { locale: fr })}
+                                        {" · "}{p.paymentMethod === "CASH" ? "Espèces" : p.paymentMethod === "MOBILE_MONEY" ? "Mobile Money" : "Virement"}
+                                      </p>
+                                    </div>
+                                    <p className="font-bold text-emerald-600 text-sm shrink-0">{formatGNF(p.amount)}</p>
+                                    <div className="flex gap-1 shrink-0">
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                        title="Télécharger le reçu"
+                                        onClick={() => printHistoryReceipt(p, "download")}>
+                                        <Receipt className="h-4 w-4" />
+                                      </Button>
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                        title="Imprimer le reçu"
+                                        onClick={() => printHistoryReceipt(p, "print")}>
+                                        <Printer className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
             </div>
           )}
         </div>
@@ -992,6 +1104,18 @@ export default function StockReceiptsPage() {
                         <p className="text-xs text-muted-foreground">
                           {p.paymentMethod === "CASH" ? "Espèces" : p.paymentMethod === "MOBILE_MONEY" ? "Mobile Money" : "Virement"}
                         </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          title="Télécharger le reçu"
+                          onClick={() => printHistoryReceipt(p, "download")}>
+                          <Receipt className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          title="Imprimer"
+                          onClick={() => printHistoryReceipt(p, "print")}>
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
                   ))}
