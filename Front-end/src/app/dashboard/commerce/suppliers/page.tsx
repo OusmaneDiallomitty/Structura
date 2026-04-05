@@ -201,10 +201,10 @@ export default function SuppliersPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
 
       {/* En-tête */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center">
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+            <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
               <Truck className="h-6 w-6 text-green-600" />
             </div>
             Fournisseurs
@@ -213,10 +213,11 @@ export default function SuppliersPage() {
         </div>
         <Button
           onClick={openCreate}
-          className="h-11 px-4 rounded-xl gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold"
+          className="h-10 px-4 rounded-xl gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold shrink-0"
         >
-          <Plus className="h-5 w-5" />
-          Ajouter un fournisseur
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Ajouter un fournisseur</span>
+          <span className="sm:hidden">Ajouter</span>
         </Button>
       </div>
 

@@ -635,13 +635,13 @@ export default function StockReceiptsPage() {
 
       {/* ── Dialog Créer bon ── */}
       <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) { setShowCreateDialog(false); resetCreateForm(); } else setShowCreateDialog(true); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nouveau bon de réception</DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">Enregistrer une livraison fournisseur</p>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Fournisseur *</Label>
                 <Select value={createForm.supplierId} onValueChange={(id) => {
@@ -677,11 +677,13 @@ export default function StockReceiptsPage() {
                   "Prix d'achat" = ce que vous avez payé par unité au fournisseur (sert au calcul de votre bénéfice)
                 </p>
               </div>
-              <div className="grid grid-cols-[1fr_72px_100px_32px] gap-2 text-xs text-muted-foreground font-medium px-1">
+              {/* En-têtes — visibles uniquement sur écran large */}
+              <div className="hidden sm:grid sm:grid-cols-[1fr_80px_120px_32px] gap-2 text-xs text-muted-foreground font-medium px-1">
                 <span>Produit</span><span>Qté</span><span>Prix achat/unité</span><span></span>
               </div>
               {receiptLines.map((line, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_72px_100px_32px] gap-2 items-center">
+                <div key={idx} className="flex flex-col sm:grid sm:grid-cols-[1fr_80px_120px_32px] gap-2 sm:items-center p-2 sm:p-0 rounded-xl border sm:border-0 bg-muted/30 sm:bg-transparent">
+                  {/* Produit */}
                   <Select value={line.productId} onValueChange={(v) => {
                     const u = [...receiptLines]; u[idx].productId = v; setReceiptLines(u);
                   }}>
@@ -690,13 +692,27 @@ export default function StockReceiptsPage() {
                       {productsArray.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.unit})</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <NumberInput placeholder="0" className="text-center"
-                    value={line.quantity ? parseFloat(line.quantity) : null}
-                    onChange={(v) => { const u = [...receiptLines]; u[idx].quantity = v != null ? String(v) : ""; setReceiptLines(u); }} />
-                  <NumberInput placeholder="GNF"
-                    value={line.unitPrice ? parseFloat(line.unitPrice) : null}
-                    onChange={(v) => { const u = [...receiptLines]; u[idx].unitPrice = v != null ? String(v) : ""; setReceiptLines(u); }} />
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
+                  {/* Qté + Prix sur la même ligne sur mobile */}
+                  <div className="flex gap-2 sm:contents">
+                    <div className="flex-1 sm:contents">
+                      <label className="text-xs text-muted-foreground sm:hidden">Quantité</label>
+                      <NumberInput placeholder="Qté" className="text-center"
+                        value={line.quantity ? parseFloat(line.quantity) : null}
+                        onChange={(v) => { const u = [...receiptLines]; u[idx].quantity = v != null ? String(v) : ""; setReceiptLines(u); }} />
+                    </div>
+                    <div className="flex-1 sm:contents">
+                      <label className="text-xs text-muted-foreground sm:hidden">Prix achat/unité</label>
+                      <NumberInput placeholder="Prix GNF"
+                        value={line.unitPrice ? parseFloat(line.unitPrice) : null}
+                        onChange={(v) => { const u = [...receiptLines]; u[idx].unitPrice = v != null ? String(v) : ""; setReceiptLines(u); }} />
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive shrink-0 sm:hidden"
+                      onClick={() => setReceiptLines(receiptLines.filter((_, i) => i !== idx))}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {/* Bouton supprimer — visible uniquement sur écran large */}
+                  <Button variant="ghost" size="icon" className="hidden sm:flex h-8 w-8 text-destructive"
                     onClick={() => setReceiptLines(receiptLines.filter((_, i) => i !== idx))}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
