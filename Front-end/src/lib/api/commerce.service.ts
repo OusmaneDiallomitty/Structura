@@ -471,6 +471,7 @@ export interface CreateReceiptPayload {
     notes?: string;
   }[];
   notes?: string;
+  amountDue?: number;
 }
 
 export const createStockReceipt = (token: string, data: CreateReceiptPayload) =>

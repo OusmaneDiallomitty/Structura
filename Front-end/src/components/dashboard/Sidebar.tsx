@@ -124,11 +124,6 @@ const commerceNavigation: NavItem[] = [
     icon: CalendarDays,
   },
   {
-    title: "Dettes fourn.",
-    href: "/dashboard/commerce/supplier-debts",
-    icon: HandshakeIcon,
-  },
-  {
     title: "Fournisseurs",
     href: "/dashboard/commerce/suppliers",
     icon: Truck,
