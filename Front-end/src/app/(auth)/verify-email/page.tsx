@@ -40,17 +40,22 @@ function VerifyEmailContent() {
         const data = await response.json();
 
         if (response.ok && data.token) {
-          // Sauvegarder le JWT → l'utilisateur est connecté automatiquement
-          storage.setAuthItem('structura_token', data.token, false);
-          storage.setAuthItem('structura_refresh_token', data.refreshToken, false);
-          storage.setAuthItem('structura_user', JSON.stringify(data.user), false);
+          // Sauvegarder le JWT en localStorage (persistant) — indispensable sur mobile
+          // car le lien email s'ouvre dans un Chrome Custom Tab (onglet isolé) qui a
+          // son propre sessionStorage. Si on utilise sessionStorage ici, le token
+          // disparaît quand l'onglet se ferme et l'utilisateur arrive déconnecté.
+          localStorage.setItem('structura_token', data.token);
+          localStorage.setItem('structura_refresh_token', data.refreshToken);
+          localStorage.setItem('structura_user', JSON.stringify(data.user));
 
           const target = data.user?.moduleType === 'COMMERCE' ? '/dashboard/commerce' : '/dashboard';
           setDashboardUrl(target);
           setStatus('success');
           setMessage('Votre email a été vérifié avec succès !');
+          // Utiliser window.location.href (navigation dure) plutôt que router.push
+          // pour forcer le rechargement complet de la page dans le bon contexte d'onglet
           setTimeout(() => {
-            if (!cancelled) router.push(target);
+            if (!cancelled) window.location.href = target;
           }, 2000);
         } else {
           setStatus('error');

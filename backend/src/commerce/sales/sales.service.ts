@@ -164,7 +164,7 @@ export class SalesService {
               productId: item.productId,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
-              costPrice: productMap.get(item.productId)?.buyPrice ?? 0,
+              costPrice: (productMap.get(item.productId)?.buyPrice ?? 0) * item.quantity,
               totalPrice: item.quantity * item.unitPrice,
             })),
           },
