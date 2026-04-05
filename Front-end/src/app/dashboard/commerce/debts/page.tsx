@@ -303,7 +303,11 @@ export default function DebtsPage() {
   const handlePay = () => {
     const amount = parseFloat(payAmount);
     if (!amount || amount <= 0) { toast.error("Montant invalide"); return; }
-
+    const maxAmount = payingCustomer ? payingCustomer.totalDebt : (payingSale?.remainingDebt ?? 0);
+    if (amount > maxAmount) {
+      toast.error(`Montant trop élevé — le client ne doit que ${formatGNF(maxAmount)}`);
+      return;
+    }
     if (payingCustomer) {
       payMutation.mutate({ id: payingCustomer.id, amount, type: "customer" });
     } else if (payingSale) {
@@ -695,14 +699,33 @@ export default function DebtsPage() {
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2.5">
                   Montant reçu (GNF)
                 </p>
-                <Input
-                  type="number"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  className="h-12 text-xl font-bold text-center rounded-xl border-2 focus-visible:ring-0 focus-visible:border-emerald-400"
-                  placeholder="0"
-                  autoFocus
-                />
+                {(() => {
+                  const maxAmount = payingCustomer ? payingCustomer.totalDebt : (payingSale?.remainingDebt ?? 0);
+                  const amount = parseFloat(payAmount) || 0;
+                  const isOver = amount > maxAmount;
+                  return (
+                    <>
+                      <Input
+                        type="number"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        className={cn(
+                          "h-12 text-xl font-bold text-center rounded-xl border-2 focus-visible:ring-0",
+                          isOver
+                            ? "border-red-400 bg-red-50 text-red-600 focus-visible:border-red-500"
+                            : "focus-visible:border-emerald-400"
+                        )}
+                        placeholder="0"
+                        autoFocus
+                      />
+                      {isOver && (
+                        <p className="text-xs text-red-600 font-medium mt-1.5 flex items-center gap-1">
+                          ⚠ Montant trop élevé — maximum {formatGNF(maxAmount)}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Raccourcis */}
@@ -797,7 +820,10 @@ export default function DebtsPage() {
                 <Button
                   className="flex-1 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                   onClick={handlePay}
-                  disabled={payMutation.isPending || !parseFloat(payAmount)}
+                  disabled={payMutation.isPending || !parseFloat(payAmount) || (() => {
+                    const maxAmount = payingCustomer ? payingCustomer.totalDebt : (payingSale?.remainingDebt ?? 0);
+                    return parseFloat(payAmount) > maxAmount;
+                  })()}
                 >
                   {payMutation.isPending ? (
                     <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />

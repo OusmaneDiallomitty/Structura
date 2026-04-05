@@ -328,6 +328,11 @@ export default function StockReceiptsPage() {
     if (!payingReceipt) return;
     const amount = parseFloat(payAmount);
     if (!amount || amount <= 0) { toast.error("Montant invalide"); return; }
+    const remaining = (payingReceipt.amountDue ?? 0) - payingReceipt.amountPaid;
+    if (amount > remaining) {
+      toast.error(`Montant trop élevé — vous ne devez que ${formatGNF(remaining)}`);
+      return;
+    }
     payMutation.mutate({
       receiptId: payingReceipt.id,
       amount,
@@ -849,9 +854,19 @@ export default function StockReceiptsPage() {
 
               <div className="space-y-1">
                 <Label>Montant payé (GNF)</Label>
-                <NumberInput placeholder="Ex: 200 000" value={payAmount ? parseFloat(payAmount) : null}
-                  onChange={(v) => setPayAmount(v != null ? String(v) : "")} autoFocus />
-                {amountNum > 0 && (
+                <NumberInput
+                  placeholder="Ex: 200 000"
+                  value={payAmount ? parseFloat(payAmount) : null}
+                  onChange={(v) => setPayAmount(v != null ? String(v) : "")}
+                  autoFocus
+                  className={amountNum > payingRemaining ? "border-red-400 bg-red-50 text-red-600" : ""}
+                />
+                {amountNum > 0 && amountNum > payingRemaining && (
+                  <p className="text-xs text-red-600 font-medium flex items-center gap-1">
+                    ⚠ Montant trop élevé — vous ne devez que {formatGNF(payingRemaining)}
+                  </p>
+                )}
+                {amountNum > 0 && amountNum <= payingRemaining && (
                   <p className="text-xs text-muted-foreground">
                     Reste : <span className={cn("font-medium", amountNum >= payingRemaining ? "text-emerald-600" : "text-orange-600")}>
                       {formatGNF(Math.max(payingRemaining - amountNum, 0))}{amountNum >= payingRemaining && " — Soldé ✓"}
