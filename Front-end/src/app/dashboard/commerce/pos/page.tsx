@@ -565,7 +565,7 @@ export default function POSPage() {
         {/* Grille produits */}
         <div className="flex-1 overflow-y-auto p-4 bg-background">
           {isLoading && products.length === 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
               {Array.from({ length: 10 }).map((_, i) => (
                 <Skeleton key={i} className="h-32 rounded-2xl" />
               ))}
@@ -578,7 +578,7 @@ export default function POSPage() {
               <p className="font-medium text-sm">Aucun produit</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
               {displayProducts.map((p) => {
                 const inCart = cart.find((i) => i.product.id === p.id);
                 const isFav = favorites.includes(p.id);
@@ -615,7 +615,7 @@ export default function POSPage() {
                       <span className="text-lg mb-1">{getStockEmoji(p)}</span>
 
                       {/* Nom */}
-                      <p className="text-sm font-semibold leading-tight mb-auto line-clamp-2">{p.name}</p>
+                      <p className="text-sm font-semibold leading-tight mb-auto line-clamp-2 w-full break-words">{p.name}</p>
 
                       {/* Info stock */}
                       <p className="text-[10px] text-muted-foreground mt-1">
@@ -986,7 +986,7 @@ export default function POSPage() {
             customerName: lastSale.customer?.name,
             customerPhone: undefined,
             commerceName: user?.schoolName ?? "Commerce",
-            commerceLogo: undefined, // À ajouter depuis les paramètres
+            commerceLogo: user?.schoolLogo ?? undefined,
             commerceAddress: undefined, // À ajouter depuis les paramètres
             commercePhone: undefined, // À ajouter depuis les paramètres
           }}

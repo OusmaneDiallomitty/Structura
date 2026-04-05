@@ -83,7 +83,7 @@ export default function SettingsPage() {
         </div>
         <h2 className="text-xl font-semibold">Accès restreint</h2>
         <p className="text-muted-foreground max-w-sm">
-          Les paramètres de l&apos;école sont réservés au fondateur.
+          Les paramètres sont réservés au fondateur.
         </p>
       </div>
     );
@@ -275,7 +275,9 @@ export default function SettingsPage() {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
 
       toast.success("Paramètres sauvegardés", {
-        description: "Les informations de l'école ont été mises à jour.",
+        description: isCommerce
+          ? "Les informations du commerce ont été mises à jour."
+          : "Les informations de l'école ont été mises à jour.",
       });
     } catch (err: any) {
       toast.error("Erreur de sauvegarde", {
@@ -404,7 +406,9 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Paramètres</h1>
           <p className="text-muted-foreground mt-1">
-            Gérez les informations et préférences de votre établissement.
+            {isCommerce
+              ? "Gérez les informations et préférences de votre commerce."
+              : "Gérez les informations et préférences de votre établissement."}
           </p>
         </div>
         {schoolDirty && (
@@ -419,7 +423,7 @@ export default function SettingsPage() {
         <CardHeader className="bg-gradient-to-r from-violet-50 to-purple-50 border-b rounded-t-xl pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <ImageIcon className="h-4 w-4 text-violet-600" />
-            Logo de l'établissement
+            {isCommerce ? "Logo de votre commerce" : "Logo de l'établissement"}
           </CardTitle>
           <CardDescription>
             {isCommerce
@@ -513,7 +517,7 @@ export default function SettingsPage() {
         <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b rounded-t-xl pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <Building2 className="h-4 w-4 text-primary" />
-            Informations de l'établissement
+            {isCommerce ? "Informations de votre commerce" : "Informations de l'établissement"}
           </CardTitle>
           <CardDescription>
             {isCommerce
@@ -524,12 +528,12 @@ export default function SettingsPage() {
         <CardContent className="space-y-4 pt-5">
 
           <div className="space-y-1.5">
-            <Label htmlFor="schoolName">Nom de l'établissement</Label>
+            <Label htmlFor="schoolName">{isCommerce ? "Nom du commerce" : "Nom de l'établissement"}</Label>
             <Input
               id="schoolName"
               value={schoolForm.name}
               onChange={(e) => setSchoolForm({ ...schoolForm, name: e.target.value })}
-              placeholder="Ex : École Primaire Al-Nour"
+              placeholder={isCommerce ? "Ex : Boutique Al-Nour" : "Ex : École Primaire Al-Nour"}
             />
           </div>
 
@@ -545,7 +549,7 @@ export default function SettingsPage() {
                 type="email"
                 value={schoolForm.email}
                 onChange={(e) => setSchoolForm({ ...schoolForm, email: e.target.value })}
-                placeholder="contact@ecole.gn"
+                placeholder={isCommerce ? "contact@commerce.gn" : "contact@ecole.gn"}
               />
             </div>
             <div className="space-y-1.5">
