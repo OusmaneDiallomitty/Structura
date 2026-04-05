@@ -183,6 +183,20 @@ async function loadLogoBase64(src: string): Promise<string | null> {
 }
 
 /**
+ * Extrait le format image depuis un data URL base64.
+ * jsPDF supporte : "PNG", "JPEG", "WEBP"
+ * Retourne "PNG" par défaut.
+ */
+function getImageFormat(dataUrl: string): string {
+  const match = dataUrl.match(/^data:image\/(\w+);base64,/);
+  if (!match) return "PNG";
+  const mime = match[1].toUpperCase();
+  if (mime === "JPG" || mime === "JPEG") return "JPEG";
+  if (mime === "WEBP") return "WEBP";
+  return "PNG";
+}
+
+/**
  * Ouvre un Blob PDF dans un nouvel onglet.
  * Utilise createObjectURL (jamais bloqué par les bloqueurs de popups)
  * et révoque l'URL automatiquement après usage.
@@ -221,7 +235,7 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   const logoB64 = data.schoolLogo ? await loadLogoBase64(data.schoolLogo) : null;
   if (logoB64) {
     try {
-      doc.addImage(logoB64, "PNG", 12, 6, 38, 38);
+      doc.addImage(logoB64, getImageFormat(logoB64), 12, 6, 38, 38);
     } catch { /* logo ignoré si format non supporté */ }
   }
 
@@ -1435,7 +1449,7 @@ export async function generateCommerceSalesReceipt(
       const logoBase64 = await loadLogoBase64(data.commerceLogo);
       if (logoBase64) {
         const logoWidth = 25;
-        doc.addImage(logoBase64, "PNG", (W - logoWidth) / 2, y, logoWidth, 25);
+        doc.addImage(logoBase64, getImageFormat(logoBase64), (W - logoWidth) / 2, y, logoWidth, 25);
         logoHeight = 28;
         y += logoHeight;
       }
