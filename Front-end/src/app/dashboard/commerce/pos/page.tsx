@@ -128,11 +128,13 @@ export default function POSPage() {
   const paidAmountRef = useRef<number>(0);
   const paymentMethodRef = useRef<PaymentMethod>("CASH");
   const customerIdRef = useRef<string>("");
+  const buyerNameRef = useRef<string>("");
 
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [paidAmount, setPaidAmount] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [buyerName, setBuyerName] = useState("");
   const [lastReceipt, setLastReceipt] = useState<string | null>(null);
 
   const [showNewCustomer, setShowNewCustomer] = useState(false);
@@ -305,6 +307,7 @@ export default function POSPage() {
     setCart([]);
     setPaidAmount("");
     setCustomerId("");
+    setBuyerName("");
     setPaymentMethod("CASH");
   };
 
@@ -370,7 +373,8 @@ export default function POSPage() {
         paymentMethod: paymentMethodRef.current,
         status: remaining > 0 ? "PARTIAL" : "COMPLETED",
         customerId: customerIdRef.current || null,
-        customer: customers?.find((c: CommerceCustomer) => c.id === customerIdRef.current) ?? null,
+        customer: customers?.find((c: CommerceCustomer) => c.id === customerIdRef.current)
+          ?? (buyerNameRef.current ? { id: "", name: buyerNameRef.current, phone: null, totalDebt: 0 } as any : null),
         items: snapshot.map((i) => ({
           id: i.product.id,
           productId: i.product.id,
@@ -876,14 +880,22 @@ export default function POSPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="w-full h-8 px-2 rounded border text-xs bg-background">
+                  <select value={customerId} onChange={(e) => { setCustomerId(e.target.value); if (e.target.value) setBuyerName(""); }} className="w-full h-8 px-2 rounded border text-xs bg-background">
                     <option value="">Anonyme</option>
                     {customers?.map((c: CommerceCustomer) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  {!customerId && (
+                    <Input
+                      placeholder="Nom de l'acheteur (optionnel)"
+                      value={buyerName}
+                      onChange={(e) => setBuyerName(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  )}
                   <button onClick={() => setShowNewCustomer(true)} className="w-full text-xs px-2 py-1 rounded border border-dashed hover:bg-orange-50 flex items-center justify-center gap-1">
-                    <UserPlus className="h-3 w-3" /> Nouveau
+                    <UserPlus className="h-3 w-3" /> Nouveau client
                   </button>
                 </div>
               )}
@@ -922,6 +934,7 @@ export default function POSPage() {
                 paidAmountRef.current = paymentMethod === "CREDIT" ? 0 : (parseFloat(paidAmount) || totalNet);
                 paymentMethodRef.current = paymentMethod;
                 customerIdRef.current = customerId;
+                buyerNameRef.current = customerId ? "" : buyerName.trim();
                 saleMutation.mutate();
               }}
               disabled={saleMutation.isPending || cart.length === 0 || (paymentMethod !== "CREDIT" && (!paid || paid < 0))}
