@@ -77,12 +77,70 @@ export class CommerceDashboardService {
 
   async getRevenueChart(tenantId: string, days = 30) {
     const since = new Date(); since.setDate(since.getDate() - days); since.setHours(0,0,0,0);
-    const [sales, expenses] = await Promise.all([
+    const [sales, expenses, cogs] = await Promise.all([
       this.prisma.$queryRaw<any[]>`SELECT DATE("createdAt") as date, SUM("totalAmount") as revenue, SUM("paidAmount") as collected, COUNT(*) as sales_count FROM sales WHERE "tenantId" = ${tenantId} AND status != 'CANCELLED' AND "createdAt" >= ${since} GROUP BY DATE("createdAt") ORDER BY date ASC`,
       this.prisma.$queryRaw<any[]>`SELECT DATE(date) as date, SUM(amount) as total FROM commerce_expenses WHERE "tenantId" = ${tenantId} AND date >= ${since} GROUP BY DATE(date) ORDER BY date ASC`,
+      this.prisma.$queryRaw<any[]>`SELECT DATE(s."createdAt") as date, SUM(si."costPrice") as cog FROM sale_items si JOIN sales s ON si."saleId" = s.id WHERE s."tenantId" = ${tenantId} AND s.status != 'CANCELLED' AND s."createdAt" >= ${since} GROUP BY DATE(s."createdAt") ORDER BY date ASC`,
     ]);
     const expMap = new Map(expenses.map((e) => [String(e.date), Number(e.total)]));
-    return sales.map((row) => ({ date: row.date, revenue: Number(row.revenue), collected: Number(row.collected), salesCount: Number(row.sales_count), expenses: expMap.get(String(row.date)) ?? 0 }));
+    const cogMap = new Map(cogs.map((c) => [String(c.date), Number(c.cog)]));
+    return sales.map((row) => {
+      const rev = Number(row.revenue);
+      const cog = cogMap.get(String(row.date)) ?? 0;
+      const exp = expMap.get(String(row.date)) ?? 0;
+      return { date: row.date, revenue: rev, collected: Number(row.collected), salesCount: Number(row.sales_count), expenses: exp, cog, grossProfit: rev - cog, netProfit: rev - cog - exp };
+    });
+  }
+
+  async getAnalytics(tenantId: string) {
+    const now = new Date();
+    const startOfThisWeek = new Date(now); startOfThisWeek.setDate(now.getDate() - now.getDay()); startOfThisWeek.setHours(0,0,0,0);
+    const startOfLastWeek = new Date(startOfThisWeek); startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+    const endOfLastWeek   = new Date(startOfThisWeek); endOfLastWeek.setMilliseconds(-1);
+
+    const [thisWeek, lastWeek, thisWeekCog, lastWeekCog, lowMarginProducts] = await Promise.all([
+      this.prisma.sale.aggregate({ where: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: startOfThisWeek } }, _sum: { totalAmount: true, paidAmount: true }, _count: true }),
+      this.prisma.sale.aggregate({ where: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: startOfLastWeek, lte: endOfLastWeek } }, _sum: { totalAmount: true }, _count: true }),
+      this.prisma.saleItem.aggregate({ where: { sale: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: startOfThisWeek } } }, _sum: { costPrice: true } }),
+      this.prisma.saleItem.aggregate({ where: { sale: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: startOfLastWeek, lte: endOfLastWeek } } }, _sum: { costPrice: true } }),
+      // Produits vendus ce mois avec marge < 10%
+      this.prisma.saleItem.groupBy({
+        by: ['productId'],
+        where: { sale: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) } }, costPrice: { gt: 0 } },
+        _sum: { totalPrice: true, costPrice: true },
+        having: { costPrice: { _sum: { gt: 0 } } },
+      }),
+    ]);
+
+    const thisRevenue  = thisWeek._sum.totalAmount ?? 0;
+    const lastRevenue  = lastWeek._sum.totalAmount ?? 0;
+    const thisProfit   = thisRevenue - (thisWeekCog._sum.costPrice ?? 0);
+    const lastProfit   = lastRevenue - (lastWeekCog._sum.costPrice ?? 0);
+    const revenueChange = lastRevenue > 0 ? ((thisRevenue - lastRevenue) / lastRevenue) * 100 : null;
+    const profitChange  = lastProfit  > 0 ? ((thisProfit  - lastProfit)  / lastProfit)  * 100 : null;
+
+    // Filtrer côté JS les produits < 10% marge
+    const productIds = lowMarginProducts
+      .filter((p) => {
+        const rev  = p._sum.totalPrice ?? 0;
+        const cost = p._sum.costPrice  ?? 0;
+        return rev > 0 && (rev - cost) / rev < 0.10;
+      })
+      .map((p) => p.productId);
+
+    const lowMarginInfo = productIds.length > 0
+      ? await this.prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sellPrice: true, buyPrice: true } })
+      : [];
+
+    const lowMarginWithMargin = lowMarginInfo.map((p) => ({
+      id: p.id, name: p.name, sellingPrice: p.sellPrice, costPrice: p.buyPrice,
+      margin: p.buyPrice > 0 ? ((p.sellPrice - p.buyPrice) / p.sellPrice) * 100 : null,
+    }));
+
+    return {
+      week: { thisRevenue, lastRevenue, thisProfit, lastProfit, thisCount: thisWeek._count, lastCount: lastWeek._count, revenueChange, profitChange },
+      alerts: { lowMarginProducts: lowMarginWithMargin },
+    };
   }
 
   async getDailySituation(tenantId: string, date?: string) {

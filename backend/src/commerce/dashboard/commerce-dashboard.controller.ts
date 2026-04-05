@@ -32,4 +32,9 @@ export class CommerceDashboardController {
   ) {
     return this.dashboardService.getDailySituation(user.tenantId, date);
   }
+
+  @Get('analytics')
+  getAnalytics(@CurrentUser() user: any) {
+    return this.dashboardService.getAnalytics(user.tenantId);
+  }
 }

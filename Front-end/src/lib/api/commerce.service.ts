@@ -100,12 +100,36 @@ export interface CommerceSale {
 }
 
 export interface CommerceDashboardStats {
-  today: { revenue: number; collected: number; salesCount: number };
-  month: { revenue: number; collected: number; remainingDebt: number; salesCount: number };
+  today: { revenue: number; collected: number; debt: number; salesCount: number; expenses: number; cog: number; grossProfit: number; netProfit: number };
+  month: { revenue: number; collected: number; remainingDebt: number; salesCount: number; expenses: number; cog: number; grossProfit: number; netProfit: number };
   inventory: { totalProducts: number; lowStockCount: number };
   totalCustomers: number;
-  topProducts: { productId: string; name: string; unit: string; totalQty: number; totalRevenue: number }[];
+  topProducts: { productId: string; name: string; unit: string; totalQty: number; totalRevenue: number; totalCost: number; grossProfit: number }[];
   recentSales: Partial<CommerceSale>[];
+}
+
+export interface CommerceChartRow {
+  date: string;
+  revenue: number;
+  collected: number;
+  salesCount: number;
+  expenses: number;
+  cog: number;
+  grossProfit: number;
+  netProfit: number;
+}
+
+export interface CommerceAnalytics {
+  week: {
+    thisRevenue: number; lastRevenue: number;
+    thisProfit: number;  lastProfit: number;
+    thisCount: number;   lastCount: number;
+    revenueChange: number | null;
+    profitChange: number | null;
+  };
+  alerts: {
+    lowMarginProducts: { id: string; name: string; sellingPrice: number; costPrice: number; margin: number | null }[];
+  };
 }
 
 export interface PaginatedResponse<T> {
@@ -393,10 +417,10 @@ export const getCommerceDashboard = (token: string) =>
   request<CommerceDashboardStats>('/commerce/dashboard', token);
 
 export const getRevenueChart = (token: string, days = 30) =>
-  request<{ date: string; revenue: number; collected: number; salesCount: number }[]>(
-    `/commerce/dashboard/chart?days=${days}`,
-    token,
-  );
+  request<CommerceChartRow[]>(`/commerce/dashboard/chart?days=${days}`, token);
+
+export const getCommerceAnalytics = (token: string) =>
+  request<CommerceAnalytics>('/commerce/dashboard/analytics', token);
 
 export interface StockMovement {
   id: string;
