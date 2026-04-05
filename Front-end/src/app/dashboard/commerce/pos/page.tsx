@@ -394,7 +394,11 @@ export default function POSPage() {
       // Mettre à jour avec les vraies données API (numéro de reçu, etc.)
       toast.success(`Vente confirmée — ${sale.receiptNumber}`);
       setLastReceipt(sale.receiptNumber);
-      setLastSale(sale);
+      // Si vente anonyme avec nom saisi, l'injecter dans le reçu final
+      const saleWithBuyer = (!sale.customer && buyerNameRef.current)
+        ? { ...sale, customer: { id: "", name: buyerNameRef.current, phone: null, totalDebt: 0 } as any }
+        : sale;
+      setLastSale(saleWithBuyer);
 
       const cartItems = context?.cartSnapshot ?? [];
       const decreaseStock = (old: PaginatedResponse<CommerceProduct> | undefined) => {
