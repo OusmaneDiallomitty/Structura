@@ -665,3 +665,54 @@ export const paySupplierDebt = (
     method: 'POST',
     body: JSON.stringify(data),
   });
+
+// ─── Livre de caisse ─────────────────────────────────────────────────────────
+
+export interface CaisseMovement {
+  type: 'IN' | 'OUT';
+  category: 'SALE' | 'DEBT_RECOVERY' | 'EXPENSE' | 'SUPPLIER_PAYMENT';
+  amount: number;
+  method: string;
+  label: string;
+  sub: string;
+  at: string;
+  id: string;
+}
+
+export interface CaisseDay {
+  date: string;
+  session: { id: string | null; notes: string | null };
+  openingBalance: number;
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+  breakdown: {
+    salesCash: number;
+    debtRecovered: number;
+    expenses: number;
+    supplierPayments: number;
+  };
+  byMethod: Record<string, { in: number; out: number }>;
+  movements: CaisseMovement[];
+  counts: { sales: number; debtRecoveries: number; expenses: number; supplierPayments: number };
+}
+
+export interface CaisseHistoryRow {
+  date: string;
+  openingBalance: number;
+  totalIn: number;
+  totalOut: number;
+  closingBalance: number;
+}
+
+export const getCaisseDay = (token: string, date?: string) =>
+  request<CaisseDay>(`/commerce/caisse/day${date ? `?date=${date}` : ''}`, token);
+
+export const upsertCaisseSession = (token: string, data: { date: string; openingBalance: number; notes?: string }) =>
+  request<{ id: string; openingBalance: number }>('/commerce/caisse/session', token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const getCaisseHistory = (token: string, days = 30) =>
+  request<CaisseHistoryRow[]>(`/commerce/caisse/history?days=${days}`, token);

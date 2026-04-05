@@ -32,6 +32,7 @@ import {
   TrendingDown,
   CalendarDays,
   HandshakeIcon,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -117,6 +118,11 @@ const commerceNavigation: NavItem[] = [
     title: "Dépenses",
     href: "/dashboard/commerce/expenses",
     icon: TrendingDown,
+  },
+  {
+    title: "Livre de caisse",
+    href: "/dashboard/commerce/caisse",
+    icon: BookOpen,
   },
   {
     title: "Situation du jour",
