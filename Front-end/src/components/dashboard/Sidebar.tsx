@@ -348,7 +348,7 @@ export function Sidebar() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-1">
+          <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-1">
             {isCommerce && (
               <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
                 <ShoppingCart className="h-3.5 w-3.5 text-orange-600" />
