@@ -136,6 +136,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // PWA : catch-all pour les flux email (verify-email, setup-account, etc.)
+  // Ces pages s'ouvrent dans Chrome (fenêtre séparée). Quand elles écrivent
+  // structura_token en localStorage, cet événement "storage" se déclenche
+  // dans la fenêtre PWA → redirection automatique vers le dashboard.
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY && e.newValue && !user) {
+        window.location.href = "/dashboard";
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   // Déconnexion automatique si une autre session prend la place (détectée par fetchWithTimeout)
   useEffect(() => {
     const handleSessionInvalidated = () => {

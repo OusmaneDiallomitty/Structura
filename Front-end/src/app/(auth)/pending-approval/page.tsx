@@ -40,9 +40,12 @@ export default function PendingApprovalPage() {
       const deviceId = localStorage.getItem("structura_device_id") || undefined;
       const session  = await exchangeCode(code, deviceId);
 
-      storage.setAuthItem(TOKEN_KEY, session.token, rememberMe);
-      storage.setAuthItem(REFRESH_TOKEN_KEY, session.refreshToken, rememberMe);
-      storage.setAuthItem(USER_KEY, JSON.stringify(session.user), rememberMe);
+      // Toujours écrire en localStorage (pas sessionStorage) : en PWA standalone,
+      // le système mobile peut tuer l'app en arrière-plan — sessionStorage serait
+      // perdu et l'utilisateur se retrouverait déconnecté après la redirection.
+      localStorage.setItem(TOKEN_KEY, session.token);
+      localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(session.user));
       if (rememberMe) {
         localStorage.setItem("structura_remember_me", "true");
       } else {

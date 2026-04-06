@@ -24,6 +24,19 @@ function CheckEmailContent() {
       } catch { /* quota */ }
     }
   }, [searchParams]);
+
+  // PWA : l'email s'ouvre dans Chrome (fenêtre séparée). Quand verify-email
+  // écrit le token dans localStorage, cet événement "storage" se déclenche
+  // dans la fenêtre PWA → on redirige automatiquement vers le dashboard.
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'structura_token' && e.newValue) {
+        window.location.href = '/dashboard';
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [cooldown, setCooldown] = useState(0);
 
