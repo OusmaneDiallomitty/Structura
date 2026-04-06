@@ -4012,12 +4012,22 @@ export default function PaymentsPage() {
             : p.amount;
           if (p.status === "paid") {
             for (const m of covered) {
-              if (drawerMonthMap[m]) drawerMonthMap[m] = { status: "paid", paidAmount: perMonthAmount };
+              if (drawerMonthMap[m]) {
+                // Accumuler : le complément "paid" s'ajoute au partiel déjà versé
+                drawerMonthMap[m] = {
+                  status: "paid",
+                  paidAmount: drawerMonthMap[m].paidAmount + perMonthAmount,
+                };
+              }
             }
           } else if (p.status === "partial") {
             for (const m of covered) {
               if (drawerMonthMap[m] && drawerMonthMap[m].status !== "paid") {
-                drawerMonthMap[m] = { status: "partial", paidAmount: p.amount };
+                // Accumuler : plusieurs versements partiels sur le même mois
+                drawerMonthMap[m] = {
+                  status: "partial",
+                  paidAmount: drawerMonthMap[m].paidAmount + p.amount,
+                };
               }
             }
           }
