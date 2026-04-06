@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useDebounce } from '@/lib/hooks';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Search,
@@ -46,7 +47,10 @@ const COUNTRIES = [
   { value: 'OTHER', label: '🌍 Autre' },
 ];
 
-export default function TenantsPage() {
+function TenantsPageContent() {
+  const urlParams    = useSearchParams();
+  const urlModule    = urlParams.get('module') ?? '';
+
   const [tenants,    setTenants]    = useState<Tenant[]>([]);
   const [total,      setTotal]      = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -55,9 +59,12 @@ export default function TenantsPage() {
   const [status,     setStatus]     = useState<'' | 'active' | 'inactive'>('');
   const [plan,       setPlan]       = useState('');
   const [country,    setCountry]    = useState('');
-  const [moduleType, setModuleType] = useState('');
+  const [moduleType, setModuleType] = useState(urlModule);
   const [loading,    setLoading]    = useState(true);
   const [actionId,   setActionId]   = useState<string | null>(null);
+
+  // Sync filtre module si l'URL change (clic sidebar)
+  useEffect(() => { setModuleType(urlModule); setPage(1); }, [urlModule]);
 
   // Debounce 500ms — évite un appel API à chaque frappe clavier
   const debouncedSearch = useDebounce(search, 500);
@@ -139,9 +146,11 @@ export default function TenantsPage() {
       {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {moduleType === 'SCHOOL' ? 'Écoles' : moduleType === 'COMMERCE' ? 'Commerces' : 'Clients'}
+          </h1>
           <p className="text-sm text-gray-600 mt-0.5">
-            {total} client{total > 1 ? 's' : ''} inscrit{total > 1 ? 's' : ''}
+            {total} {moduleType === 'SCHOOL' ? `école${total > 1 ? 's' : ''}` : moduleType === 'COMMERCE' ? `commerce${total > 1 ? 's' : ''}` : `client${total > 1 ? 's' : ''}`} inscrit{total > 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex gap-2">
@@ -366,5 +375,17 @@ export default function TenantsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function TenantsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-64">
+        <div className="w-7 h-7 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <TenantsPageContent />
+    </Suspense>
   );
 }

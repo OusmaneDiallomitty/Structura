@@ -33,7 +33,7 @@ import {
   sendReminder,
   type TenantDetail,
 } from '@/lib/api';
-import { cn, formatDate, planColor, statusColor } from '@/lib/utils';
+import { cn, formatDate, planColor, statusColor, moduleColor, moduleLabel } from '@/lib/utils';
 
 const PLANS    = ['FREE', 'PRO', 'PRO_PLUS'];
 const STATUSES = ['ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED', 'EXPIRED'];
@@ -127,7 +127,7 @@ export default function TenantDetailPage() {
     setBusy(true);
     try {
       await deleteTenant(id);
-      toast.success('École supprimée définitivement');
+      toast.success('Client supprimé définitivement');
       router.push('/dashboard/tenants');
     } catch (e: any) {
       toast.error(e.message);
@@ -218,7 +218,7 @@ export default function TenantDetailPage() {
     return (
       <div className="p-8">
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
-          École introuvable
+          Client introuvable
         </div>
       </div>
     );
@@ -233,7 +233,7 @@ export default function TenantDetailPage() {
         className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition"
       >
         <ArrowLeft className="w-4 h-4" />
-        Retour aux écoles
+        Retour aux clients
       </button>
 
       {/* ─── En-tête ───────────────────────────────────────────────────────── */}
@@ -258,7 +258,10 @@ export default function TenantDetailPage() {
                 }
               </div>
               <p className="text-sm text-gray-600 capitalize">{tenant.type}</p>
-              <div className="flex gap-2 mt-2">
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <span className={cn('px-2.5 py-0.5 rounded-lg text-xs font-semibold', moduleColor(tenant.moduleType))}>
+                  {moduleLabel(tenant.moduleType)}
+                </span>
                 <span className={cn('px-2.5 py-0.5 rounded-lg text-xs font-semibold', planColor(tenant.subscriptionPlan))}>
                   {tenant.subscriptionPlan}
                 </span>
@@ -439,7 +442,9 @@ export default function TenantDetailPage() {
         {showReminder && (
           <div className="mt-6 pt-6 border-t border-gray-100">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-700">Envoyer un rappel au directeur</h3>
+              <h3 className="text-sm font-semibold text-gray-700">
+              Envoyer un rappel au {tenant.moduleType === 'COMMERCE' ? 'responsable' : 'directeur'}
+            </h3>
               <button onClick={() => setShowReminder(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
@@ -514,19 +519,25 @@ export default function TenantDetailPage() {
           )}
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            Inscrite le {formatDate(tenant.createdAt)}
+            Inscrit le {formatDate(tenant.createdAt)}
           </div>
         </div>
       </div>
 
-      {/* ─── Compteurs ─────────────────────────────────────────────────────── */}
+      {/* ─── Compteurs (conditionnels selon le module) ─────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {([
-          { label: 'Élèves',       value: tenant._count.students,  icon: GraduationCap, colorIcon: 'text-purple-600', colorBg: 'bg-purple-50' },
-          { label: 'Utilisateurs', value: tenant._count.users,     icon: Users,         colorIcon: 'text-blue-600',   colorBg: 'bg-blue-50'   },
-          { label: 'Classes',      value: tenant._count.classes,   icon: Building2,     colorIcon: 'text-green-600',  colorBg: 'bg-green-50'  },
-          { label: 'Paiements',    value: tenant._count.payments,  icon: CheckCircle,   colorIcon: 'text-amber-600',  colorBg: 'bg-amber-50'  },
-        ] as const).map(({ label, value, icon: Icon, colorIcon, colorBg }) => (
+        {(tenant.moduleType === 'COMMERCE'
+          ? [
+              { label: 'Utilisateurs', value: tenant._count.users,    icon: Users,         colorIcon: 'text-blue-600',   colorBg: 'bg-blue-50'   },
+              { label: 'Paiements',    value: tenant._count.payments, icon: CheckCircle,   colorIcon: 'text-amber-600',  colorBg: 'bg-amber-50'  },
+            ]
+          : [
+              { label: 'Élèves',       value: tenant._count.students, icon: GraduationCap, colorIcon: 'text-purple-600', colorBg: 'bg-purple-50' },
+              { label: 'Utilisateurs', value: tenant._count.users,    icon: Users,         colorIcon: 'text-blue-600',   colorBg: 'bg-blue-50'   },
+              { label: 'Classes',      value: tenant._count.classes,  icon: Building2,     colorIcon: 'text-green-600',  colorBg: 'bg-green-50'  },
+              { label: 'Paiements',    value: tenant._count.payments, icon: CheckCircle,   colorIcon: 'text-amber-600',  colorBg: 'bg-amber-50'  },
+            ]
+        ).map(({ label, value, icon: Icon, colorIcon, colorBg }) => (
           <div key={label} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
             <div className={cn('p-2.5 rounded-xl', colorBg)}>
               <Icon className={cn('w-5 h-5', colorIcon)} />

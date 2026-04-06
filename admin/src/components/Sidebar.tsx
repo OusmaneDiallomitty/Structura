@@ -1,11 +1,12 @@
 'use client';
 
 import Link           from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState }   from 'react';
 import {
   LayoutDashboard, Building2, Bell, Activity,
   User, LogOut, ShieldCheck, X, TrendingUp, PlusCircle, CreditCard,
+  GraduationCap, ShoppingBag,
 } from 'lucide-react';
 import { logout, getStoredUser, type AdminUser } from '@/lib/auth';
 import { getAlertsCount }                        from '@/lib/api';
@@ -17,17 +18,38 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS = [
-  { href: '/dashboard',              label: "Vue d'ensemble", icon: LayoutDashboard },
-  { href: '/dashboard/alerts',       label: 'Alertes',        icon: Bell            },
-  { href: '/dashboard/tenants',      label: 'Clients',        icon: Building2       },
-  { href: '/dashboard/finance',      label: 'Finance',        icon: TrendingUp      },
-  { href: '/dashboard/payments',     label: 'Paiements',      icon: CreditCard      },
-  { href: '/dashboard/activity',     label: 'Activité',       icon: Activity        },
+  { href: '/dashboard',                             label: "Vue d'ensemble", icon: LayoutDashboard },
+  { href: '/dashboard/alerts',                      label: 'Alertes',        icon: Bell            },
+  { href: '/dashboard/tenants',                     label: 'Tous les clients', icon: Building2     },
+  { href: '/dashboard/tenants?module=SCHOOL',       label: 'Écoles',         icon: GraduationCap   },
+  { href: '/dashboard/tenants?module=COMMERCE',     label: 'Commerces',      icon: ShoppingBag     },
+  { href: '/dashboard/finance',                     label: 'Finance',        icon: TrendingUp      },
+  { href: '/dashboard/payments',                    label: 'Paiements',      icon: CreditCard      },
+  { href: '/dashboard/activity',                    label: 'Activité',       icon: Activity        },
 ];
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const pathname = usePathname();
-  const router   = useRouter();
+  const pathname     = usePathname();
+  const searchParams = useSearchParams();
+  const router       = useRouter();
+
+  /** Vérifie si un lien de nav est actif (tient compte des query params) */
+  const isActive = (href: string) => {
+    const [hrefPath, hrefQuery] = href.split('?');
+    const pathMatch = hrefPath === '/dashboard'
+      ? pathname === '/dashboard'
+      : pathname.startsWith(hrefPath);
+    if (!hrefQuery) {
+      // Lien sans query param : actif seulement si aucun module n'est sélectionné
+      if (hrefPath === '/dashboard/tenants') {
+        return pathMatch && !searchParams.get('module');
+      }
+      return pathMatch;
+    }
+    // Lien avec query param : vérifie que le param correspond
+    const params = new URLSearchParams(hrefQuery);
+    return pathMatch && params.get('module') === searchParams.get('module');
+  };
   const [user,       setUser]       = useState<AdminUser | null>(null);
   const [alertCount, setAlertCount] = useState(0);
 
@@ -104,7 +126,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-            const active   = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+            const active   = isActive(href);
             const isAlerts = href === '/dashboard/alerts';
             return (
               <Link

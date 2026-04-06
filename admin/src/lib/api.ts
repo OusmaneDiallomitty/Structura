@@ -192,7 +192,7 @@ export interface Tenant {
   _count?: { users: number; students: number; classes: number };
 }
 export interface TenantDetail extends Tenant {
-  address: string | null; feeConfig: unknown; paymentFrequency: string | null;
+  address: string | null; feeConfig: unknown; paymentFrequency: string | null; moduleType: 'SCHOOL' | 'COMMERCE' | null;
   notifMonthlyReport: boolean; notifOverdueAlert: boolean;
   subscriptionHistory: unknown[];
   users: { id: string; email: string; firstName: string; lastName: string; role: string; isActive: boolean; emailVerified: boolean; lastLoginAt: string | null; createdAt: string }[];
