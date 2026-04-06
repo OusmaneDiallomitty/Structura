@@ -80,13 +80,16 @@ export async function registerUser(data: RegisterPayload): Promise<AuthResponse>
     return mockRegister(data);
   }
 
+  // Timeout 40s — couvre le cold start Render (~30s) sur le plan Hobby
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 40_000);
+
   try {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -95,14 +98,21 @@ export async function registerUser(data: RegisterPayload): Promise<AuthResponse>
         const errorData = await response.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
       } catch {
-        // JSON invalide : garder le message générique, ne pas exposer le statusText
+        // JSON invalide : garder le message générique
       }
       throw new Error(errorMessage);
     }
 
     return await response.json();
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error(
+        "Le serveur met du temps à répondre. Veuillez patienter quelques secondes et réessayer."
+      );
+    }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -116,13 +126,15 @@ export async function loginUser(data: LoginPayload): Promise<AuthResponse | Pend
     return mockLogin(data);
   }
 
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 40_000);
+
   try {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -131,14 +143,21 @@ export async function loginUser(data: LoginPayload): Promise<AuthResponse | Pend
         const errorData = await response.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
       } catch {
-        // JSON invalide : garder le message générique, ne pas exposer le statusText
+        // JSON invalide : garder le message générique
       }
       throw new Error(errorMessage);
     }
 
     return await response.json();
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error(
+        "Le serveur met du temps à répondre. Veuillez patienter quelques secondes et réessayer."
+      );
+    }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

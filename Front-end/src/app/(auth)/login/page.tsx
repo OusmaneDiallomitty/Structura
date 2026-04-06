@@ -45,6 +45,12 @@ export default function LoginPage() {
   const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string; rememberMe: boolean } | null>(null);
   const [resendingFor, setResendingFor] = useState<string | null>(null);
 
+  // Ping le backend dès l'ouverture de la page login pour réveiller Render
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+    fetch(`${apiUrl}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);

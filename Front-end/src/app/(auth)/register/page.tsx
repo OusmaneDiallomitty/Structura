@@ -52,6 +52,13 @@ function RegisterContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Ping le backend dès l'ouverture de la page d'inscription pour réveiller
+  // Render avant que l'utilisateur clique sur "Commencer" (cold start ~30s)
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+    fetch(`${apiUrl}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+  }, []);
+
   // Type de module sélectionné — détermine le flux d'inscription
   const [moduleType, setModuleType] = useState<'SCHOOL' | 'COMMERCE' | null>(null);
 
