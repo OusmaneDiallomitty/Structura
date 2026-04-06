@@ -44,7 +44,7 @@ self.addEventListener('notificationclick', (event) => {
 // ── Offline Cache ─────────────────────────────────────────────────────────────
 // v8 : Network First pour les pages HTML (évite de servir du HTML obsolète après
 //      un déploiement), Cache First pour les assets statiques hashés.
-const CACHE_VERSION = 'structura-v8';
+const CACHE_VERSION = 'structura-v9';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const PAGES_CACHE   = `${CACHE_VERSION}-pages`;
 
@@ -89,7 +89,14 @@ self.addEventListener('activate', (event) => {
           .filter((k) => !k.startsWith(CACHE_VERSION))
           .map((k)  => caches.delete(k))
       ))
-      .then(() => self.clients.claim()) // prendre le contrôle des onglets ouverts
+      .then(() => self.clients.claim())
+      .then(() =>
+        // Notifier tous les onglets ouverts qu'une nouvelle version est active
+        // → l'app se recharge silencieusement pour charger les nouveaux assets
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) =>
+          clientList.forEach((client) => client.postMessage({ type: 'SW_UPDATED' }))
+        )
+      )
   );
 });
 
