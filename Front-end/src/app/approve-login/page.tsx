@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { checkApproval, exchangeCode } from "@/lib/api/auth.service";
 
-type Phase = "loading" | "approved" | "expired" | "error";
+const TOKEN_KEY         = "structura_token";
+const REFRESH_TOKEN_KEY = "structura_refresh_token";
+const USER_KEY          = "structura_user";
+
+type Phase = "loading" | "approved" | "redirecting" | "expired" | "error";
 
 export default function ApproveLoginPage() {
   const [phase, setPhase] = useState<Phase>("loading");
@@ -19,9 +24,51 @@ export default function ApproveLoginPage() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
 
     fetch(`${apiUrl}/auth/approve-login?token=${token}`, { method: "GET" })
-      .then((res) => {
-        if (res.ok) setPhase("approved");
-        else setPhase("expired");
+      .then(async (res) => {
+        if (!res.ok) { setPhase("expired"); return; }
+
+        // ── Cas même appareil (PWA) ──────────────────────────────────────────
+        // L'approbateur ET le demandeur sont la même personne sur le même appareil.
+        // On a sauvegardé le pendingToken dans localStorage au moment du login.
+        // On peut donc immédiatement échanger le code et rediriger vers le dashboard.
+        const pendingToken = localStorage.getItem("structura_pending_token");
+        if (pendingToken) {
+          setPhase("redirecting");
+          localStorage.removeItem("structura_pending_token");
+          try {
+            // Petit délai pour laisser le backend propager l'approbation
+            await new Promise((r) => setTimeout(r, 600));
+
+            const result = await checkApproval(pendingToken);
+            if (result.status === "approved" && result.code) {
+              const deviceId = localStorage.getItem("structura_device_id") || undefined;
+              const session  = await exchangeCode(result.code, deviceId);
+
+              const rememberMe = sessionStorage.getItem("structura_pending_remember") === "true";
+              sessionStorage.removeItem("structura_pending_remember");
+
+              localStorage.setItem(TOKEN_KEY, session.token);
+              localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+              localStorage.setItem(USER_KEY, JSON.stringify(session.user));
+              if (rememberMe) {
+                localStorage.setItem("structura_remember_me", "true");
+              } else {
+                localStorage.removeItem("structura_remember_me");
+              }
+
+              window.location.href = "/dashboard";
+              return;
+            }
+          } catch {
+            // En cas d'erreur réseau : retomber sur l'affichage normal
+          }
+          // Si l'échange a échoué : afficher le message standard
+          setPhase("approved");
+          return;
+        }
+
+        // ── Cas appareil différent : afficher le message standard ────────────
+        setPhase("approved");
       })
       .catch(() => setPhase("error"));
   }, []);
@@ -30,12 +77,21 @@ export default function ApproveLoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 text-center">
 
-        {phase === "loading" && (
+        {(phase === "loading" || phase === "redirecting") && (
           <>
             <div className="flex justify-center mb-6">
-              <div className="w-16 h-16 rounded-full border-4 border-indigo-200 border-t-indigo-500 animate-spin" />
+              <div className={`w-16 h-16 rounded-full border-4 animate-spin ${
+                phase === "redirecting"
+                  ? "border-green-200 border-t-green-500"
+                  : "border-indigo-200 border-t-indigo-500"
+              }`} />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Validation en cours…</h1>
+            <h1 className="text-xl font-bold text-gray-900">
+              {phase === "redirecting" ? "Connexion en cours…" : "Validation en cours…"}
+            </h1>
+            {phase === "redirecting" && (
+              <p className="text-gray-500 text-sm mt-2">Redirection vers le tableau de bord…</p>
+            )}
           </>
         )}
 

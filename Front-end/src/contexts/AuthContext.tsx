@@ -319,6 +319,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { pendingToken } = response as PendingApprovalResponse;
         // Mémoriser la préférence rememberMe pour après l'approbation
         sessionStorage.setItem('structura_pending_remember', rememberMe ? 'true' : 'false');
+        // Sauvegarder le token en localStorage : si l'approbateur et le demandeur
+        // sont sur le même appareil (PWA), approve-login peut l'utiliser directement
+        // pour échanger le code et rediriger vers le dashboard sans repasser par l'URL.
+        localStorage.setItem('structura_pending_token', pendingToken);
         router.push(`/pending-approval?token=${encodeURIComponent(pendingToken)}`);
         return;
       }
