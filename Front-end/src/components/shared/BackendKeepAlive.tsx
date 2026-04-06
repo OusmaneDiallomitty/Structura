@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
-const PING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const PING_INTERVAL_MS = 8 * 60 * 1000; // 8 minutes (Render endort après ~15 min)
 
 /**
  * Ping le backend toutes les 10 minutes pour éviter le cold start sur Render (plan Starter).

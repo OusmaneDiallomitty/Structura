@@ -8,6 +8,20 @@ import Sidebar from '@/components/Sidebar';
 import { getValidToken, getStoredUser, isSuperAdmin, logout } from '@/lib/auth';
 import { getRefreshToken, setToken, setRefreshToken } from '@/lib/api';
 
+// ─── Keepalive backend ────────────────────────────────────────────────────────
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+
+function BackendKeepAlive() {
+  useEffect(() => {
+    const ping = () => fetch(`${API_BASE}/health`, { method: 'GET', cache: 'no-store' }).catch(() => {});
+    ping();
+    const id = setInterval(ping, 8 * 60 * 1000); // 8 min < seuil Render (15 min)
+    return () => clearInterval(id);
+  }, []);
+  return null;
+}
+
 // ─── Helpers token ────────────────────────────────────────────────────────────
 
 function getTokenExpiry(token: string): number | null {
@@ -85,6 +99,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen bg-[#eef2f7] overflow-hidden">
+      <BackendKeepAlive />
       <Suspense fallback={null}>
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </Suspense>
