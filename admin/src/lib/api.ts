@@ -105,7 +105,7 @@ export const changePassword = (currentPassword: string, newPassword: string) =>
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export interface GlobalStats {
-  tenants:  { total: number; active: number; inactive: number; trial: number; newThisMonth: number; newThisWeek: number; byPlan: { plan: string; count: number }[] };
+  tenants:  { total: number; active: number; inactive: number; trial: number; newThisMonth: number; newThisWeek: number; byPlan: { plan: string; count: number }[]; byModule: { module: string; count: number }[] };
   users:    { total: number };
   students: { total: number };
   revenue:  { total: number; thisMonth: number; currency: string };
@@ -187,6 +187,7 @@ export interface Tenant {
   logo: string | null; isActive: boolean; subscriptionPlan: string; subscriptionStatus: string;
   trialEndsAt: string | null; currentPeriodEnd: string | null;
   currentStudentCount: number; currentClassCount: number; currentUserCount: number;
+  moduleType: 'SCHOOL' | 'COMMERCE' | null;
   healthScore?: number; createdAt: string; updatedAt: string;
   _count?: { users: number; students: number; classes: number };
 }
@@ -201,14 +202,15 @@ export interface TenantsResponse {
   data: Tenant[]; meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
-export const getTenants = (params?: { page?: number; limit?: number; search?: string; status?: 'active' | 'inactive'; plan?: string; country?: string }) => {
+export const getTenants = (params?: { page?: number; limit?: number; search?: string; status?: 'active' | 'inactive'; plan?: string; country?: string; moduleType?: string }) => {
   const qs = new URLSearchParams();
-  if (params?.page)    qs.set('page',    String(params.page));
-  if (params?.limit)   qs.set('limit',   String(params.limit));
-  if (params?.search)  qs.set('search',  params.search);
-  if (params?.status)  qs.set('status',  params.status);
-  if (params?.plan)    qs.set('plan',    params.plan);
-  if (params?.country) qs.set('country', params.country);
+  if (params?.page)       qs.set('page',       String(params.page));
+  if (params?.limit)      qs.set('limit',       String(params.limit));
+  if (params?.search)     qs.set('search',      params.search);
+  if (params?.status)     qs.set('status',      params.status);
+  if (params?.plan)       qs.set('plan',        params.plan);
+  if (params?.country)    qs.set('country',     params.country);
+  if (params?.moduleType) qs.set('moduleType',  params.moduleType);
   return request<TenantsResponse>(`/admin/tenants?${qs}`);
 };
 export const getTenant        = (id: string)         => request<TenantDetail>(`/admin/tenants/${id}`);
@@ -224,7 +226,7 @@ export const resendDirectorInvite = (id: string) => request<{ message: string }>
 export const sendReminder         = (id: string, subject: string, message: string) => request<{ message: string }>(`/admin/tenants/${id}/send-reminder`, { method: 'POST', body: JSON.stringify({ subject, message }) });
 export const createTenantAdmin = (data: {
   name: string; directorEmail: string; directorFirstName: string; directorLastName: string;
-  type?: string; country?: string; city?: string; trialDays?: number;
+  type?: string; country?: string; city?: string; trialDays?: number; moduleType?: string;
 }) => request<{ tenant: { id: string; name: string; trialEndsAt: string }; director: { email: string; firstName: string; lastName: string }; message: string }>('/admin/tenants', { method: 'POST', body: JSON.stringify(data) });
 
 // ─── Alertes count (léger, pour la sidebar) ───────────────────────────────────

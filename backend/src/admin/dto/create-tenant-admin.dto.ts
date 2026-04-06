@@ -39,4 +39,9 @@ export class CreateTenantAdminDto {
   /** Nombre de jours d'essai (défaut : 14) */
   @IsOptional()
   trialDays?: number;
+
+  /** Module principal : SCHOOL (défaut) ou COMMERCE */
+  @IsOptional()
+  @IsString()
+  moduleType?: string;
 }

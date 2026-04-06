@@ -20,10 +20,16 @@ import {
   activateTenant,
   type Tenant,
 } from '@/lib/api';
-import { cn, formatDate, planColor, planLabel, statusColor, statusLabel } from '@/lib/utils';
+import { cn, formatDate, planColor, planLabel, statusColor, statusLabel, moduleColor, moduleLabel } from '@/lib/utils';
 
 const PLANS = ['', 'FREE', 'PRO', 'PRO_PLUS'];
 const PLAN_LABELS: Record<string, string> = { '': 'Tous les plans', FREE: 'Free', PRO: 'Pro', PRO_PLUS: 'Pro+' };
+
+const MODULES = [
+  { value: '',         label: 'Tous les modules' },
+  { value: 'SCHOOL',   label: 'École' },
+  { value: 'COMMERCE', label: 'Commerce' },
+];
 
 const COUNTRIES = [
   { value: '', label: 'Tous les pays' },
@@ -49,6 +55,7 @@ export default function TenantsPage() {
   const [status,     setStatus]     = useState<'' | 'active' | 'inactive'>('');
   const [plan,       setPlan]       = useState('');
   const [country,    setCountry]    = useState('');
+  const [moduleType, setModuleType] = useState('');
   const [loading,    setLoading]    = useState(true);
   const [actionId,   setActionId]   = useState<string | null>(null);
 
@@ -61,10 +68,11 @@ export default function TenantsPage() {
       const res = await getTenants({
         page,
         limit: 20,
-        search:  debouncedSearch || undefined,
-        status:  (status as 'active' | 'inactive') || undefined,
-        plan:    plan    || undefined,
-        country: country || undefined,
+        search:     debouncedSearch || undefined,
+        status:     (status as 'active' | 'inactive') || undefined,
+        plan:       plan       || undefined,
+        country:    country    || undefined,
+        moduleType: moduleType || undefined,
       });
       setTenants(res.data);
       setTotal(res.meta.total);
@@ -74,17 +82,18 @@ export default function TenantsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, status, plan, country]);
+  }, [page, debouncedSearch, status, plan, country, moduleType]);
 
   useEffect(() => { load(); }, [load]);
 
   // Reset page si les filtres changent (utilise la valeur debouncée pour la recherche)
-  useEffect(() => { setPage(1); }, [debouncedSearch, status, plan, country]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, status, plan, country, moduleType]);
 
   function exportCSV() {
-    const headers = ['Nom', 'Email', 'Ville', 'Pays', 'Plan', 'Statut', 'Élèves', 'Utilisateurs', 'Inscrite le', 'Active'];
+    const headers = ['Nom', 'Module', 'Email', 'Ville', 'Pays', 'Plan', 'Statut', 'Élèves', 'Utilisateurs', 'Créé le', 'Actif'];
     const rows = tenants.map((t) => [
       t.name,
+      moduleLabel(t.moduleType),
       t.email ?? '',
       t.city ?? '',
       t.country,
@@ -102,7 +111,7 @@ export default function TenantsPage() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `ecoles-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `clients-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -130,9 +139,9 @@ export default function TenantsPage() {
       {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Écoles</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
           <p className="text-sm text-gray-600 mt-0.5">
-            {total} école{total > 1 ? 's' : ''} inscrite{total > 1 ? 's' : ''}
+            {total} client{total > 1 ? 's' : ''} inscrit{total > 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex gap-2">
@@ -152,7 +161,7 @@ export default function TenantsPage() {
                        bg-brand-600 hover:bg-brand-700 rounded-xl transition"
           >
             <PlusCircle className="w-4 h-4" />
-            <span className="hidden sm:block">Nouvelle école</span>
+            <span className="hidden sm:block">Nouveau client</span>
           </Link>
         </div>
       </div>
@@ -207,6 +216,18 @@ export default function TenantsPage() {
             <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
+
+        {/* Module */}
+        <select
+          value={moduleType}
+          onChange={(e) => setModuleType(e.target.value)}
+          className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          {MODULES.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Tableau */}
@@ -218,14 +239,15 @@ export default function TenantsPage() {
         ) : tenants.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-gray-400">
             <Building2 className="w-10 h-10 mb-3 opacity-30" />
-            <p className="text-sm text-gray-500">Aucune école trouvée</p>
+            <p className="text-sm text-gray-500">Aucun client trouvé</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">École</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Client</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Module</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Pays</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Plan</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Statut abo.</th>
@@ -253,6 +275,11 @@ export default function TenantsPage() {
                         <p className="text-xs text-gray-500 truncate">{t.city ?? '—'}</p>
                       </div>
                     </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={cn('px-2 py-1 rounded-lg text-xs font-semibold', moduleColor(t.moduleType))}>
+                      {moduleLabel(t.moduleType)}
+                    </span>
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">
                     {COUNTRIES.find((c) => c.value === t.country)?.label ?? t.country}

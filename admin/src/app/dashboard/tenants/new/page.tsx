@@ -2,16 +2,29 @@
 
 import { useState }    from 'react';
 import { useRouter }   from 'next/navigation';
-import { ArrowLeft, Building2, Mail, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Building2, ShoppingBag, Mail, CheckCircle } from 'lucide-react';
 import { toast }       from 'sonner';
 import { createTenantAdmin } from '@/lib/api';
 
-const TYPES = [
-  { value: 'school',      label: 'École (maternelle, primaire, secondaire, lycée)' },
-  { value: 'university',  label: 'Université / Institut' },
-  { value: 'training',    label: 'Centre de formation / École technique' },
-  { value: 'other',       label: 'Autre établissement' },
+const MODULES = [
+  { value: 'SCHOOL',   label: 'École', description: 'Gestion scolaire : élèves, classes, paiements, notes' },
+  { value: 'COMMERCE', label: 'Commerce', description: 'Commerce : produits, ventes, caisse, dettes fournisseurs' },
 ];
+
+const TYPES_BY_MODULE: Record<string, { value: string; label: string }[]> = {
+  SCHOOL: [
+    { value: 'school',      label: 'École (maternelle, primaire, secondaire, lycée)' },
+    { value: 'university',  label: 'Université / Institut' },
+    { value: 'training',    label: 'Centre de formation / École technique' },
+    { value: 'other',       label: 'Autre établissement' },
+  ],
+  COMMERCE: [
+    { value: 'shop',        label: 'Boutique / Magasin' },
+    { value: 'restaurant',  label: 'Restaurant / Fast-food' },
+    { value: 'pharmacy',    label: 'Pharmacie' },
+    { value: 'other',       label: 'Autre commerce' },
+  ],
+};
 
 const COUNTRIES = [
   { value: 'GN',    label: '🇬🇳 Guinée' },
@@ -34,7 +47,8 @@ export default function NewTenantPage() {
 
   const [form, setForm] = useState({
     name:               '',
-    type:               TYPES[0].value,
+    moduleType:         'SCHOOL',
+    type:               TYPES_BY_MODULE['SCHOOL'][0].value,
     country:            'GN',
     city:               'Conakry',
     directorEmail:      '',
@@ -45,7 +59,12 @@ export default function NewTenantPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: name === 'trialDays' ? Number(value) : value }));
+    if (name === 'moduleType') {
+      // Réinitialiser le type quand le module change
+      setForm((f) => ({ ...f, moduleType: value, type: TYPES_BY_MODULE[value]?.[0]?.value ?? 'other' }));
+    } else {
+      setForm((f) => ({ ...f, [name]: name === 'trialDays' ? Number(value) : value }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,9 +94,9 @@ export default function NewTenantPage() {
           <CheckCircle className="w-8 h-8 text-emerald-500" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">École créée !</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Client créé !</h2>
           <p className="text-sm text-gray-500 mt-2">
-            <strong>{success.name}</strong> a été créée avec succès.<br />
+            <strong>{success.name}</strong> a été créé avec succès.<br />
             Une invitation a été envoyée à <strong>{success.email}</strong>.
           </p>
         </div>
@@ -86,13 +105,13 @@ export default function NewTenantPage() {
             onClick={() => router.push(`/dashboard/tenants/${success.id}`)}
             className="px-5 py-2.5 bg-brand-600 text-white font-medium text-sm rounded-xl hover:bg-brand-700 transition"
           >
-            Voir l'école
+            Voir le client
           </button>
           <button
-            onClick={() => { setSuccess(null); setForm({ name: '', type: TYPES[0].value, country: 'GN', city: 'Conakry', directorEmail: '', directorFirstName: '', directorLastName: '', trialDays: 14 }); }}
+            onClick={() => { setSuccess(null); setForm({ name: '', moduleType: 'SCHOOL', type: TYPES_BY_MODULE['SCHOOL'][0].value, country: 'GN', city: 'Conakry', directorEmail: '', directorFirstName: '', directorLastName: '', trialDays: 14 }); }}
             className="px-5 py-2.5 border border-gray-200 text-gray-600 font-medium text-sm rounded-xl hover:bg-gray-50 transition"
           >
-            Créer une autre école
+            Créer un autre client
           </button>
         </div>
       </div>
@@ -116,27 +135,66 @@ export default function NewTenantPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-          <Building2 className="w-5 h-5 text-brand-600" />
+          {form.moduleType === 'COMMERCE'
+            ? <ShoppingBag className="w-5 h-5 text-emerald-600" />
+            : <Building2   className="w-5 h-5 text-brand-600"   />
+          }
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nouvelle école</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Nouveau client</h1>
           <p className="text-sm text-gray-400 mt-0.5">Créer un compte manuellement depuis le panneau admin</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
-        {/* ─── Infos école ──────────────────────────────────────────────────── */}
+        {/* ─── Module ───────────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Module</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {MODULES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => handleChange({ target: { name: 'moduleType', value: m.value } } as any)}
+                className={`flex flex-col items-start p-4 rounded-xl border-2 text-left transition ${
+                  form.moduleType === m.value
+                    ? m.value === 'COMMERCE'
+                      ? 'border-emerald-500 bg-emerald-50'
+                      : 'border-brand-500 bg-brand-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${
+                  form.moduleType === m.value
+                    ? m.value === 'COMMERCE' ? 'bg-emerald-100' : 'bg-brand-100'
+                    : 'bg-gray-100'
+                }`}>
+                  {m.value === 'COMMERCE'
+                    ? <ShoppingBag className={`w-4 h-4 ${form.moduleType === m.value ? 'text-emerald-600' : 'text-gray-400'}`} />
+                    : <Building2   className={`w-4 h-4 ${form.moduleType === m.value ? 'text-brand-600'   : 'text-gray-400'}`} />
+                  }
+                </div>
+                <p className="text-sm font-semibold text-gray-900">{m.label}</p>
+                <p className="text-xs text-gray-400 mt-0.5 leading-tight">{m.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ─── Infos client ─────────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Établissement</h2>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+            {form.moduleType === 'COMMERCE' ? 'Commerce' : 'Établissement'}
+          </h2>
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Nom de l'école <span className="text-red-400">*</span>
+              {form.moduleType === 'COMMERCE' ? 'Nom du commerce' : "Nom de l'école"} <span className="text-red-400">*</span>
             </label>
             <input
               name="name" value={form.name} onChange={handleChange} required
-              placeholder="ex : École Primaire Les Étoiles"
+              placeholder={form.moduleType === 'COMMERCE' ? 'ex : Boutique Alpha' : 'ex : École Primaire Les Étoiles'}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
                          focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
@@ -144,13 +202,15 @@ export default function NewTenantPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type d'établissement</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
               <select
                 name="type" value={form.type} onChange={handleChange}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
                            focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
-                {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {(TYPES_BY_MODULE[form.moduleType] ?? TYPES_BY_MODULE['SCHOOL']).map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -197,7 +257,9 @@ export default function NewTenantPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 text-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Directeur</h2>
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+              {form.moduleType === 'COMMERCE' ? 'Responsable' : 'Directeur'}
+            </h2>
           </div>
           <p className="text-xs text-gray-400">
             Une invitation sera envoyée à cette adresse pour configurer son mot de passe.
@@ -209,7 +271,7 @@ export default function NewTenantPage() {
             </label>
             <input
               type="email" name="directorEmail" value={form.directorEmail} onChange={handleChange} required
-              placeholder="directeur@ecole.com"
+              placeholder={form.moduleType === 'COMMERCE' ? 'responsable@commerce.com' : 'directeur@ecole.com'}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
                          focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
@@ -248,7 +310,7 @@ export default function NewTenantPage() {
             className="flex-1 py-3 bg-brand-600 text-white font-semibold text-sm rounded-xl
                        hover:bg-brand-700 transition disabled:opacity-50"
           >
-            {busy ? 'Création en cours…' : 'Créer l\'école'}
+            {busy ? 'Création en cours…' : 'Créer le client'}
           </button>
           <button
             type="button" onClick={() => router.back()}

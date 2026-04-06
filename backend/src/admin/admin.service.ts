@@ -39,6 +39,7 @@ const TENANT_LIST_SELECT = {
   isActive: true, subscriptionPlan: true, subscriptionStatus: true,
   trialEndsAt: true, currentPeriodEnd: true,
   currentStudentCount: true, currentClassCount: true, currentUserCount: true,
+  moduleType: true,
   createdAt: true, updatedAt: true,
 };
 
@@ -131,7 +132,7 @@ export class AdminService {
       totalTenants, activeTenants, trialTenants,
       totalStudents, totalUsers,
       newThisMonth, newThisWeek,
-      tenantsByPlan, revenueAll, revenueThisMonth,
+      tenantsByPlan, tenantsByModule, revenueAll, revenueThisMonth,
       churnThisMonth,
     ] = await Promise.all([
       this.prisma.tenant.count({ where: tenantExcludeAdmin }),
@@ -146,6 +147,11 @@ export class AdminService {
         where: tenantExcludeAdmin,
         _count: { _all: true },
         orderBy: { _count: { subscriptionPlan: 'desc' } },
+      }),
+      this.prisma.tenant.groupBy({
+        by: ['moduleType'],
+        where: tenantExcludeAdmin,
+        _count: { _all: true },
       }),
       // Revenus Structura = abonnements Djomy réussis (PAS les paiements de scolarité élèves)
       this.prisma.subscriptionPayment.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
@@ -171,7 +177,8 @@ export class AdminService {
         trial:        trialTenants,
         newThisMonth,
         newThisWeek,
-        byPlan: tenantsByPlan.map((p) => ({ plan: p.subscriptionPlan, count: p._count._all })),
+        byPlan:    tenantsByPlan.map((p) => ({ plan: p.subscriptionPlan, count: p._count._all })),
+        byModule:  tenantsByModule.map((m) => ({ module: m.moduleType ?? 'SCHOOL', count: m._count._all })),
       },
       users:    { total: totalUsers },
       students: { total: totalStudents },
@@ -459,7 +466,7 @@ export class AdminService {
 
   async findAllTenants(params: {
     page?: number; limit?: number;
-    search?: string; status?: 'active' | 'inactive'; plan?: string; country?: string;
+    search?: string; status?: 'active' | 'inactive'; plan?: string; country?: string; moduleType?: string;
   }) {
     const page  = Math.max(1, params.page  ?? 1);
     const limit = Math.min(100, Math.max(1, params.limit ?? 20));
@@ -480,8 +487,9 @@ export class AdminService {
     }
     if (params.status === 'active')   where.isActive = true;
     if (params.status === 'inactive') where.isActive = false;
-    if (params.plan)    where.subscriptionPlan = params.plan.toUpperCase();
-    if (params.country) where.country = params.country.toUpperCase();
+    if (params.plan)       where.subscriptionPlan = params.plan.toUpperCase();
+    if (params.country)    where.country    = params.country.toUpperCase();
+    if (params.moduleType) where.moduleType = params.moduleType.toUpperCase();
 
     const [total, rawTenants] = await Promise.all([
       this.prisma.tenant.count({ where }),
@@ -739,6 +747,11 @@ export class AdminService {
 
     // Créer tenant + directeur dans une transaction
     const result = await this.prisma.$transaction(async (tx) => {
+      const validModules = ['SCHOOL', 'COMMERCE'];
+      const resolvedModule = validModules.includes((dto.moduleType ?? '').toUpperCase())
+        ? (dto.moduleType!.toUpperCase() as 'SCHOOL' | 'COMMERCE')
+        : 'SCHOOL';
+
       const tenant = await tx.tenant.create({
         data: {
           name:               dto.name,
@@ -749,6 +762,7 @@ export class AdminService {
           subscriptionPlan:   'FREE',
           subscriptionStatus: 'TRIALING',
           trialEndsAt:        trialEnd,
+          moduleType:         resolvedModule,
         },
       });
 

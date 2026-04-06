@@ -19,7 +19,7 @@ interface SidebarProps {
 const NAV_ITEMS = [
   { href: '/dashboard',              label: "Vue d'ensemble", icon: LayoutDashboard },
   { href: '/dashboard/alerts',       label: 'Alertes',        icon: Bell            },
-  { href: '/dashboard/tenants',      label: 'Écoles',         icon: Building2       },
+  { href: '/dashboard/tenants',      label: 'Clients',        icon: Building2       },
   { href: '/dashboard/finance',      label: 'Finance',        icon: TrendingUp      },
   { href: '/dashboard/payments',     label: 'Paiements',      icon: CreditCard      },
   { href: '/dashboard/activity',     label: 'Activité',       icon: Activity        },
@@ -147,7 +147,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               )}
             >
               <PlusCircle className="w-[18px] h-[18px] flex-shrink-0 group-hover:scale-110 transition-transform duration-150" />
-              Nouvelle école
+              Nouveau client
             </Link>
           </div>
         </nav>

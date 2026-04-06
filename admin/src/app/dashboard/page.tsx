@@ -232,7 +232,7 @@ export default function DashboardPage() {
       {/* ── KPI Row ─────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 animate-fade-in-up anim-delay-1">
         <KpiCard skeleton={loading}
-          label="Total écoles"
+          label="Total clients"
           value={fmtNum(total)}
           sub={`+${newThisWeek} cette semaine`}
           hue={newThisWeek > 0 ? 'green' : 'gray'}
@@ -285,7 +285,7 @@ export default function DashboardPage() {
           <div className="skeleton h-5 rounded-full" />
         ) : total === 0 ? (
           <div className="h-5 rounded-full bg-gray-100 flex items-center justify-center">
-            <p className="text-xs text-gray-400">Aucune école enregistrée</p>
+            <p className="text-xs text-gray-400">Aucun client enregistré</p>
           </div>
         ) : (
           <div className="h-5 rounded-full overflow-hidden flex gap-0.5 bg-gray-100">
@@ -310,12 +310,12 @@ export default function DashboardPage() {
         {!loading && total > 0 && (
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 mt-5 pt-4 border-t border-gray-50">
             {[
-              { label: 'Total écoles',        value: fmtNum(total)                              },
-              { label: 'Nouvelles ce mois',   value: `+${newThisMonth}`                         },
-              { label: 'Croissance',          value: `+${growthRate}%`                          },
-              { label: 'Utilisateurs',        value: fmtNum(stats?.users.total    ?? 0)          },
-              { label: 'Élèves',              value: fmtNum(stats?.students.total ?? 0)          },
-              { label: 'Revenue total',       value: totalRevStr                                 },
+              { label: 'Total clients',       value: fmtNum(total)                                                                                      },
+              { label: 'Nouvelles ce mois',   value: `+${newThisMonth}`                                                                                 },
+              { label: 'Croissance',          value: `+${growthRate}%`                                                                                  },
+              { label: 'Écoles',              value: fmtNum(stats?.tenants.byModule?.find((m) => m.module === 'SCHOOL')?.count   ?? 0)                  },
+              { label: 'Commerces',           value: fmtNum(stats?.tenants.byModule?.find((m) => m.module === 'COMMERCE')?.count ?? 0)                  },
+              { label: 'Revenue total',       value: totalRevStr                                                                                         },
             ].map(({ label, value }) => (
               <div key={label}>
                 <p className="text-xs font-medium text-gray-500">{label}</p>
@@ -334,7 +334,7 @@ export default function DashboardPage() {
           <div className="mb-5">
             <h2 className="text-base font-semibold text-gray-900">Plans d'abonnement</h2>
             <p className="text-xs text-gray-600 mt-0.5">
-              {loading ? '…' : `Répartition sur ${fmtNum(total)} école${total !== 1 ? 's' : ''}`}
+              {loading ? '…' : `Répartition sur ${fmtNum(total)} client${total !== 1 ? 's' : ''}`}
             </p>
           </div>
           {loading
@@ -360,7 +360,7 @@ export default function DashboardPage() {
                   color: 'text-brand-600', bg: 'bg-brand-50',
                 },
                 {
-                  label: 'Élèves inscrits',
+                  label: 'Élèves (module École)',
                   value: fmtNum(stats?.students.total ?? 0),
                   icon: GraduationCap,
                   color: 'text-emerald-600', bg: 'bg-emerald-50',
@@ -430,7 +430,7 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center justify-center py-12 gap-2">
               <CheckCircle2 className="w-10 h-10 text-emerald-200" />
               <p className="text-sm font-medium text-gray-500">Aucune alerte urgente</p>
-              <p className="text-xs text-gray-400">Toutes les écoles sont dans les normes</p>
+              <p className="text-xs text-gray-400">Tous les clients sont dans les normes</p>
             </div>
           ) : (
             urgentItems.slice(0, 5).map((a, i) => (

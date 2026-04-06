@@ -55,6 +55,24 @@ export function statusColor(status: string): string {
   return map[status?.toUpperCase()] ?? 'bg-gray-100 text-gray-700';
 }
 
+/** Badge couleur selon le module (SCHOOL / COMMERCE) */
+export function moduleColor(moduleType: string | null | undefined): string {
+  const map: Record<string, string> = {
+    SCHOOL:   'bg-indigo-100 text-indigo-700',
+    COMMERCE: 'bg-emerald-100 text-emerald-700',
+  };
+  return map[(moduleType ?? 'SCHOOL').toUpperCase()] ?? 'bg-gray-100 text-gray-700';
+}
+
+/** Label lisible selon le module */
+export function moduleLabel(moduleType: string | null | undefined): string {
+  const map: Record<string, string> = {
+    SCHOOL:   'École',
+    COMMERCE: 'Commerce',
+  };
+  return map[(moduleType ?? 'SCHOOL').toUpperCase()] ?? 'École';
+}
+
 /** Label lisible selon le statut d'abonnement */
 export function statusLabel(status: string): string {
   const map: Record<string, string> = {

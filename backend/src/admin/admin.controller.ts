@@ -118,17 +118,18 @@ export class AdminController {
 
   @Get('tenants')
   findAllTenants(
-    @Query('page')    page?:    string,
-    @Query('limit')   limit?:   string,
-    @Query('search')  search?:  string,
-    @Query('status')  status?:  'active' | 'inactive',
-    @Query('plan')    plan?:    string,
-    @Query('country') country?: string,
+    @Query('page')       page?:       string,
+    @Query('limit')      limit?:      string,
+    @Query('search')     search?:     string,
+    @Query('status')     status?:     'active' | 'inactive',
+    @Query('plan')       plan?:       string,
+    @Query('country')    country?:    string,
+    @Query('moduleType') moduleType?: string,
   ) {
     return this.adminService.findAllTenants({
       page:  page  ? parseInt(page,  10) : 1,
       limit: limit ? parseInt(limit, 10) : 20,
-      search, status, plan, country,
+      search, status, plan, country, moduleType,
     });
   }
 
