@@ -251,11 +251,14 @@ export class CaisseService {
         GROUP BY day`,
     ]);
 
+    const toKey = (d: any): string =>
+      d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+
     const sessionMap  = new Map(sessions.map((s) => [s.date.toISOString().slice(0, 10), s.openingBalance]));
-    const salesMap    = new Map(allSales.map((r) => [String(r.day).slice(0, 10), Number(r.total_in)]));
-    const debtMap     = new Map(allDebtRecoveries.map((r) => [String(r.day).slice(0, 10), Number(r.total)]));
-    const expMap      = new Map(allExpenses.map((r) => [String(r.day).slice(0, 10), Number(r.total)]));
-    const suppMap     = new Map(allSupplierPayments.map((r) => [String(r.day).slice(0, 10), Number(r.total)]));
+    const salesMap    = new Map(allSales.map((r) => [toKey(r.day), Number(r.total_in)]));
+    const debtMap     = new Map(allDebtRecoveries.map((r) => [toKey(r.day), Number(r.total)]));
+    const expMap      = new Map(allExpenses.map((r) => [toKey(r.day), Number(r.total)]));
+    const suppMap     = new Map(allSupplierPayments.map((r) => [toKey(r.day), Number(r.total)]));
 
     for (const d of dates) {
       const opening  = sessionMap.get(d) ?? 0;

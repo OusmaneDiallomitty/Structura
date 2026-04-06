@@ -161,8 +161,8 @@ export class ProductsService {
     return product;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateProductDto) {
-    await this.findOne(tenantId, id);
+  async update(tenantId: string, id: string, userId: string, dto: UpdateProductDto) {
+    const existing = await this.findOne(tenantId, id);
 
     if (dto.reference) {
       const conflict = await this.prisma.product.findFirst({
@@ -179,6 +179,10 @@ export class ProductsService {
       }
     }
 
+    // Détecter une modification manuelle du stock et créer un mouvement tracé
+    const stockChanged =
+      dto.stockQty !== undefined && dto.stockQty !== existing.stockQty;
+
     const updated = await this.prisma.product.update({
       where: { id },
       data: {
@@ -186,6 +190,20 @@ export class ProductsService {
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       },
     });
+
+    if (stockChanged) {
+      const diff = dto.stockQty! - existing.stockQty;
+      await this.prisma.stockMovement.create({
+        data: {
+          tenantId,
+          productId: id,
+          userId,
+          type: diff > 0 ? 'IN' : 'OUT',
+          quantity: Math.abs(diff),
+          reason: 'Correction manuelle (édition produit)',
+        },
+      });
+    }
 
     await this.invalidate(tenantId);
     return updated;

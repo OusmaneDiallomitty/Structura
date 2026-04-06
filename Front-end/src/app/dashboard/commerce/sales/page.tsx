@@ -330,7 +330,7 @@ export default function SalesPage() {
             customerName: selectedSale.customer?.name,
             customerPhone: undefined,
             commerceName: user?.schoolName ?? "Commerce",
-            commerceLogo: undefined,
+            commerceLogo: user?.schoolLogo ?? undefined,
             commerceAddress: undefined,
             commercePhone: undefined,
           }}

@@ -70,7 +70,7 @@ export class ProductsController {
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
   ) {
-    return this.productsService.update(user.tenantId, id, dto);
+    return this.productsService.update(user.tenantId, id, user.id, dto);
   }
 
   @Post(':id/stock')
