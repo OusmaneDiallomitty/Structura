@@ -740,12 +740,12 @@ export default function POSPage() {
                             ref={qtyInputRef}
                             type="number"
                             min={0}
-                            max={item.product.stock}
+                            max={item.product.stockQty}
                             value={editingQtyVal}
                             onChange={(e) => setEditingQtyVal(e.target.value)}
-                            onBlur={() => commitQty(item.product.id, item.product.stock)}
+                            onBlur={() => commitQty(item.product.id, item.product.stockQty)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") commitQty(item.product.id, item.product.stock);
+                              if (e.key === "Enter") commitQty(item.product.id, item.product.stockQty);
                               if (e.key === "Escape") setEditingQtyId(null);
                             }}
                             className="w-10 h-5 text-center rounded border border-indigo-400 bg-background text-xs px-0.5"
