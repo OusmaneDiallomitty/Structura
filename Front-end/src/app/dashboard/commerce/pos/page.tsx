@@ -120,9 +120,12 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [editingPriceVal, setEditingPriceVal] = useState("");
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
+  const [editingQtyVal, setEditingQtyVal] = useState("");
   const [showTab, setShowTab] = useState<"all" | "favorites" | "recents">("all");
 
   const priceInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef   = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const cartSnapshotRef = useRef<CartItem[]>([]);
   const cartContainerRef = useRef<HTMLDivElement>(null);
@@ -312,6 +315,28 @@ export default function POSPage() {
     setPaymentMethod("CASH");
   };
 
+  // ─── Quantité inline ──────────────────────────────────────────────────────
+
+  const startEditQty = (item: CartItem) => {
+    setEditingQtyId(item.product.id);
+    setEditingQtyVal(String(item.quantity));
+    setTimeout(() => qtyInputRef.current?.select(), 50);
+  };
+
+  const commitQty = (productId: string, maxStock: number) => {
+    const val = Math.floor(parseFloat(editingQtyVal) || 0);
+    setEditingQtyId(null);
+    if (val <= 0) {
+      setCart((prev) => prev.filter((i) => i.product.id !== productId));
+      return;
+    }
+    const capped = Math.min(val, maxStock);
+    if (val > maxStock) toast.warning(`Stock limité à ${maxStock}`);
+    setCart((prev) =>
+      prev.map((i) => i.product.id === productId ? { ...i, quantity: capped } : i)
+    );
+  };
+
   // ─── Prix inline ───────────────────────────────────────────────────────────
 
   const startEditPrice = (item: CartItem) => {
@@ -455,7 +480,7 @@ export default function POSPage() {
         setShowCheckout(false);
       }
       // Entrée en édition prix
-      if (e.key === "Enter" && editingPriceId) {
+      if (e.key === "Enter" && editingPriceId && !editingQtyId) {
         e.preventDefault();
         commitPrice(editingPriceId);
       }
@@ -468,7 +493,7 @@ export default function POSPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cart.length, showCheckout, editingPriceId]);
+  }, [cart.length, showCheckout, editingPriceId, editingQtyId]);
 
   // ─── Rendu ─────────────────────────────────────────────────────────────────
 
@@ -710,7 +735,31 @@ export default function POSPage() {
                       {/* Qty contrôls */}
                       <div className="flex items-center gap-0.5 bg-muted rounded px-1">
                         <button onClick={() => updateQty(item.product.id, -1)} className="p-0.5 hover:bg-white">−</button>
-                        <span className="w-5 text-center font-bold">{item.quantity}</span>
+                        {editingQtyId === item.product.id ? (
+                          <input
+                            ref={qtyInputRef}
+                            type="number"
+                            min={0}
+                            max={item.product.stock}
+                            value={editingQtyVal}
+                            onChange={(e) => setEditingQtyVal(e.target.value)}
+                            onBlur={() => commitQty(item.product.id, item.product.stock)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitQty(item.product.id, item.product.stock);
+                              if (e.key === "Escape") setEditingQtyId(null);
+                            }}
+                            className="w-10 h-5 text-center rounded border border-indigo-400 bg-background text-xs px-0.5"
+                            autoFocus
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEditQty(item)}
+                            className="w-7 text-center font-bold hover:bg-white rounded px-0.5"
+                            title="Cliquer pour modifier la quantité"
+                          >
+                            {item.quantity}
+                          </button>
+                        )}
                         <button onClick={() => updateQty(item.product.id, 1)} className="p-0.5 hover:bg-white">+</button>
                       </div>
 
