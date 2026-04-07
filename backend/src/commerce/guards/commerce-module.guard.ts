@@ -22,15 +22,16 @@ export class CommerceModuleGuard implements CanActivate {
       throw new ForbiddenException('Tenant introuvable');
     }
 
-    // ✅ SÉCURITÉ CRITIQUE: Vérifier que le JWT contient moduleType=COMMERCE
-    // Empêche un token ÉCOLE d'accéder aux endpoints COMMERCE
-    if (user?.moduleType && user.moduleType !== 'COMMERCE') {
-      throw new ForbiddenException(
-        'Accès refusé: ce token ne permet pas accès au module Commerce',
-      );
+    // ✅ Fast path : moduleType est déjà dans le JWT (injecté par jwt.strategy.ts)
+    // Évite un aller-retour Redis (~22ms) sur chaque requête commerce
+    if (user?.moduleType) {
+      if (user.moduleType !== 'COMMERCE') {
+        throw new ForbiddenException('Accès refusé: module Commerce uniquement');
+      }
+      return true; // JWT fait foi — pas besoin de toucher Redis/DB
     }
 
-    // Vérifier aussi que le tenant est configuré en COMMERCE
+    // Fallback : JWT sans moduleType (anciens tokens) → vérifier en BDD + cache Redis
     const cacheKey = `tenant:moduleType:${user.tenantId}`;
     let moduleType = await this.cache.get<string>(cacheKey);
 
@@ -40,14 +41,11 @@ export class CommerceModuleGuard implements CanActivate {
         select: { moduleType: true },
       });
       moduleType = tenant?.moduleType ?? 'SCHOOL';
-      // Cache 10 minutes — moduleType change rarement
       await this.cache.set(cacheKey, moduleType, 600);
     }
 
     if (moduleType !== 'COMMERCE') {
-      throw new ForbiddenException(
-        'Ce tenant est configuré en mode École, pas Commerce',
-      );
+      throw new ForbiddenException('Ce tenant est configuré en mode École, pas Commerce');
     }
 
     return true;

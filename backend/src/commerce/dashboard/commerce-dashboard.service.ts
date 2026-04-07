@@ -76,6 +76,10 @@ export class CommerceDashboardService {
   }
 
   async getRevenueChart(tenantId: string, days = 30) {
+    const cacheKey = `commerce:chart:${tenantId}:${days}`;
+    const cached = await this.cache.get<any[]>(cacheKey);
+    if (cached) return cached;
+
     const since = new Date(); since.setDate(since.getDate() - days); since.setHours(0,0,0,0);
     const [sales, expenses, cogs] = await Promise.all([
       this.prisma.$queryRaw<any[]>`SELECT DATE("createdAt") as date, SUM("totalAmount") as revenue, SUM("paidAmount") as collected, COUNT(*) as sales_count FROM sales WHERE "tenantId" = ${tenantId} AND status != 'CANCELLED' AND "createdAt" >= ${since} GROUP BY DATE("createdAt") ORDER BY date ASC`,
@@ -84,12 +88,16 @@ export class CommerceDashboardService {
     ]);
     const expMap = new Map(expenses.map((e) => [String(e.date), Number(e.total)]));
     const cogMap = new Map(cogs.map((c) => [String(c.date), Number(c.cog)]));
-    return sales.map((row) => {
+    const result = sales.map((row) => {
       const rev = Number(row.revenue);
       const cog = cogMap.get(String(row.date)) ?? 0;
       const exp = expMap.get(String(row.date)) ?? 0;
       return { date: row.date, revenue: rev, collected: Number(row.collected), salesCount: Number(row.sales_count), expenses: exp, cog, grossProfit: rev - cog, netProfit: rev - cog - exp };
     });
+
+    // Cache 5 min — graphique historique, change peu souvent
+    await this.cache.set(cacheKey, result, 300);
+    return result;
   }
 
   async getAnalytics(tenantId: string) {

@@ -21,6 +21,8 @@ export class ExpensesService {
     await Promise.all([
       this.cache.del(`commerce:expenses:${tenantId}:all`),
       this.cache.del(`commerce:dashboard:${tenantId}`),
+      this.cache.del(`commerce:chart:${tenantId}:30`),
+      this.cache.del(`commerce:chart:${tenantId}:7`),
     ]);
     // Invalider les clés par mois des 3 derniers mois (cas courant)
     const now = new Date();

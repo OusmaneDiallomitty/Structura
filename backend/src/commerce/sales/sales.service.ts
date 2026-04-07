@@ -28,6 +28,8 @@ export class SalesService {
     await Promise.all([
       this.cache.del(this.listKey(tenantId)),
       this.cache.del(this.statsKey(tenantId)),
+      this.cache.del(`commerce:chart:${tenantId}:30`),
+      this.cache.del(`commerce:chart:${tenantId}:7`),
     ]);
   }
 
