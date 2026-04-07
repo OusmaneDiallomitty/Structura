@@ -188,7 +188,7 @@ export class SalesService {
         UPDATE public.products AS p
         SET    "stockQty" = p."stockQty" - v.qty
         FROM   unnest(
-                 ${productIds}::uuid[],
+                 ${productIds}::text[],
                  ${quantities}::int[]
                ) AS v(id, qty)
         WHERE  p.id = v.id
