@@ -185,7 +185,7 @@ export class SalesService {
       const productIds = dto.items.map((i) => i.productId);
       const quantities = dto.items.map((i) => i.quantity);
       await tx.$executeRaw`
-        UPDATE "Product" AS p
+        UPDATE public."Product" AS p
         SET    "stockQty" = p."stockQty" - v.qty
         FROM   unnest(
                  ${productIds}::uuid[],
