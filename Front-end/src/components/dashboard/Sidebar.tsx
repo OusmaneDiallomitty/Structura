@@ -322,11 +322,11 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-40 h-screen w-72 bg-white dark:bg-gray-950 border-r shadow-xl transition-transform duration-300 ease-in-out lg:translate-x-0",
+          "fixed top-0 left-0 z-40 h-screen w-72 bg-white dark:bg-gray-950 border-r shadow-xl transition-transform duration-300 ease-in-out lg:translate-x-0 overflow-hidden",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-3 p-6 border-b">
             {/* Close button on mobile (inside sidebar) */}
@@ -348,7 +348,7 @@ export function Sidebar() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-1">
+          <nav className="flex-1 min-h-0 overflow-y-scroll overscroll-contain p-4 space-y-1" style={{ scrollbarGutter: 'stable' }}>
             {isCommerce && (
               <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
                 <ShoppingCart className="h-3.5 w-3.5 text-orange-600" />
