@@ -24,11 +24,14 @@ export class CustomersService {
     await this.cache.del(this.listKey(tenantId));
   }
 
-  async findAll(tenantId: string, search?: string) {
+  async findAll(tenantId: string, search?: string, limit = 200) {
+    // Cache uniquement sans filtre — résultats filtrés trop variables pour cacher
     if (!search) {
       const cached = await this.cache.get<any[]>(this.listKey(tenantId));
       if (cached) return cached;
     }
+
+    const take = Math.min(limit, 500); // Plafond absolu à 500
 
     const customers = await this.prisma.commerceCustomer.findMany({
       where: {
@@ -37,6 +40,7 @@ export class CustomersService {
         ...(search && { name: { contains: search, mode: 'insensitive' } }),
       },
       orderBy: { name: 'asc' },
+      take,
     });
 
     if (!search) await this.cache.set(this.listKey(tenantId), customers, TTL);

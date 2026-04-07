@@ -10,15 +10,25 @@ export class ExpensesService {
     private readonly cache: CacheService,
   ) {}
 
-  private cacheKey(tenantId: string) {
-    return `commerce:expenses:${tenantId}`;
+  private cacheKey(tenantId: string, month?: string, category?: string) {
+    // Clé spécifique par filtre — évite de retourner le mauvais cache
+    const suffix = [month, category].filter(Boolean).join(':') || 'all';
+    return `commerce:expenses:${tenantId}:${suffix}`;
   }
 
   private async invalidate(tenantId: string) {
+    // Pattern-delete : invalide toutes les clés expenses de ce tenant
     await Promise.all([
-      this.cache.del(this.cacheKey(tenantId)),
+      this.cache.del(`commerce:expenses:${tenantId}:all`),
       this.cache.del(`commerce:dashboard:${tenantId}`),
     ]);
+    // Invalider les clés par mois des 3 derniers mois (cas courant)
+    const now = new Date();
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      await this.cache.del(`commerce:expenses:${tenantId}:${monthStr}`).catch(() => {});
+    }
   }
 
   async create(tenantId: string, dto: CreateExpenseDto) {
@@ -39,6 +49,10 @@ export class ExpensesService {
     tenantId: string,
     filters: { month?: string; category?: string } = {},
   ) {
+    const key = this.cacheKey(tenantId, filters.month, filters.category);
+    const cached = await this.cache.get<any[]>(key);
+    if (cached) return cached;
+
     const where: any = { tenantId };
 
     if (filters.month) {
@@ -51,10 +65,13 @@ export class ExpensesService {
 
     if (filters.category) where.category = filters.category;
 
-    return this.prisma.commerceExpense.findMany({
+    const result = await this.prisma.commerceExpense.findMany({
       where,
       orderBy: { date: 'desc' },
     });
+
+    await this.cache.set(key, result, 120);
+    return result;
   }
 
   async remove(tenantId: string, id: string) {

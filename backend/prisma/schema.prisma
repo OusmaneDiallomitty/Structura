@@ -761,7 +761,8 @@ model StockReceipt {
   @@index([tenantId])
   @@index([tenantId, receivedAt])
   @@index([tenantId, status])
-  @@index([tenantId, paymentStatus])  // supplier-debts : filtre UNPAID/PARTIAL
+  @@index([tenantId, paymentStatus])             // supplier-debts : filtre UNPAID/PARTIAL
+  @@index([tenantId, supplierId, paymentStatus]) // Dettes par fournisseur
   @@map("stock_receipts")
 }
 
@@ -810,6 +811,7 @@ model CommerceCustomer {
 
   @@index([tenantId])
   @@index([tenantId, name])
+  @@index([tenantId, createdAt(sort: Desc)])
   @@map("commerce_customers")
 }
 
@@ -856,9 +858,11 @@ model Sale {
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
-  @@index([tenantId, createdAt(sort: Desc)])  // Ventes récentes + rapports journaliers
+  @@index([tenantId, createdAt(sort: Desc)])           // Ventes récentes + rapports journaliers
   @@index([tenantId, status])
   @@index([tenantId, cashierId])
+  @@index([tenantId, customerId])                      // Historique ventes par client
+  @@index([tenantId, status, createdAt(sort: Desc)])   // Filtrage statut + tri date
   @@map("sales")
 }
 
@@ -895,6 +899,7 @@ model CommerceExpense {
 
   @@index([tenantId])
   @@index([tenantId, date])
+  @@index([tenantId, category, date(sort: Desc)])  // Filtre catégorie + tri date
   @@map("commerce_expenses")
 }
 

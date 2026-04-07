@@ -22,8 +22,12 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query('search') search?: string) {
-    return this.customersService.findAll(user.tenantId, search);
+  findAll(
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.customersService.findAll(user.tenantId, search, limit ? parseInt(limit, 10) : 200);
   }
 
   @Get(':id')
