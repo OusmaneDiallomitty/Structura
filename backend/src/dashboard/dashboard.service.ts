@@ -334,7 +334,7 @@ export class DashboardService {
     if (cached) return cached;
 
     const result = await this.computeRecentActivities(tenantId, user, limit);
-    await this.cache.set(cacheKey, result, 30);
+    await this.cache.set(cacheKey, result, 120);
     return result;
   }
 
@@ -410,7 +410,8 @@ export class DashboardService {
           where: absenceWhere,
           take: perSource,
           orderBy: { createdAt: 'desc' },
-          include: {
+          select: {
+            id: true, createdAt: true,
             student: { select: { firstName: true, lastName: true } },
             class:   { select: { name: true } },
           },
