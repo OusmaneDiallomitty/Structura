@@ -12,6 +12,7 @@ import {
   deleteProduct,
   adjustStock,
   getStockMovements,
+  configureConversion,
   type CommerceProduct,
   type CommerceCategory,
   type StockMovement,
@@ -33,6 +34,7 @@ import {
   ChevronUp,
   FileText,
   Clock,
+  Layers,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -209,6 +211,8 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showHistoryDialog, setShowHistoryDialog] = useState(false);
   const [historyProduct, setHistoryProduct] = useState<CommerceProduct | null>(null);
+  const [conversionDialog, setConversionDialog] = useState<CommerceProduct | null>(null);
+  const [conversionForm, setConversionForm] = useState({ purchaseUnit: "", conversionFactor: "", conversionNote: "" });
 
   const token = () => storage.getAuthItem("structura_token") ?? "";
   const tid = user?.tenantId ?? "";
@@ -457,6 +461,41 @@ export default function ProductsPage() {
   });
 
 
+  // ── Mutation : configurer conversion d'unités ─────────────────────────────
+  const conversionMutation = useMutation({
+    mutationFn: () =>
+      configureConversion(token(), conversionDialog!.id, {
+        purchaseUnit: conversionForm.purchaseUnit.trim(),
+        conversionFactor: parseFloat(conversionForm.conversionFactor),
+        conversionNote: conversionForm.conversionNote.trim(),
+      }),
+    onSuccess: (updated) => {
+      toast.success("Conversion configurée");
+      // Mise à jour chirurgicale du cache
+      queryClient.setQueryData(
+        ["commerce-products", tid, "", "all"],
+        (old: any) => {
+          if (!old) return old;
+          const list: CommerceProduct[] = old?.data ?? old ?? [];
+          const newList = list.map((p) => (p.id === updated.id ? updated : p));
+          return old?.data !== undefined ? { ...old, data: newList } : newList;
+        }
+      );
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
+      setConversionDialog(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openConversion = (p: CommerceProduct) => {
+    setConversionDialog(p);
+    setConversionForm({
+      purchaseUnit: p.purchaseUnit ?? "",
+      conversionFactor: p.conversionFactor != null ? String(p.conversionFactor) : "",
+      conversionNote: p.conversionNote ?? "",
+    });
+  };
+
   const openCreate = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
@@ -658,6 +697,11 @@ export default function ProductsPage() {
                             {p.reference && (
                               <p className="text-xs text-muted-foreground">{p.reference}</p>
                             )}
+                            {p.conversionFactor != null && (
+                              <p className="text-xs text-indigo-600 font-medium mt-0.5">
+                                ⚡ 1 {p.purchaseUnit} = {p.conversionFactor} {p.unit}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -689,6 +733,14 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost" size="icon"
+                            className={`h-8 w-8 hover:bg-indigo-100 ${p.conversionFactor != null ? "text-indigo-600" : "text-muted-foreground"}`}
+                            title="Conversion d'unités (gros / détail)"
+                            onClick={() => openConversion(p)}
+                          >
+                            <Layers className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost" size="icon" className="h-8 w-8 text-purple-600 hover:bg-purple-100 hover:text-purple-700"
                             title="Voir l'historique des mouvements"
@@ -887,6 +939,101 @@ export default function ProductsPage() {
           token={token()}
         />
       )}
+
+      {/* Dialog Conversion d'unités */}
+      <Dialog open={!!conversionDialog} onOpenChange={(o) => !o && setConversionDialog(null)}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-md max-h-[95dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Layers className="h-4 w-4 text-indigo-600" />
+              Conversion d&apos;unités
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Configurer le rapport entre l&apos;unité d&apos;achat (gros) et l&apos;unité de vente (détail)
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Explication visuelle */}
+            <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-sm text-indigo-800 space-y-1">
+              <p className="font-semibold">Produit : {conversionDialog?.name}</p>
+              <p>Unité de vente (détail) : <strong>{conversionDialog?.unit}</strong></p>
+              {conversionForm.purchaseUnit && conversionForm.conversionFactor && (
+                <p className="text-indigo-600 font-medium">
+                  → 1 {conversionForm.purchaseUnit} = {conversionForm.conversionFactor} {conversionDialog?.unit}
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Unité d&apos;achat (gros) *</Label>
+              <Select
+                value={conversionForm.purchaseUnit || "__none"}
+                onValueChange={(v) => setConversionForm({ ...conversionForm, purchaseUnit: v === "__none" ? "" : v })}
+              >
+                <SelectTrigger><SelectValue placeholder="Ex: carton, plaquette, palette…" /></SelectTrigger>
+                <SelectContent>
+                  {UNITS.map((u) => (
+                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Comment vous recevez ce produit de votre fournisseur
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Facteur de conversion *</Label>
+              <Input
+                type="number"
+                min="0.001"
+                step="1"
+                placeholder="Ex: 12 (1 plaquette = 12 comprimés)"
+                value={conversionForm.conversionFactor}
+                onChange={(e) => setConversionForm({ ...conversionForm, conversionFactor: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Combien d&apos;unités de détail contient 1 unité de gros
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Note (optionnelle)</Label>
+              <Input
+                placeholder="Ex: 1 carton Amoxicilline = 12 plaquettes de 10 cp"
+                value={conversionForm.conversionNote}
+                onChange={(e) => setConversionForm({ ...conversionForm, conversionNote: e.target.value })}
+              />
+            </div>
+
+            {/* Exemples d'usage */}
+            <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold text-foreground">Exemples courants :</p>
+              <p>• Pharmacie : 1 plaquette = 10 comprimés</p>
+              <p>• Épicerie : 1 carton = 24 bouteilles</p>
+              <p>• Matériaux : 1 palette = 500 briques</p>
+              <p>• Quincaillerie : 1 boîte = 100 vis</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConversionDialog(null)}>Annuler</Button>
+            <Button
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              onClick={() => conversionMutation.mutate()}
+              disabled={
+                !conversionForm.purchaseUnit ||
+                !conversionForm.conversionFactor ||
+                parseFloat(conversionForm.conversionFactor) <= 0 ||
+                conversionMutation.isPending
+              }
+            >
+              {conversionMutation.isPending ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog suppression */}
       <AlertDialog open={!!deleting} onOpenChange={() => setDeleting(null)}>

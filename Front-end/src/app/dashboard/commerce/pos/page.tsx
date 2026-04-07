@@ -59,6 +59,8 @@ interface CartItem {
   product: CommerceProduct;
   quantity: number;
   customPrice: number;
+  /** 'unit' = vente à l'unité de détail | 'bulk' = vente à l'unité de gros (plaquette, carton…) */
+  sellUnit: "unit" | "bulk";
 }
 
 type PaymentMethod = "CASH" | "MOBILE_MONEY" | "CREDIT";
@@ -282,8 +284,11 @@ export default function POSPage() {
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
       if (existing) {
+        // Calculer la quantité effective en unités de base
+        const factor = existing.sellUnit === "bulk" && existing.product.conversionFactor
+          ? existing.product.conversionFactor : 1;
         const newQty = existing.quantity + qty;
-        if (newQty > product.stockQty) {
+        if (newQty * factor > product.stockQty) {
           toast.warning(`Stock max: ${product.stockQty} ${product.unit}`);
           return prev;
         }
@@ -291,7 +296,7 @@ export default function POSPage() {
           i.product.id === product.id ? { ...i, quantity: newQty } : i
         );
       }
-      return [...prev, { product, quantity: qty, customPrice: product.sellPrice }];
+      return [...prev, { product, quantity: qty, customPrice: product.sellPrice, sellUnit: "unit" }];
     });
     // Sur mobile, switcher vers le panier après ajout
     if (window.innerWidth < 768) setMobilePanel("cart");
@@ -300,7 +305,17 @@ export default function POSPage() {
   const updateQty = (productId: string, delta: number) =>
     setCart((prev) =>
       prev
-        .map((i) => i.product.id === productId ? { ...i, quantity: i.quantity + delta } : i)
+        .map((i) => {
+          if (i.product.id !== productId) return i;
+          const factor = i.sellUnit === "bulk" && i.product.conversionFactor ? i.product.conversionFactor : 1;
+          const maxQty = Math.floor(i.product.stockQty / factor);
+          const newQty = i.quantity + delta;
+          if (newQty > maxQty) {
+            toast.warning(`Stock limité à ${maxQty} ${i.sellUnit === "bulk" ? (i.product.purchaseUnit ?? "") : i.product.unit}`);
+            return i;
+          }
+          return { ...i, quantity: newQty };
+        })
         .filter((i) => i.quantity > 0)
     );
 
@@ -323,17 +338,42 @@ export default function POSPage() {
     setTimeout(() => qtyInputRef.current?.select(), 50);
   };
 
-  const commitQty = (productId: string, maxStock: number) => {
+  const commitQty = (productId: string, maxStockBase: number) => {
     const val = Math.floor(parseFloat(editingQtyVal) || 0);
     setEditingQtyId(null);
     if (val <= 0) {
       setCart((prev) => prev.filter((i) => i.product.id !== productId));
       return;
     }
-    const capped = Math.min(val, maxStock);
-    if (val > maxStock) toast.warning(`Stock limité à ${maxStock}`);
+    setCart((prev) => {
+      const item = prev.find((i) => i.product.id === productId);
+      if (!item) return prev;
+      const factor = item.sellUnit === "bulk" && item.product.conversionFactor
+        ? item.product.conversionFactor : 1;
+      const maxQty = Math.floor(maxStockBase / factor);
+      const capped = Math.min(val, maxQty);
+      if (val > maxQty) toast.warning(`Stock limité à ${maxQty} ${item.sellUnit === "bulk" ? item.product.purchaseUnit ?? "" : item.product.unit}`);
+      return prev.map((i) => i.product.id === productId ? { ...i, quantity: capped } : i);
+    });
+  };
+
+  // ─── Toggle unité de vente (détail ↔ gros) ───────────────────────────────
+  const toggleSellUnit = (productId: string) => {
     setCart((prev) =>
-      prev.map((i) => i.product.id === productId ? { ...i, quantity: capped } : i)
+      prev.map((i) => {
+        if (i.product.id !== productId) return i;
+        const nextUnit = i.sellUnit === "unit" ? "bulk" : "unit";
+        const factor = i.product.conversionFactor ?? 1;
+        // Recalculer le prix par défaut selon la nouvelle unité
+        const newPrice = nextUnit === "bulk"
+          ? roundGNF(i.product.sellPrice * factor)
+          : i.product.sellPrice;
+        // Recalculer la quantité pour ne pas dépasser le stock
+        const maxQty = nextUnit === "bulk"
+          ? Math.floor(i.product.stockQty / factor)
+          : i.product.stockQty;
+        return { ...i, sellUnit: nextUnit, customPrice: newPrice, quantity: Math.min(i.quantity, Math.max(1, maxQty)) };
+      })
     );
   };
 
@@ -369,11 +409,17 @@ export default function POSPage() {
       if (!snapshot || snapshot.length === 0) {
         return Promise.reject(new Error("Panier vide — veuillez réessayer"));
       }
-      const items = snapshot.map((i) => ({
-        productId: i.product.id,
-        quantity: i.quantity,
-        unitPrice: i.customPrice,
-      }));
+      const items = snapshot.map((i) => {
+        // En mode "bulk" (gros), convertir en unités de base pour le backend
+        const factor = i.sellUnit === "bulk" && i.product.conversionFactor
+          ? i.product.conversionFactor : 1;
+        const baseQty = i.quantity * factor;
+        // Prix unitaire ramené à l'unité de base (pour cohérence des marges)
+        const unitPrice = i.sellUnit === "bulk"
+          ? Math.round(i.customPrice / factor)
+          : i.customPrice;
+        return { productId: i.product.id, quantity: baseQty, unitPrice };
+      });
       return createSale(token(), {
         items,
         paidAmount: paymentMethodRef.current === "CREDIT" ? 0 : paidAmountRef.current,
@@ -401,15 +447,20 @@ export default function POSPage() {
         customerId: customerIdRef.current || null,
         customer: customers?.find((c: CommerceCustomer) => c.id === customerIdRef.current)
           ?? (buyerNameRef.current ? { id: "", name: buyerNameRef.current, phone: null, totalDebt: 0 } as any : null),
-        items: snapshot.map((i) => ({
-          id: i.product.id,
-          productId: i.product.id,
-          quantity: i.quantity,
-          unitPrice: i.customPrice,
-          totalPrice: i.customPrice * i.quantity,
-          costPrice: i.product.buyPrice,
-          product: { id: i.product.id, name: i.product.name, unit: i.product.unit },
-        })),
+        items: snapshot.map((i) => {
+          const factor = i.sellUnit === "bulk" && i.product.conversionFactor ? i.product.conversionFactor : 1;
+          const baseQty = i.quantity * factor;
+          const unitPriceBase = i.sellUnit === "bulk" ? Math.round(i.customPrice / factor) : i.customPrice;
+          return {
+            id: i.product.id,
+            productId: i.product.id,
+            quantity: baseQty,
+            unitPrice: unitPriceBase,
+            totalPrice: i.customPrice * i.quantity,
+            costPrice: i.product.buyPrice,
+            product: { id: i.product.id, name: i.product.name, unit: i.product.unit },
+          };
+        }),
       } as any);
       setShowReceiptDialog(true);
       setShowCheckout(false);
@@ -716,12 +767,36 @@ export default function POSPage() {
           ) : (
             <div className="divide-y">
               {cart.map((item) => {
-                const isNegotiated = item.customPrice !== item.product.sellPrice;
+                const hasConversion = item.product.conversionFactor != null && item.product.purchaseUnit;
+                const isBulk = item.sellUnit === "bulk";
+                const factor = item.product.conversionFactor ?? 1;
+                const displayUnit = isBulk ? (item.product.purchaseUnit ?? item.product.unit) : item.product.unit;
+                const refPrice = isBulk ? roundGNF(item.product.sellPrice * factor) : item.product.sellPrice;
+                const isNegotiated = item.customPrice !== refPrice;
                 return (
                   <div key={item.product.id} className="px-3 py-2 hover:bg-muted/30 transition-colors">
-                    {/* Ligne 1 : nom + supprimer */}
+                    {/* Ligne 1 : nom + badge unité + supprimer */}
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-xs font-semibold line-clamp-1 flex-1">{item.product.name}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold line-clamp-1">{item.product.name}</p>
+                        {/* Toggle Unité / Gros si conversion configurée */}
+                        {hasConversion && (
+                          <button
+                            onClick={() => toggleSellUnit(item.product.id)}
+                            className={cn(
+                              "mt-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full border transition-colors",
+                              isBulk
+                                ? "bg-indigo-100 border-indigo-400 text-indigo-700"
+                                : "bg-muted border-muted-foreground/30 text-muted-foreground hover:border-indigo-300"
+                            )}
+                            title={isBulk
+                              ? `Mode gros (${item.product.purchaseUnit}) — cliquer pour vendre à l'unité`
+                              : `Mode détail (${item.product.unit}) — cliquer pour vendre en gros`}
+                          >
+                            {isBulk ? `⚡ Gros · ${displayUnit}` : `Détail · ${displayUnit}`}
+                          </button>
+                        )}
+                      </div>
                       <button
                         onClick={() => removeFromCart(item.product.id)}
                         className="shrink-0 text-muted-foreground hover:text-destructive text-xs"
@@ -740,7 +815,7 @@ export default function POSPage() {
                             ref={qtyInputRef}
                             type="number"
                             min={0}
-                            max={item.product.stockQty}
+                            max={isBulk ? Math.floor(item.product.stockQty / factor) : item.product.stockQty}
                             value={editingQtyVal}
                             onChange={(e) => setEditingQtyVal(e.target.value)}
                             onBlur={() => commitQty(item.product.id, item.product.stockQty)}
@@ -798,8 +873,13 @@ export default function POSPage() {
                       </span>
                     </div>
 
-                    {/* Indication remise */}
-                    {isNegotiated && (
+                    {/* Indication remise / conversion */}
+                    {isBulk && (
+                      <p className="text-[9px] text-indigo-600 mt-0.5">
+                        {item.quantity} {displayUnit} = {item.quantity * factor} {item.product.unit}
+                      </p>
+                    )}
+                    {isNegotiated && !isBulk && (
                       <p className="text-[9px] text-orange-600 mt-0.5">
                         Remisé de {formatGNF((item.product.sellPrice - item.customPrice) * item.quantity)}
                       </p>
