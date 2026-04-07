@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheService } from '../../cache/cache.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -179,13 +180,18 @@ export class SalesService {
         },
       });
 
-      // Requête 2 : décrémenter chaque stock (séquentiel dans la tx, inévitable)
-      for (const item of dto.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stockQty: { decrement: item.quantity } },
-        });
-      }
+      // Requête 2 : décrémenter tous les stocks en UNE seule requête SQL
+      // Pattern utilisé par Shopify/Odoo : VALUES(...) batch update
+      const stockRows = dto.items.map((item) =>
+        Prisma.sql`(${item.productId}::uuid, ${item.quantity}::int)`,
+      );
+      await tx.$executeRaw`
+        UPDATE "Product" AS p
+        SET    "stockQty" = p."stockQty" - v.qty
+        FROM   (VALUES ${Prisma.join(stockRows)}) AS v(id, qty)
+        WHERE  p.id = v.id
+        AND    p."tenantId" = ${tenantId}
+      `;
 
       // Requête 3 : créer tous les mouvements de stock en une seule fois
       await tx.stockMovement.createMany({
