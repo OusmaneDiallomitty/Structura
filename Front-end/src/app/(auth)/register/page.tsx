@@ -314,7 +314,14 @@ function RegisterContent() {
         {/* Forme Card — visible uniquement après sélection du type */}
         {moduleType !== null && <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-700 ring-1 ring-gray-200/50">
           <CardContent className="p-5 sm:p-8">
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit, (validationErrors) => {
+                // Sur mobile : scroller vers la première erreur visible
+                const firstErrorKey = Object.keys(validationErrors)[0];
+                const el = document.getElementById(firstErrorKey) ?? document.querySelector(`[name="${firstErrorKey}"]`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Toast pour informer l'utilisateur
+                toast.error("Veuillez corriger les erreurs dans le formulaire");
+              })} className="space-y-4">
               {/* Message d'erreur */}
               {error && (
                 <Alert
@@ -700,10 +707,10 @@ function RegisterContent() {
                     id="acceptTerms"
                     checked={acceptTerms}
                     onCheckedChange={(checked) =>
-                      setValue("acceptTerms", checked as boolean)
+                      setValue("acceptTerms", checked as boolean, { shouldValidate: true })
                     }
                     disabled={isLoading}
-                    className="mt-1"
+                    className="mt-1 h-5 w-5"
                   />
                   <div className="space-y-1">
                     <Label
@@ -733,10 +740,10 @@ function RegisterContent() {
                     id="acceptPrivacy"
                     checked={acceptPrivacy}
                     onCheckedChange={(checked) =>
-                      setValue("acceptPrivacy", checked as boolean)
+                      setValue("acceptPrivacy", checked as boolean, { shouldValidate: true })
                     }
                     disabled={isLoading}
-                    className="mt-1"
+                    className="mt-1 h-5 w-5"
                   />
                   <div className="space-y-1">
                     <Label
