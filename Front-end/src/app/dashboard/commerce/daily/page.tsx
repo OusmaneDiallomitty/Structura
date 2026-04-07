@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
-  Banknote, Smartphone, CreditCard, Calendar, Package, RefreshCw,
+  Banknote, Smartphone, CreditCard, Calendar, Package, RefreshCw, Truck,
 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -57,6 +57,7 @@ export default function DailySituationPage() {
 
   const s = data?.summary;
   const debtPayments: any[] = data?.debtPayments ?? [];
+  const supplierPayments: any[] = data?.supplierPayments ?? [];
 
   return (
     <ProtectedRoute>
@@ -84,7 +85,7 @@ export default function DailySituationPage() {
         ) : (
           <>
             {/* Résumé principal */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 xl:grid-cols-4">
               <Card className="border-l-4 border-l-blue-500">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -133,6 +134,18 @@ export default function DailySituationPage() {
                 <CardContent>
                   <p className="text-xl font-bold text-red-600">{fmt(s.totalExpenses)}</p>
                   <p className="text-xs text-muted-foreground">Coût stock: {fmt(s.totalCog)}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-orange-400 col-span-2 lg:col-span-1">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Truck className="h-3.5 w-3.5 text-orange-500" /> Payé fournisseurs
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-orange-600">{fmt(s.totalSupplierPaid ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">{supplierPayments.length} paiement{supplierPayments.length > 1 ? "s" : ""}</p>
                 </CardContent>
               </Card>
             </div>
@@ -291,6 +304,40 @@ export default function DailySituationPage() {
               </Card>
             )}
 
+            {/* Paiements fournisseurs du jour */}
+            {supplierPayments.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2 text-orange-600">
+                    <Truck className="h-4 w-4" /> Paiements fournisseurs ({supplierPayments.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {supplierPayments.map((p: any) => (
+                      <div key={p.id} className="px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{p.supplierName}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(p.createdAt), "HH:mm", { locale: fr })}
+                            </span>
+                            {p.notes && (
+                              <span className="text-xs text-muted-foreground">· {p.notes}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-orange-600">−{fmt(p.amount)}</p>
+                          <p className="text-xs text-muted-foreground">{p.paymentMethod === "CASH" ? "Espèces" : p.paymentMethod === "MOBILE_MONEY" ? "Mobile Money" : p.paymentMethod}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Récap final */}
             <Card className="bg-muted/30">
               <CardContent className="py-4">
@@ -299,6 +346,7 @@ export default function DailySituationPage() {
                   Récapitulatif — {date ? format(new Date(date), "d MMMM yyyy", { locale: fr }) : "aujourd'hui"}
                 </p>
                 <div className="space-y-1.5 text-sm">
+                  {/* ── Bénéfice (P&L) ── */}
                   <div className="flex justify-between"><span>Ventes totales</span><span className="font-medium">{fmt(s.totalRevenue)}</span></div>
                   <div className="flex justify-between text-muted-foreground"><span>− Coût des marchandises</span><span>−{fmt(s.totalCog)}</span></div>
                   <div className="flex justify-between font-medium"><span>= Bénéfice brut</span><span className={s.grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}>{fmt(s.grossProfit)}</span></div>
@@ -309,15 +357,27 @@ export default function DailySituationPage() {
                       {s.netProfit >= 0 ? "+" : ""}{fmt(s.netProfit)}
                     </span>
                   </div>
-                  {(s.totalDebtRecovered ?? 0) > 0 && (
-                    <>
-                      <div className="flex justify-between text-muted-foreground pt-1 border-t"><span>+ Dettes recouvrées</span><span className="text-purple-600">+{fmt(s.totalDebtRecovered ?? 0)}</span></div>
-                      <div className="flex justify-between font-bold text-base">
-                        <span>= Cash total reçu</span>
-                        <span className="text-emerald-600">{fmt(s.totalCollected + (s.totalDebtRecovered ?? 0))}</span>
-                      </div>
-                    </>
-                  )}
+
+                  {/* ── Trésorerie réelle ── */}
+                  <div className="pt-2 mt-2 border-t border-dashed space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Trésorerie du jour</p>
+                    <div className="flex justify-between text-muted-foreground"><span>Cash encaissé (ventes)</span><span className="text-emerald-600">+{fmt(s.totalCollected)}</span></div>
+                    {(s.totalDebtRecovered ?? 0) > 0 && (
+                      <div className="flex justify-between text-muted-foreground"><span>+ Dettes recouvrées</span><span className="text-purple-600">+{fmt(s.totalDebtRecovered ?? 0)}</span></div>
+                    )}
+                    {(s.totalExpenses ?? 0) > 0 && (
+                      <div className="flex justify-between text-muted-foreground"><span>− Dépenses</span><span className="text-red-500">−{fmt(s.totalExpenses)}</span></div>
+                    )}
+                    {(s.totalSupplierPaid ?? 0) > 0 && (
+                      <div className="flex justify-between text-muted-foreground"><span>− Payé fournisseurs</span><span className="text-orange-500">−{fmt(s.totalSupplierPaid ?? 0)}</span></div>
+                    )}
+                    <div className="flex justify-between font-bold text-base pt-1 border-t">
+                      <span>= Cash net du jour</span>
+                      <span className={(s.cashNet ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}>
+                        {(s.cashNet ?? 0) >= 0 ? "+" : ""}{fmt(s.cashNet ?? 0)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

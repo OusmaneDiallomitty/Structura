@@ -148,7 +148,7 @@ export class CommerceDashboardService {
     target.setHours(0,0,0,0);
     const end = new Date(target); end.setHours(23,59,59,999);
 
-    const [sales, expenses, cogAgg, debtPayments] = await Promise.all([
+    const [sales, expenses, cogAgg, debtPayments, supplierPayments] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: target, lte: end } },
         include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } }, customer: { select: { id: true, name: true } } },
@@ -161,28 +161,38 @@ export class CommerceDashboardService {
         include: { sale: { select: { receiptNumber: true, customer: { select: { name: true } } } } },
         orderBy: { createdAt: 'asc' },
       }),
+      this.prisma.supplierPayment.findMany({
+        where: { tenantId, createdAt: { gte: target, lte: end } },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
 
-    const totalRevenue   = sales.reduce((s, v) => s + v.totalAmount, 0);
-    const totalCollected = sales.reduce((s, v) => s + v.paidAmount,  0);
-    const totalDebt      = sales.reduce((s, v) => s + v.remainingDebt, 0);
-    const totalExpenses  = expenses.reduce((s, e) => s + e.amount, 0);
-    const totalCog       = cogAgg._sum.costPrice ?? 0;
-    const grossProfit    = totalRevenue - totalCog;
-    const netProfit      = grossProfit - totalExpenses;
-    const totalDebtRecovered = (debtPayments as any[]).reduce((s: number, p: any) => s + p.amount, 0);
+    const totalRevenue        = sales.reduce((s, v) => s + v.totalAmount, 0);
+    const totalCollected      = sales.reduce((s, v) => s + v.paidAmount,  0);
+    const totalDebt           = sales.reduce((s, v) => s + v.remainingDebt, 0);
+    const totalExpenses       = expenses.reduce((s, e) => s + e.amount, 0);
+    const totalCog            = cogAgg._sum.costPrice ?? 0;
+    const grossProfit         = totalRevenue - totalCog;
+    const netProfit           = grossProfit - totalExpenses;
+    const totalDebtRecovered  = (debtPayments as any[]).reduce((s: number, p: any) => s + p.amount, 0);
+    const totalSupplierPaid   = supplierPayments.reduce((s, p) => s + p.amount, 0);
+    // Cash net = tout l'argent encaissé − tout l'argent sorti physiquement
+    const cashNet             = totalCollected + totalDebtRecovered - totalExpenses - totalSupplierPaid;
 
     const byMethod: Record<string, number> = {};
     for (const s of sales) { if (s.paidAmount > 0) byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] ?? 0) + s.paidAmount; }
-    // Ajouter les encaissements de dettes récupérées
     for (const p of debtPayments as any[]) {
       if (p.amount > 0) byMethod['DEBT_RECOVERY'] = (byMethod['DEBT_RECOVERY'] ?? 0) + p.amount;
     }
 
     return {
       date: target.toISOString().slice(0, 10),
-      summary: { totalRevenue, totalCollected, totalDebt, totalExpenses, totalCog, grossProfit, netProfit, salesCount: sales.length, totalDebtRecovered },
-      byMethod, sales, expenses, debtPayments,
+      summary: {
+        totalRevenue, totalCollected, totalDebt, totalExpenses, totalCog,
+        grossProfit, netProfit, salesCount: sales.length,
+        totalDebtRecovered, totalSupplierPaid, cashNet,
+      },
+      byMethod, sales, expenses, debtPayments, supplierPayments,
     };
   }
 }
