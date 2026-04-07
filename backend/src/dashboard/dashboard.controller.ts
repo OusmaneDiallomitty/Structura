@@ -22,7 +22,7 @@ export class DashboardController {
   @SkipThrottle()
   @Get('search')
   async search(@Request() req: any, @Query('q') q: string) {
-    return this.dashboardService.search(req.user.tenantId, q ?? '', req.user);
+    return this.dashboardService.search(req.user.tenantId, q ?? '', { ...req.user, moduleType: req.user.moduleType });
   }
 
   /**

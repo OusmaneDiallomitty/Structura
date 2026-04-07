@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Users, BookOpen, X, ArrowRight, Loader2 } from "lucide-react";
+import { Search, Users, BookOpen, X, ArrowRight, Loader2, Package, UserRound, Truck } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/a
 
 interface SearchResult {
   id: string;
-  type: "student" | "class";
+  type: "student" | "class" | "product" | "commerce_customer" | "supplier";
   title: string;
   subtitle: string;
   url: string;
@@ -29,7 +29,8 @@ interface GlobalSearchProps {
 }
 
 export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
-  const { getValidToken } = useAuth();
+  const { getValidToken, user } = useAuth();
+  const isCommerce = user?.moduleType === 'COMMERCE';
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -130,18 +131,17 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     window.location.href = result.url;
   };
 
-  const getTypeLabel = (type: SearchResult["type"]) =>
-    type === "student" ? "Élève" : "Classe";
+  const TYPE_META: Record<SearchResult["type"], { label: string; color: string; icon: React.ReactNode }> = {
+    student:          { label: "Élève",        color: "bg-blue-500/10 text-blue-700 border-blue-200",    icon: <Users className="h-4 w-4" /> },
+    class:            { label: "Classe",       color: "bg-violet-500/10 text-violet-700 border-violet-200", icon: <BookOpen className="h-4 w-4" /> },
+    product:          { label: "Produit",      color: "bg-orange-500/10 text-orange-700 border-orange-200", icon: <Package className="h-4 w-4" /> },
+    commerce_customer:{ label: "Client",       color: "bg-emerald-500/10 text-emerald-700 border-emerald-200", icon: <UserRound className="h-4 w-4" /> },
+    supplier:         { label: "Fournisseur",  color: "bg-amber-500/10 text-amber-700 border-amber-200",  icon: <Truck className="h-4 w-4" /> },
+  };
 
-  const getTypeColor = (type: SearchResult["type"]) =>
-    type === "student"
-      ? "bg-blue-500/10 text-blue-700 border-blue-200"
-      : "bg-violet-500/10 text-violet-700 border-violet-200";
-
-  const getTypeIcon = (type: SearchResult["type"]) =>
-    type === "student"
-      ? <Users className="h-4 w-4" />
-      : <BookOpen className="h-4 w-4" />;
+  const getTypeLabel = (type: SearchResult["type"]) => TYPE_META[type]?.label ?? type;
+  const getTypeColor = (type: SearchResult["type"]) => TYPE_META[type]?.color ?? "";
+  const getTypeIcon  = (type: SearchResult["type"]) => TYPE_META[type]?.icon ?? null;
 
   const showEmpty = query.trim().length < 2;
   const showNoResults = !isLoading && !showEmpty && results.length === 0;
@@ -161,7 +161,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher des élèves, classes..."
+            placeholder={isCommerce ? "Rechercher des produits, clients, fournisseurs…" : "Rechercher des élèves, classes…"}
             className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base bg-transparent text-gray-900 placeholder:text-gray-500"
           />
           {query && (
@@ -183,7 +183,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                 Tapez au moins 2 caractères pour rechercher
               </p>
               <p className="text-xs text-gray-500 mt-2">
-                Recherchez des élèves, classes…
+                {isCommerce ? "Produits, clients, fournisseurs…" : "Élèves, classes…"}
               </p>
             </div>
           ) : showNoResults ? (

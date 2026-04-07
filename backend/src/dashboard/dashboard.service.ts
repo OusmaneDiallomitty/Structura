@@ -567,6 +567,7 @@ export class DashboardService {
     q: string,
     user: {
       role: string;
+      moduleType?: string;
       permissions?: Record<string, Record<string, boolean>> | null;
       assignedClassIds?: string[];
     },
@@ -574,6 +575,68 @@ export class DashboardService {
     if (!q || q.trim().length < 2) return { results: [] };
 
     const term = q.trim();
+    const isCommerce = user.moduleType === 'COMMERCE';
+
+    // ── Module Commerce ───────────────────────────────────────────────────────
+    if (isCommerce) {
+      const [products, customers, suppliers] = await Promise.all([
+        this.prisma.product.findMany({
+          where: {
+            tenantId, isActive: true,
+            OR: [
+              { name:      { contains: term, mode: 'insensitive' } },
+              { reference: { contains: term, mode: 'insensitive' } },
+            ],
+          },
+          take: 5,
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, stockQty: true, unit: true, sellPrice: true, category: { select: { name: true } } },
+        }),
+        this.prisma.commerceCustomer.findMany({
+          where: {
+            tenantId, isActive: true,
+            name: { contains: term, mode: 'insensitive' },
+          },
+          take: 4,
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, phone: true, totalDebt: true },
+        }),
+        this.prisma.supplier.findMany({
+          where: {
+            tenantId, isActive: true,
+            name: { contains: term, mode: 'insensitive' },
+          },
+          take: 3,
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, phone: true },
+        }),
+      ]);
+
+      const results = [
+        ...products.map(p => ({
+          id: p.id, type: 'product' as const,
+          title: p.name,
+          subtitle: `${p.category?.name ?? 'Sans catégorie'} • Stock: ${p.stockQty} ${p.unit}`,
+          url: '/dashboard/commerce/products',
+        })),
+        ...customers.map(c => ({
+          id: c.id, type: 'commerce_customer' as const,
+          title: c.name,
+          subtitle: c.totalDebt > 0 ? `Dette: ${new Intl.NumberFormat('fr-GN').format(c.totalDebt)} GNF` : c.phone ?? 'Aucune dette',
+          url: '/dashboard/commerce/customers',
+        })),
+        ...suppliers.map(s => ({
+          id: s.id, type: 'supplier' as const,
+          title: s.name,
+          subtitle: s.phone ?? 'Fournisseur',
+          url: '/dashboard/commerce/suppliers',
+        })),
+      ].slice(0, 10);
+
+      return { results };
+    }
+
+    // ── Module École ──────────────────────────────────────────────────────────
     const roleUpper = user.role?.toUpperCase();
     const canView = (resource: string) => {
       if (roleUpper === 'DIRECTOR') return true;
@@ -589,7 +652,6 @@ export class DashboardService {
 
     const queries: Promise<any[]>[] = [];
 
-    // Recherche élèves
     if (canView('students')) {
       const studentWhere: any = {
         tenantId,
@@ -605,62 +667,33 @@ export class DashboardService {
       }
       queries.push(
         this.prisma.student.findMany({
-          where: studentWhere,
-          take: 5,
-          orderBy: { lastName: 'asc' },
+          where: studentWhere, take: 5, orderBy: { lastName: 'asc' },
           include: { class: { select: { name: true } } },
         }).then(rows => rows.map(s => ({
-          id:       s.id,
-          type:     'student' as const,
-          title:    `${s.firstName} ${s.lastName}`,
+          id: s.id, type: 'student' as const,
+          title: `${s.firstName} ${s.lastName}`,
           subtitle: `${s.class?.name ?? 'Sans classe'} • ${s.matricule}`,
-          url:      `/dashboard/students/${s.id}`,
+          url: `/dashboard/students/${s.id}`,
         }))),
       );
     }
 
-    // Recherche classes
     if (canView('classes')) {
-      const classWhere: any = {
-        tenantId,
-        name: { contains: term, mode: 'insensitive' },
-      };
+      const classWhere: any = { tenantId, name: { contains: term, mode: 'insensitive' } };
       if (roleUpper === 'TEACHER') {
         const ids = Array.isArray(user.assignedClassIds) ? user.assignedClassIds.filter(Boolean) : [];
-        classWhere.id = ids.length > 0 ? { in: ids } : undefined;
-        if (ids.length === 0) {
-          // Aucune classe → aucun résultat de type classe
-          queries.push(Promise.resolve([]));
-        } else {
+        if (ids.length === 0) { queries.push(Promise.resolve([])); }
+        else {
+          classWhere.id = { in: ids };
           queries.push(
-            this.prisma.class.findMany({
-              where: classWhere,
-              take: 5,
-              orderBy: { name: 'asc' },
-              include: { _count: { select: { students: true } } },
-            }).then(rows => rows.map(c => ({
-              id:       c.id,
-              type:     'class' as const,
-              title:    c.name,
-              subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`,
-              url:      `/dashboard/classes`,
-            }))),
+            this.prisma.class.findMany({ where: classWhere, take: 5, orderBy: { name: 'asc' }, include: { _count: { select: { students: true } } } })
+              .then(rows => rows.map(c => ({ id: c.id, type: 'class' as const, title: c.name, subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`, url: `/dashboard/classes` }))),
           );
         }
       } else {
         queries.push(
-          this.prisma.class.findMany({
-            where: classWhere,
-            take: 5,
-            orderBy: { name: 'asc' },
-            include: { _count: { select: { students: true } } },
-          }).then(rows => rows.map(c => ({
-            id:       c.id,
-            type:     'class' as const,
-            title:    c.name,
-            subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`,
-            url:      `/dashboard/classes`,
-          }))),
+          this.prisma.class.findMany({ where: classWhere, take: 5, orderBy: { name: 'asc' }, include: { _count: { select: { students: true } } } })
+            .then(rows => rows.map(c => ({ id: c.id, type: 'class' as const, title: c.name, subtitle: `${c._count.students} élève${c._count.students > 1 ? 's' : ''}`, url: `/dashboard/classes` }))),
         );
       }
     }
