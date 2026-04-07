@@ -1,4 +1,16 @@
-import jsPDF from "jspdf";
+// jsPDF chargé dynamiquement — ne bloque pas le bundle initial de la page
+// La librairie (~500 Ko) se charge seulement au premier appel de generatePaymentReceipt
+import type jsPDF from "jspdf";
+type JsPDFInstance = InstanceType<typeof jsPDF>;
+
+let _jsPDF: typeof import("jspdf").default | null = null;
+async function getJsPDF() {
+  if (!_jsPDF) {
+    const mod = await import("jspdf");
+    _jsPDF = mod.default;
+  }
+  return _jsPDF;
+}
 
 /**
  * Formate un montant dans la devise donnée avec espace ordinaire comme séparateur de milliers.
@@ -41,7 +53,7 @@ const COLORS = {
 };
 
 // Fonction helper pour ajouter le header
-function addHeader(doc: jsPDF, title: string, schoolName: string) {
+function addHeader(doc: JsPDFInstance, title: string, schoolName: string) {
   // Logo/Nom de l'école
   doc.setFillColor(COLORS.primary);
   doc.rect(0, 0, 210, 40, "F");
@@ -60,7 +72,7 @@ function addHeader(doc: jsPDF, title: string, schoolName: string) {
 }
 
 // Fonction helper pour ajouter le footer
-function addFooter(doc: jsPDF, pageNumber: number) {
+function addFooter(doc: JsPDFInstance, pageNumber: number) {
   const pageHeight = doc.internal.pageSize.height;
   doc.setFontSize(8);
   doc.setTextColor(COLORS.secondary);
@@ -217,7 +229,7 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
   // Devise active pour tous les montants de ce reçu
   const fmt = (n: number) => fmtAmount(n, data.currency ?? "GNF");
 
-  const doc   = new jsPDF();
+  const doc   = new (await getJsPDF())();
   const ML    = 20;   // margin left
   const MR    = 190;  // margin right
   const TW    = 170;  // table/content width
@@ -728,7 +740,7 @@ export async function generatePaymentReceipt(data: PaymentReceiptData) {
 }
 
 // Générer un bulletin de notes
-export function generateReportCard(data: {
+export async function generateReportCard(data: {
   studentName: string;
   className: string;
   trimester: string;
@@ -741,7 +753,7 @@ export function generateReportCard(data: {
   schoolName: string;
   schoolYear: string;
 }) {
-  const doc = new jsPDF();
+  const doc = new (await getJsPDF())();
   
   // Header
   addHeader(doc, "BULLETIN DE NOTES", data.schoolName);
@@ -864,7 +876,7 @@ export function generateReportCard(data: {
 }
 
 // Générer un certificat de scolarité
-export function generateSchoolCertificate(data: {
+export async function generateSchoolCertificate(data: {
   studentName: string;
   dateOfBirth: string;
   className: string;
@@ -873,7 +885,7 @@ export function generateSchoolCertificate(data: {
   directorName: string;
   certificateNumber: string;
 }) {
-  const doc = new jsPDF();
+  const doc = new (await getJsPDF())();
   
   // Header
   addHeader(doc, "CERTIFICAT DE SCOLARITÉ", data.schoolName);
@@ -1002,8 +1014,8 @@ function ascii(str: string): string {
     .replace(/[≥]/g,   ">=").replace(/[≤]/g,    "<=");
 }
 
-export function generateProclamationPDF(data: ProclamationData) {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+export async function generateProclamationPDF(data: ProclamationData) {
+  const doc = new (await getJsPDF())({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.width;   // 210
   const pageH = doc.internal.pageSize.height;  // 297
   const margin = 12;
@@ -1291,8 +1303,8 @@ const METHOD_LABELS: Record<string, string> = {
   CHECK:         "Chèque",
 };
 
-export function generateSalaryReceipt(data: SalaryReceiptData): void {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
+export async function generateSalaryReceipt(data: SalaryReceiptData): Promise<void> {
+  const doc = new (await getJsPDF())({ orientation: "portrait", unit: "mm", format: "a5" });
   const W = doc.internal.pageSize.getWidth();
   const margin = 14;
   const contentW = W - margin * 2;
@@ -1436,7 +1448,7 @@ export async function generateCommerceSalesReceipt(
   mode: ReceiptOutputMode = "download"
 ): Promise<void> {
   // Format A5 (half A4) = 148×210mm — parfait pour reçus caisse
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 210] });
+  const doc = new (await getJsPDF())({ orientation: "portrait", unit: "mm", format: [148, 210] });
   const W = doc.internal.pageSize.getWidth();
   const margin = 8;
   const contentW = W - 2 * margin;
@@ -1660,11 +1672,11 @@ export interface SupplierPaymentReceiptData {
   commercePhone?: string;
 }
 
-export function generateDebtPaymentReceiptPdf(
+export async function generateDebtPaymentReceiptPdf(
   data: DebtPaymentReceiptData,
   mode: ReceiptOutputMode = "download"
-): void {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 160] });
+): Promise<void> {
+  const doc = new (await getJsPDF())({ orientation: "portrait", unit: "mm", format: [148, 160] });
   const W = doc.internal.pageSize.getWidth();
   const margin = 10;
   let y = margin;
@@ -1765,11 +1777,11 @@ export function generateDebtPaymentReceiptPdf(
 
 // ─── Reçu paiement fournisseur ────────────────────────────────────────────────
 
-export function generateSupplierPaymentReceiptPdf(
+export async function generateSupplierPaymentReceiptPdf(
   data: SupplierPaymentReceiptData,
   mode: ReceiptOutputMode = "download"
-): void {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [148, 160] });
+): Promise<void> {
+  const doc = new (await getJsPDF())({ orientation: "portrait", unit: "mm", format: [148, 160] });
   const W = doc.internal.pageSize.getWidth();
   const margin = 10;
   let y = margin;

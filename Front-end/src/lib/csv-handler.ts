@@ -4,7 +4,12 @@
  * Supporte : CSV (.csv) + Excel (.xlsx, .xls)
  */
 
-import * as XLSX from "xlsx";
+// xlsx chargé dynamiquement — ne bloque pas le bundle initial
+let _XLSX: typeof import("xlsx") | null = null;
+async function getXLSX() {
+  if (!_XLSX) _XLSX = await import("xlsx");
+  return _XLSX;
+}
 import { showSuccess, showError, showWarning } from "./notifications";
 
 const SUPPORTED_EXTENSIONS = [".csv", ".xlsx", ".xls", ".txt"];
@@ -30,6 +35,9 @@ async function parseExcel<T>(
   file: File,
   validator?: (row: any, index: number) => { valid: boolean; errors: string[] }
 ): Promise<ImportResult<T>> {
+  // Charger xlsx avant de lancer le FileReader (dynamic import)
+  const XLSX = await getXLSX();
+
   return new Promise((resolve) => {
     const reader = new FileReader();
     const errors: ImportError[] = [];
