@@ -9,8 +9,11 @@ import {
   loginUser,
   logoutUser,
   refreshToken as apiRefreshToken,
+  switchAccount as apiSwitchAccount,
+  getLinkedAccounts,
   RegisterPayload,
   PendingApprovalResponse,
+  type LinkedAccount,
 } from "@/lib/api/auth.service";
 import { toast } from "sonner";
 import { updateProfile, getMyProfile } from "@/lib/api/users.service";
@@ -81,14 +84,13 @@ interface AuthContextType {
   updateUser: (data: Partial<User>) => Promise<void>;
   patchUserLocally: (data: Partial<User>) => void;
   refreshEmailVerified: () => void;
-  /**
-   * Recharge le profil depuis le backend et met à jour classAssignments en local.
-   * Appelé par les pages présences et notes au montage pour que les
-   * affectations de classes/matières soient toujours à jour sans reconnexion.
-   */
   refreshUserProfile: () => Promise<void>;
   hasPermission: (resource: string, action: string) => boolean;
   getValidToken: () => Promise<string | null>;
+  /** Bascule vers un autre compte lié (même email) sans déconnexion */
+  switchToAccount: (targetTenantId: string) => Promise<void>;
+  /** Liste des comptes liés disponibles */
+  linkedAccounts: LinkedAccount[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -97,6 +99,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const TOKEN_KEY = "structura_token";
 const REFRESH_TOKEN_KEY = "structura_refresh_token";
 const USER_KEY = "structura_user";
+// Map multi-comptes : { [tenantId]: { token, refreshToken, user } }
+const ACCOUNTS_KEY = "structura_accounts";
+
+type StoredAccount = { token: string; refreshToken: string; user: User };
+
+function getStoredAccounts(): Record<string, StoredAccount> {
+  try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) ?? "{}"); } catch { return {}; }
+}
+function saveStoredAccount(tenantId: string, data: StoredAccount) {
+  try {
+    const all = getStoredAccounts();
+    all[tenantId] = data;
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(all));
+  } catch { /* quota */ }
+}
+function removeStoredAccount(tenantId: string) {
+  try {
+    const all = getStoredAccounts();
+    delete all[tenantId];
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(all));
+  } catch { /* quota */ }
+}
 
 // Décode le payload JWT (base64url) sans bibliothèque externe
 // Retourne true si le token est expiré ou invalide
@@ -113,6 +137,7 @@ function isTokenExpired(token: string): boolean {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -334,6 +359,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.setAuthItem(TOKEN_KEY, authResponse.token, rememberMe);
       storage.setAuthItem(REFRESH_TOKEN_KEY, authResponse.refreshToken, rememberMe);
       storage.setAuthItem(USER_KEY, JSON.stringify(authResponse.user), rememberMe);
+      // Sauvegarder dans la map multi-comptes
+      if (authResponse.user.tenantId) {
+        saveStoredAccount(authResponse.user.tenantId, {
+          token: authResponse.token,
+          refreshToken: authResponse.refreshToken,
+          user: authResponse.user,
+        });
+      }
 
       // Mémoriser la préférence pour les écritures futures (refreshEmailVerified, updateUser…)
       if (rememberMe) {
@@ -412,12 +445,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    // Invalider la session côté serveur (fire-and-forget)
     const token = storage.getAuthItem(TOKEN_KEY);
     if (token) logoutUser(token).catch(() => {});
+    // Nettoyer la map multi-comptes
+    try { localStorage.removeItem(ACCOUNTS_KEY); } catch { /* quota */ }
     clearAuth();
-    // Hard reload — vide TOUT le cache React en mémoire (React Query, composants, state)
-    // Indispensable pour éviter que les données ÉCOLE apparaissent sur COMMERCE et vice versa
     window.location.href = '/login';
   };
 
@@ -481,6 +513,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Charger les comptes liés quand l'utilisateur change
+  useEffect(() => {
+    if (!user?.tenantId) { setLinkedAccounts([]); return; }
+    const token = storage.getAuthItem(TOKEN_KEY);
+    if (!token) return;
+    getLinkedAccounts(token).then(accounts => {
+      setLinkedAccounts(accounts);
+      saveStoredAccount(user.tenantId, {
+        token,
+        refreshToken: storage.getAuthItem(REFRESH_TOKEN_KEY) ?? "",
+        user,
+      });
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.tenantId]);
+
+  // Basculer vers un autre compte lié sans déconnexion
+  const switchToAccount = async (targetTenantId: string) => {
+    const currentToken = storage.getAuthItem(TOKEN_KEY);
+    if (!currentToken || !user) return;
+
+    // Sauvegarder le compte actuel
+    saveStoredAccount(user.tenantId, {
+      token: currentToken,
+      refreshToken: storage.getAuthItem(REFRESH_TOKEN_KEY) ?? "",
+      user,
+    });
+
+    // Vérifier si on a déjà un token en cache pour ce compte
+    const stored = getStoredAccounts()[targetTenantId];
+    if (stored?.token) {
+      // Swap local immédiat — aucun appel réseau
+      const persist = storage.isPersistent();
+      storage.setAuthItem(TOKEN_KEY, stored.token, persist);
+      storage.setAuthItem(REFRESH_TOKEN_KEY, stored.refreshToken, persist);
+      storage.setAuthItem(USER_KEY, JSON.stringify(stored.user), persist);
+      setUser(stored.user);
+      router.push(stored.user.moduleType === 'COMMERCE' ? '/dashboard/commerce' : '/dashboard');
+      return;
+    }
+
+    // Pas de token en cache → appel API pour en générer un
+    const deviceId = storage.getItem("structura_device_id") ?? undefined;
+    const result = await apiSwitchAccount(currentToken, targetTenantId, deviceId);
+    const persist = storage.isPersistent();
+    storage.setAuthItem(TOKEN_KEY, result.token, persist);
+    storage.setAuthItem(REFRESH_TOKEN_KEY, result.refreshToken, persist);
+    storage.setAuthItem(USER_KEY, JSON.stringify(result.user), persist);
+    saveStoredAccount(targetTenantId, {
+      token: result.token,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    });
+    setUser(result.user);
+    router.push(result.user.moduleType === 'COMMERCE' ? '/dashboard/commerce' : '/dashboard');
+  };
+
   // Met à jour le state local + localStorage sans appel API
   // Utilisé pour propager des changements venant d'autres endpoints (ex: nom de l'école)
   const patchUserLocally = (data: Partial<User>) => {
@@ -537,6 +626,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUserProfile,
     hasPermission,
     getValidToken,
+    switchToAccount,
+    linkedAccounts,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

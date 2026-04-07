@@ -119,6 +119,28 @@ export class AuthController {
     }
   }
 
+  // Comptes liés au même email — pour le sélecteur de compte dans la sidebar
+  @SkipThrottle({ auth: true })
+  @UseGuards(JwtAuthGuard)
+  @Get('linked-accounts')
+  async getLinkedAccounts(@Request() req: any) {
+    return this.authService.getLinkedAccounts(req.user.id, req.user.tenantId);
+  }
+
+  // Basculer vers un autre compte sans ressaisir le mot de passe
+  @SkipThrottle({ auth: true })
+  @UseGuards(JwtAuthGuard)
+  @Post('switch-account')
+  @HttpCode(HttpStatus.OK)
+  async switchAccount(
+    @Request() req: any,
+    @Body('targetTenantId') targetTenantId: string,
+    @Body('deviceId') deviceId?: string,
+  ) {
+    if (!targetTenantId) throw new BadRequestException('targetTenantId requis');
+    return this.authService.switchAccount(req.user.id, req.user.email, targetTenantId, deviceId);
+  }
+
   // Déconnexion — invalide la session immédiatement côté serveur
   @SkipThrottle({ auth: true })
   @UseGuards(JwtAuthGuard)

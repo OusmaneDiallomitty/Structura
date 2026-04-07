@@ -40,6 +40,7 @@ import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { canViewAccounting } from "@/types/permissions";
+import { AccountSwitcher } from "@/components/dashboard/AccountSwitcher";
 
 function getRoleLabel(user: { role?: string; permissions?: { isCoDirector?: boolean } | null } | null | undefined): string {
   if (!user) return "—";
@@ -529,6 +530,7 @@ export function Sidebar() {
                 </p>
               </div>
             </Link>
+            <AccountSwitcher />
             <Button
               variant="ghost"
               className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive transition-all duration-200 hover:scale-[1.02]"

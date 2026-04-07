@@ -424,6 +424,38 @@ export async function verifyEmail(token: string): Promise<{ success: boolean }> 
   }
 }
 
+// ─── Sélecteur de compte ──────────────────────────────────────────────────────
+
+export interface LinkedAccount {
+  userId: string;
+  tenantId: string;
+  tenantName: string;
+  tenantLogo: string | null;
+  moduleType: 'SCHOOL' | 'COMMERCE';
+  role: string;
+}
+
+export async function getLinkedAccounts(token: string): Promise<LinkedAccount[]> {
+  const res = await fetch(`${API_BASE_URL}/auth/linked-accounts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function switchAccount(token: string, targetTenantId: string, deviceId?: string): Promise<AuthResponse> {
+  const res = await fetch(`${API_BASE_URL}/auth/switch-account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ targetTenantId, deviceId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? 'Impossible de basculer vers ce compte');
+  }
+  return res.json();
+}
+
 // ============================================================================
 // MOCKS - À supprimer quand le backend sera prêt
 // ============================================================================

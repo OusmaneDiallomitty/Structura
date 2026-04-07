@@ -341,6 +341,110 @@ export class AuthService {
   }
 
   /**
+   * Retourne la liste des autres comptes liés au même email que l'utilisateur connecté.
+   * Utilisé par le sélecteur de compte dans la sidebar.
+   */
+  async getLinkedAccounts(currentUserId: string, currentTenantId: string) {
+    // Récupérer l'email de l'utilisateur actuel
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { email: true },
+    });
+    if (!currentUser) throw new UnauthorizedException('Utilisateur introuvable');
+
+    // Trouver tous les comptes avec le même email (sauf le compte actuel)
+    const linked = await this.prisma.user.findMany({
+      where: {
+        email: currentUser.email,
+        tenantId: { not: currentTenantId },
+        isActive: true,
+        emailVerified: true,
+      },
+      include: {
+        tenant: { select: { id: true, name: true, logo: true, moduleType: true, isActive: true } },
+      },
+    });
+
+    return linked
+      .filter(u => u.tenant?.isActive)
+      .map(u => ({
+        userId:     u.id,
+        tenantId:   u.tenantId,
+        tenantName: u.tenant?.name ?? '',
+        tenantLogo: u.tenant?.logo ?? null,
+        moduleType: u.tenant?.moduleType ?? 'SCHOOL',
+        role:       u.role.toLowerCase(),
+      }));
+  }
+
+  /**
+   * Bascule vers un autre compte sans ressaisir le mot de passe.
+   * L'utilisateur doit être déjà authentifié (JWT valide) et avoir un compte dans le tenant cible.
+   */
+  async switchAccount(currentUserId: string, currentEmail: string, targetTenantId: string, deviceId?: string) {
+    // Trouver le compte cible — même email, tenant différent
+    const targetUser = await this.prisma.user.findFirst({
+      where: {
+        email:        currentEmail,
+        tenantId:     targetTenantId,
+        isActive:     true,
+        emailVerified: true,
+      },
+      include: {
+        tenant: { select: { id: true, name: true, logo: true, moduleType: true, isActive: true } },
+      },
+    });
+
+    if (!targetUser) {
+      throw new UnauthorizedException('Aucun compte lié à cet espace');
+    }
+    if (!targetUser.tenant?.isActive) {
+      throw new UnauthorizedException('Cet espace est désactivé');
+    }
+
+    // Générer de nouveaux tokens pour le compte cible
+    const tokens = await this.generateTokens(targetUser);
+    const refreshHash = crypto.createHash('sha256').update(tokens.refreshToken).digest('hex');
+
+    await this.prisma.user.update({
+      where: { id: targetUser.id },
+      data: {
+        lastLoginAt:      new Date(),
+        currentSessionId: tokens.sessionId,
+        refreshTokenHash: refreshHash,
+        ...(deviceId ? { lastTrustedDeviceId: deviceId } : {}),
+      },
+    });
+
+    this.cacheService.del(`jwt_user:${targetUser.id}`).catch(() => {});
+
+    return {
+      user: {
+        id:               targetUser.id,
+        email:            targetUser.email,
+        firstName:        targetUser.firstName,
+        lastName:         targetUser.lastName,
+        role:             targetUser.role.toLowerCase(),
+        tenantId:         targetUser.tenantId,
+        schoolName:       targetUser.tenant?.name ?? null,
+        schoolLogo:       targetUser.tenant?.logo ?? null,
+        moduleType:       targetUser.tenant?.moduleType ?? 'SCHOOL',
+        phone:            targetUser.phone,
+        avatar:           targetUser.avatar,
+        emailVerified:    targetUser.emailVerified,
+        isActive:         targetUser.isActive,
+        permissions:      targetUser.permissions ?? null,
+        classAssignments: targetUser.classAssignments ?? [],
+        createdAt:        targetUser.createdAt,
+        updatedAt:        targetUser.updatedAt,
+      },
+      token:        tokens.token,
+      refreshToken: tokens.refreshToken,
+      expiresIn:    tokens.expiresIn,
+    };
+  }
+
+  /**
    * Déconnexion — invalide immédiatement la session et le refresh token.
    * Après logout, tout JWT existant est rejeté par la JwtStrategy (sessionId null).
    */
