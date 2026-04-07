@@ -189,7 +189,7 @@ export class SalesService {
         SET    "stockQty" = p."stockQty" - v.qty
         FROM   unnest(
                  ${productIds}::text[],
-                 ${quantities}::int[]
+                 ${quantities}::float8[]
                ) AS v(id, qty)
         WHERE  p.id = v.id
         AND    p."tenantId" = ${tenantId}
