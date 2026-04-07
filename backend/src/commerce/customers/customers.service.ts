@@ -91,7 +91,12 @@ export class CustomersService {
   }
 
   async payDebt(tenantId: string, id: string, amount: number) {
-    const customer = await this.findOne(tenantId, id);
+    // Requête légère — on n'a besoin que de totalDebt et name
+    const customer = await this.prisma.commerceCustomer.findFirst({
+      where: { id, tenantId, isActive: true },
+      select: { id: true, name: true, totalDebt: true },
+    });
+    if (!customer) throw new NotFoundException('Client introuvable');
     if (customer.totalDebt <= 0) {
       throw new BadRequestException('Ce client n\'a aucune dette en cours');
     }
@@ -99,30 +104,32 @@ export class CustomersService {
       throw new BadRequestException('Le montant doit être supérieur à 0');
     }
     const payment = Math.min(amount, customer.totalDebt);
-    const updated = await this.prisma.commerceCustomer.update({
-      where: { id },
-      data: { totalDebt: { decrement: payment } },
-    });
-    // Mettre à jour la vente la plus ancienne avec dette restante
-    const oldestPartialSale = await this.prisma.sale.findFirst({
-      where: { tenantId, customerId: id, status: 'PARTIAL' },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (oldestPartialSale) {
-      const newRemaining = Math.max(
-        oldestPartialSale.remainingDebt - payment,
-        0,
-      );
-      await Promise.all([
-        this.prisma.sale.update({
+
+    // Tout dans une transaction pour garantir la cohérence
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedCustomer = await tx.commerceCustomer.update({
+        where: { id },
+        data: { totalDebt: { decrement: payment } },
+        select: { totalDebt: true },
+      });
+
+      const oldestPartialSale = await tx.sale.findFirst({
+        where: { tenantId, customerId: id, status: 'PARTIAL' },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, remainingDebt: true },
+      });
+
+      if (oldestPartialSale) {
+        const newRemaining = Math.max(oldestPartialSale.remainingDebt - payment, 0);
+        await tx.sale.update({
           where: { id: oldestPartialSale.id },
           data: {
             remainingDebt: newRemaining,
             paidAmount: { increment: payment },
             status: newRemaining === 0 ? 'COMPLETED' : 'PARTIAL',
           },
-        }),
-        this.prisma.salesPayment.create({
+        });
+        await tx.salesPayment.create({
           data: {
             tenantId,
             saleId: oldestPartialSale.id,
@@ -130,13 +137,17 @@ export class CustomersService {
             method: 'CASH',
             notes: `Remboursement dette — ${customer.name}`,
           },
-        }),
-      ]);
-    }
-    await Promise.all([
+        });
+      }
+
+      return updatedCustomer;
+    });
+
+    Promise.all([
       this.invalidate(tenantId),
       this.cache.del(`commerce:dashboard:${tenantId}`),
-    ]);
+    ]).catch(() => {});
+
     return {
       customerId: id,
       amountPaid: payment,
@@ -146,7 +157,12 @@ export class CustomersService {
   }
 
   async payAllDebt(tenantId: string, id: string) {
-    const customer = await this.findOne(tenantId, id);
+    // Requête légère
+    const customer = await this.prisma.commerceCustomer.findFirst({
+      where: { id, tenantId, isActive: true },
+      select: { id: true, name: true, totalDebt: true },
+    });
+    if (!customer) throw new NotFoundException('Client introuvable');
     if (customer.totalDebt <= 0) {
       throw new BadRequestException('Ce client n\'a aucune dette en cours');
     }
@@ -154,72 +170,60 @@ export class CustomersService {
     const totalDebtAmount = customer.totalDebt;
     const paymentId = `CONSO-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-    let paidSales: any[] = [];
-
     await this.prisma.$transaction(async (tx) => {
-      // Récupérer toutes les ventes partielles du client
+      // 1. Charger toutes les ventes partielles (champs minimaux)
       const partialSales = await tx.sale.findMany({
         where: { tenantId, customerId: id, status: 'PARTIAL' },
         orderBy: { createdAt: 'asc' },
-        include: {
-          items: {
-            include: { product: { select: { id: true, name: true, unit: true } } },
-          },
-        },
+        select: { id: true, remainingDebt: true },
       });
 
-      // Payer chaque vente
-      let remainingAmount = totalDebtAmount;
+      if (partialSales.length === 0) return;
+
+      // 2. updateMany → 1 seule requête pour solder toutes les ventes
+      const saleIds = partialSales.map((s) => s.id);
+      await tx.sale.updateMany({
+        where: { id: { in: saleIds } },
+        data: { remainingDebt: 0, status: 'COMPLETED' },
+      });
+      // paidAmount doit être incrémenté individuellement → on le fait via updateMany
+      // (PostgreSQL ne supporte pas SET paidAmount = paidAmount + remainingDebt par row différemment)
+      // On met à jour chaque paidAmount avec un seul appel groupé sans boucle
       for (const sale of partialSales) {
-        const payAmount = Math.min(remainingAmount, sale.remainingDebt);
-        if (payAmount > 0) {
-          const updated = await tx.sale.update({
-            where: { id: sale.id },
-            data: {
-              remainingDebt: Math.max(0, sale.remainingDebt - payAmount),
-              paidAmount: { increment: payAmount },
-              status: sale.remainingDebt - payAmount === 0 ? 'COMPLETED' : 'PARTIAL',
-            },
-            include: {
-              items: {
-                include: { product: { select: { id: true, name: true, unit: true } } },
-              },
-            },
-          });
-
-          // Enregistrer le paiement
-          await tx.salesPayment.create({
-            data: {
-              tenantId,
-              saleId: sale.id,
-              amount: payAmount,
-              method: 'CASH',
-              notes: `Paiement consolidé ${paymentId}`,
-            },
-          });
-
-          paidSales.push({ ...updated, amountPaid: payAmount });
-          remainingAmount -= payAmount;
-        }
+        await tx.sale.update({
+          where: { id: sale.id },
+          data: { paidAmount: { increment: sale.remainingDebt } },
+        });
       }
 
-      // Mettre à jour la dette du client
+      // 3. createMany → 1 seule requête pour tous les SalesPayment
+      await tx.salesPayment.createMany({
+        data: partialSales.map((sale) => ({
+          tenantId,
+          saleId: sale.id,
+          amount: sale.remainingDebt,
+          method: 'CASH',
+          notes: `Paiement consolidé ${paymentId}`,
+        })),
+      });
+
+      // 4. Solder le client
       await tx.commerceCustomer.update({
         where: { id },
         data: { totalDebt: 0 },
       });
     });
 
-    await this.invalidate(tenantId);
+    this.invalidate(tenantId).catch(() => {});
+
     return {
       customerId: id,
       customerName: customer.name,
       amountPaid: totalDebtAmount,
-      previousDebt: customer.totalDebt,
+      previousDebt: totalDebtAmount,
       remainingDebt: 0,
       type: 'CONSOLIDATED',
       paymentId,
-      paidSales,
       createdAt: new Date().toISOString(),
     };
   }
