@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /check-email
+Disallow: /approve-login
+Disallow: /deny-login
+Disallow: /impersonate
+
+Sitemap: https://www.structurasaas.com/sitemap.xml
