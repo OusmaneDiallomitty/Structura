@@ -99,9 +99,10 @@ interface StatCardProps {
   trendLabel?: string;
   highlight?: "positive" | "negative" | "neutral";
   tooltip?: string;
+  health?: { label: string; bg: string; text: string };
 }
 
-function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, highlight, tooltip }: StatCardProps) {
+function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, highlight, tooltip, health }: StatCardProps) {
   const [showTip, setShowTip] = useState(false);
   const borderClass =
     highlight === "positive" ? "border-l-4 border-l-emerald-400" :
@@ -125,9 +126,13 @@ function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, hi
                   <HelpCircle className="h-3.5 w-3.5" />
                 </button>
                 {showTip && (
-                  <div className="absolute right-0 top-6 z-50 w-56 p-3 bg-popover border rounded-xl shadow-lg text-xs text-foreground/80 leading-relaxed">
-                    {tooltip}
-                  </div>
+                  <>
+                    {/* Overlay transparent pour fermer en cliquant ailleurs */}
+                    <div className="fixed inset-0 z-40" onClick={() => setShowTip(false)} />
+                    <div className="absolute right-0 bottom-full mb-2 z-50 w-64 p-3 bg-white dark:bg-gray-900 border rounded-xl shadow-xl text-xs text-foreground/85 leading-relaxed">
+                      {tooltip}
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -136,6 +141,11 @@ function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, hi
         <p className="text-2xl font-bold text-foreground leading-none">{value}</p>
         <p className="text-sm font-medium text-foreground/75 mt-1.5">{title}</p>
         {sub && <p className="text-xs text-foreground/60 mt-0.5">{sub}</p>}
+        {health && (
+          <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[11px] font-semibold ${health.bg} ${health.text}`}>
+            {health.label}
+          </span>
+        )}
         {trendLabel && <p className="text-[10px] text-foreground/50 mt-1">{trendLabel}</p>}
       </CardContent>
     </Card>
@@ -163,6 +173,24 @@ function ConceptCard({ icon: Icon, color, title, formula, description }: {
       </div>
     </div>
   );
+}
+
+// ─── Indicateurs de santé business ───────────────────────────────────────────
+
+function grossProfitHealth(profit: number, marginPct: number | null) {
+  if (profit < 0)       return { label: "⚠️ Vente à perte !", bg: "bg-red-100", text: "text-red-700" };
+  if (profit === 0)     return { label: "Aucune vente", bg: "bg-gray-100", text: "text-gray-500" };
+  if (marginPct === null) return { label: "Rentable ✓", bg: "bg-emerald-100", text: "text-emerald-700" };
+  if (marginPct < 10)   return { label: "⚠️ Marge très faible", bg: "bg-orange-100", text: "text-orange-700" };
+  if (marginPct < 20)   return { label: "Marge correcte", bg: "bg-amber-100", text: "text-amber-700" };
+  if (marginPct < 35)   return { label: "Bonne marge ✓", bg: "bg-emerald-100", text: "text-emerald-700" };
+  return                       { label: "Excellente marge ✓", bg: "bg-emerald-100", text: "text-emerald-700" };
+}
+
+function netProfitHealth(profit: number) {
+  if (profit < 0)   return { label: "⚠️ Journée déficitaire", bg: "bg-red-100", text: "text-red-700" };
+  if (profit === 0) return { label: "À l'équilibre", bg: "bg-gray-100", text: "text-gray-500" };
+  return                   { label: "Journée rentable ✓", bg: "bg-emerald-100", text: "text-emerald-700" };
 }
 
 // ─── Page principale ──────────────────────────────────────────────────────────
@@ -320,7 +348,8 @@ export default function CommerceDashboardPage() {
                 icon={TrendingUp}
                 iconBg={(stats?.today.grossProfit ?? 0) >= 0 ? "bg-emerald-500" : "bg-red-500"}
                 highlight={(stats?.today.grossProfit ?? 0) >= 0 ? "positive" : "negative"}
-                tooltip="Ce qu'il vous reste après avoir retiré le prix d'achat des produits vendus. C'est votre vrai gain avant les dépenses du commerce."
+                tooltip="Ce qu'il vous reste après avoir retiré le prix d'achat des produits vendus. C'est votre vrai gain avant les dépenses du commerce. Si ce chiffre est négatif, vous vendez à perte !"
+                health={grossProfitHealth(stats?.today.grossProfit ?? 0, todayMarginPct)}
               />
               <StatCard
                 title="Bénéfice net"
@@ -330,6 +359,7 @@ export default function CommerceDashboardPage() {
                 iconBg={(stats?.today.netProfit ?? 0) >= 0 ? "bg-blue-500" : "bg-red-500"}
                 highlight={(stats?.today.netProfit ?? 0) >= 0 ? "positive" : "negative"}
                 tooltip="Votre gain réel après avoir soustrait toutes les dépenses du jour (loyer au prorata, électricité, salaires...). C'est ce qui reste vraiment dans votre poche."
+                health={netProfitHealth(stats?.today.netProfit ?? 0)}
               />
               <StatCard
                 title="Encaissé"
@@ -375,6 +405,7 @@ export default function CommerceDashboardPage() {
                 icon={TrendingUp}
                 iconBg={(stats?.month.grossProfit ?? 0) >= 0 ? "bg-emerald-500" : "bg-red-500"}
                 highlight={(stats?.month.grossProfit ?? 0) >= 0 ? "positive" : "negative"}
+                health={grossProfitHealth(stats?.month.grossProfit ?? 0, monthMarginPct)}
               />
               <StatCard
                 title="Bénéfice net"
@@ -383,6 +414,7 @@ export default function CommerceDashboardPage() {
                 icon={CircleDollarSign}
                 iconBg={(stats?.month.netProfit ?? 0) >= 0 ? "bg-blue-500" : "bg-red-500"}
                 highlight={(stats?.month.netProfit ?? 0) >= 0 ? "positive" : "negative"}
+                health={netProfitHealth(stats?.month.netProfit ?? 0)}
               />
               <StatCard
                 title="Dettes clients"
