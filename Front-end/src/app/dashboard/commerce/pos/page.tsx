@@ -609,28 +609,34 @@ export default function POSPage() {
 
           {/* Catégories */}
           {showTab === "all" && (
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            <div className="flex gap-2 overflow-x-auto pb-1">
               <button
                 onClick={() => setCategoryFilter("")}
                 className={cn(
-                  "shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold",
-                  !categoryFilter ? "bg-orange-600 text-white" : "bg-muted hover:bg-muted/80"
+                  "shrink-0 px-3 py-2 rounded-xl text-xs font-semibold border-2 transition-all",
+                  !categoryFilter
+                    ? "bg-orange-600 border-orange-600 text-white shadow-sm"
+                    : "bg-white border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-600"
                 )}
               >
                 Tout
               </button>
               {categories?.map((c: CommerceCategory) => {
                 const count = products.filter((p) => p.categoryId === c.id).length;
+                const isActive = categoryFilter === c.id;
                 return (
                   <button
                     key={c.id}
                     onClick={() => setCategoryFilter(c.id)}
                     className={cn(
-                      "shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold",
-                      categoryFilter === c.id ? "bg-orange-600 text-white" : "bg-muted hover:bg-muted/80"
+                      "shrink-0 px-3 py-2 rounded-xl text-xs font-semibold border-2 transition-all",
+                      isActive
+                        ? "bg-orange-600 border-orange-600 text-white shadow-sm"
+                        : "bg-white border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-600"
                     )}
                   >
-                    {c.name} ({count})
+                    {c.name}
+                    <span className={cn("ml-1 font-bold", isActive ? "opacity-75" : "text-gray-400")}>({count})</span>
                   </button>
                 );
               })}

@@ -407,32 +407,35 @@ export default function StockReceiptsPage() {
       </div>
 
       {/* Onglets */}
-      <div className="flex gap-1 bg-muted/50 p-1 rounded-lg w-fit">
+      <div className="flex gap-2">
         <button
           onClick={() => setActiveTab("receptions")}
           className={cn(
-            "px-4 py-2 rounded-md text-sm font-medium transition-colors",
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all",
             activeTab === "receptions"
-              ? "bg-background shadow text-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-orange-600 border-orange-600 text-white shadow-md shadow-orange-200"
+              : "bg-white border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-600"
           )}
         >
-          <Package className="inline h-4 w-4 mr-1.5 -mt-0.5" />
-          Réceptions ({receiptsData?.total ?? 0})
+          <Package className="h-4 w-4" />
+          Réceptions
+          <span className={cn("px-1.5 py-0.5 rounded-full text-xs font-bold", activeTab === "receptions" ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600")}>
+            {receiptsData?.total ?? 0}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab("apayer")}
           className={cn(
-            "px-4 py-2 rounded-md text-sm font-medium transition-colors",
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all",
             activeTab === "apayer"
-              ? "bg-background shadow text-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-red-600 border-red-600 text-white shadow-md shadow-red-200"
+              : "bg-white border-gray-200 text-gray-600 hover:border-red-400 hover:text-red-600"
           )}
         >
-          <TrendingDown className="inline h-4 w-4 mr-1.5 -mt-0.5" />
+          <TrendingDown className="h-4 w-4" />
           À payer
           {debtsData?.totalOwed ? (
-            <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
+            <span className={cn("px-1.5 py-0.5 rounded-full text-xs font-bold", activeTab === "apayer" ? "bg-white/20 text-white" : "bg-red-100 text-red-700")}>
               {formatGNF(debtsData.totalOwed)}
             </span>
           ) : null}
