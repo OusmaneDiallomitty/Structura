@@ -125,7 +125,7 @@ function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, hi
                   <HelpCircle className="h-3.5 w-3.5" />
                 </button>
                 {showTip && (
-                  <div className="absolute right-0 top-6 z-50 w-56 p-3 bg-popover border rounded-xl shadow-lg text-xs text-muted-foreground leading-relaxed">
+                  <div className="absolute right-0 top-6 z-50 w-56 p-3 bg-popover border rounded-xl shadow-lg text-xs text-foreground/80 leading-relaxed">
                     {tooltip}
                   </div>
                 )}
@@ -134,9 +134,9 @@ function StatCard({ title, value, sub, icon: Icon, iconBg, trend, trendLabel, hi
           </div>
         </div>
         <p className="text-2xl font-bold text-foreground leading-none">{value}</p>
-        <p className="text-sm text-muted-foreground mt-1.5">{title}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
-        {trendLabel && <p className="text-[10px] text-muted-foreground/70 mt-1">{trendLabel}</p>}
+        <p className="text-sm font-medium text-foreground/75 mt-1.5">{title}</p>
+        {sub && <p className="text-xs text-foreground/60 mt-0.5">{sub}</p>}
+        {trendLabel && <p className="text-[10px] text-foreground/50 mt-1">{trendLabel}</p>}
       </CardContent>
     </Card>
   );
