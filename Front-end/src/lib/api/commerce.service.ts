@@ -571,6 +571,11 @@ export const getDailySituation = (token: string, date?: string) => {
   return request<any>(`/commerce/dashboard/daily${qs}`, token);
 };
 
+export const getMonthlyReport = (token: string, month?: string) => {
+  const qs = month ? `?month=${month}` : '';
+  return request<any>(`/commerce/dashboard/monthly${qs}`, token);
+};
+
 // ─── Dettes fournisseurs ──────────────────────────────────────────────────────
 
 export interface SupplierPayment {

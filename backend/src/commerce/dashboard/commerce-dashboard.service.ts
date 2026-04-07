@@ -143,6 +143,94 @@ export class CommerceDashboardService {
     };
   }
 
+  async getMonthlyReport(tenantId: string, month?: string) {
+    const now = new Date();
+    let year: number, monthNum: number;
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      [year, monthNum] = month.split('-').map(Number);
+    } else {
+      year = now.getFullYear(); monthNum = now.getMonth() + 1;
+    }
+
+    const start = new Date(year, monthNum - 1, 1);
+    const end   = new Date(year, monthNum, 0, 23, 59, 59, 999);
+
+    const [salesByDay, cogByDay, expenses, debtPaymentsAgg, supplierPayments, expByCategory] = await Promise.all([
+      this.prisma.$queryRaw<any[]>`
+        SELECT DATE("createdAt" AT TIME ZONE 'UTC') as day,
+               SUM("totalAmount") as revenue,
+               SUM("paidAmount") as collected,
+               COUNT(*) as sales_count
+        FROM sales
+        WHERE "tenantId" = ${tenantId} AND status != 'CANCELLED'
+          AND "createdAt" >= ${start} AND "createdAt" <= ${end}
+        GROUP BY day ORDER BY day ASC`,
+      this.prisma.$queryRaw<any[]>`
+        SELECT DATE(s."createdAt" AT TIME ZONE 'UTC') as day, SUM(si."costPrice") as cog
+        FROM sale_items si JOIN sales s ON si."saleId" = s.id
+        WHERE s."tenantId" = ${tenantId} AND s.status != 'CANCELLED'
+          AND s."createdAt" >= ${start} AND s."createdAt" <= ${end}
+        GROUP BY day ORDER BY day ASC`,
+      this.prisma.commerceExpense.findMany({ where: { tenantId, date: { gte: start, lte: end } }, orderBy: { date: 'asc' } }),
+      this.prisma.salesPayment.aggregate({ where: { tenantId, createdAt: { gte: start, lte: end } }, _sum: { amount: true } }),
+      this.prisma.supplierPayment.findMany({ where: { tenantId, createdAt: { gte: start, lte: end } }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.commerceExpense.groupBy({ by: ['category'], where: { tenantId, date: { gte: start, lte: end } }, _sum: { amount: true }, _count: true, orderBy: { _sum: { amount: 'desc' } } }),
+    ]);
+
+    const toKey = (d: any) => String(d instanceof Date ? d.toISOString() : d).slice(0, 10);
+
+    // Maps jour → valeurs
+    const cogMap  = new Map(cogByDay.map(r => [toKey(r.day), Number(r.cog)]));
+    const expMap  = new Map<string, number>();
+    const suppMap = new Map<string, number>();
+    for (const e of expenses) { const k = toKey(e.date); expMap.set(k, (expMap.get(k) ?? 0) + e.amount); }
+    for (const p of supplierPayments) { const k = toKey(p.createdAt); suppMap.set(k, (suppMap.get(k) ?? 0) + p.amount); }
+
+    // Construire les jours depuis les ventes
+    const dayMap = new Map<string, any>();
+    for (const row of salesByDay) {
+      const day = toKey(row.day);
+      const rev = Number(row.revenue); const cog = cogMap.get(day) ?? 0;
+      const exp = expMap.get(day) ?? 0; const supp = suppMap.get(day) ?? 0;
+      const collected = Number(row.collected);
+      dayMap.set(day, { date: day, salesCount: Number(row.sales_count), revenue: rev, cog, grossProfit: rev - cog, expenses: exp, supplierPayments: supp, netProfit: rev - cog - exp, collected, cashNet: collected - exp - supp });
+    }
+    // Ajouter les jours sans ventes mais avec dépenses/paiements fournisseurs
+    for (const [day, exp] of expMap) {
+      if (!dayMap.has(day)) { const supp = suppMap.get(day) ?? 0; dayMap.set(day, { date: day, salesCount: 0, revenue: 0, cog: 0, grossProfit: 0, expenses: exp, supplierPayments: supp, netProfit: -exp, collected: 0, cashNet: -exp - supp }); }
+    }
+    for (const [day, supp] of suppMap) {
+      if (!dayMap.has(day)) { const exp = expMap.get(day) ?? 0; dayMap.set(day, { date: day, salesCount: 0, revenue: 0, cog: 0, grossProfit: 0, expenses: exp, supplierPayments: supp, netProfit: -exp, collected: 0, cashNet: -exp - supp }); }
+    }
+    const byDay = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Totaux
+    const totalRevenue          = byDay.reduce((s, d) => s + d.revenue, 0);
+    const totalCog              = byDay.reduce((s, d) => s + d.cog, 0);
+    const totalGrossProfit      = totalRevenue - totalCog;
+    const totalExpenses         = expenses.reduce((s, e) => s + e.amount, 0);
+    const totalSupplierPayments = supplierPayments.reduce((s, p) => s + p.amount, 0);
+    const totalNetProfit        = totalGrossProfit - totalExpenses;
+    const totalCollected        = byDay.reduce((s, d) => s + d.collected, 0);
+    const totalDebtRecovered    = debtPaymentsAgg._sum.amount ?? 0;
+    const cashNet               = totalCollected + totalDebtRecovered - totalExpenses - totalSupplierPayments;
+    const marginPct             = totalRevenue > 0 ? (totalGrossProfit / totalRevenue) * 100 : null;
+
+    return {
+      month: `${year}-${String(monthNum).padStart(2, '0')}`,
+      summary: {
+        revenue: totalRevenue, cog: totalCog, grossProfit: totalGrossProfit,
+        expenses: totalExpenses, supplierPayments: totalSupplierPayments,
+        netProfit: totalNetProfit, collected: totalCollected,
+        debtRecovered: totalDebtRecovered, cashNet, marginPct,
+        salesCount: byDay.reduce((s, d) => s + d.salesCount, 0),
+      },
+      byDay,
+      expensesByCategory: expByCategory.map(e => ({ category: e.category, total: e._sum.amount ?? 0, count: e._count })),
+      supplierPaymentsList: supplierPayments,
+    };
+  }
+
   async getDailySituation(tenantId: string, date?: string) {
     const target = date ? new Date(date) : new Date();
     target.setHours(0,0,0,0);

@@ -33,6 +33,14 @@ export class CommerceDashboardController {
     return this.dashboardService.getDailySituation(user.tenantId, date);
   }
 
+  @Get('monthly')
+  getMonthlyReport(
+    @CurrentUser() user: any,
+    @Query('month') month?: string,
+  ) {
+    return this.dashboardService.getMonthlyReport(user.tenantId, month);
+  }
+
   @Get('analytics')
   getAnalytics(@CurrentUser() user: any) {
     return this.dashboardService.getAnalytics(user.tenantId);

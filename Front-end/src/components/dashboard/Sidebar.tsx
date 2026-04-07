@@ -33,6 +33,7 @@ import {
   CalendarDays,
   HandshakeIcon,
   BookOpen,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/Logo";
@@ -128,6 +129,12 @@ const commerceNavigation: NavItem[] = [
     title: "Situation du jour",
     href: "/dashboard/commerce/daily",
     icon: CalendarDays,
+  },
+  {
+    title: "Rapport mensuel",
+    href: "/dashboard/commerce/monthly",
+    icon: BarChart3,
+    directorOnly: true,
   },
   {
     title: "Fournisseurs",
