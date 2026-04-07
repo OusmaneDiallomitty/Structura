@@ -157,6 +157,11 @@ function RegisterContent() {
     setIsLoading(true);
     setError(null);
 
+    // Toast d'attente — Render peut mettre 20-30s à se réveiller
+    const waitingToast = toast.loading("Création de votre compte en cours…", {
+      description: "Merci de patienter, cela peut prendre quelques secondes.",
+    });
+
     try {
       // Préparer les données pour l'API
       const registerPayload = {
@@ -187,6 +192,9 @@ function RegisterContent() {
         currency: countryInfo?.currency ?? "XOF",
       }));
 
+      // Fermer le toast d'attente
+      toast.dismiss(waitingToast);
+
       // Toast de succès
       toast.success("Compte créé avec succès !", {
         description: "Un email de vérification a été envoyé à votre adresse.",
@@ -200,6 +208,8 @@ function RegisterContent() {
         : "/check-email";
       router.push(checkEmailUrl);
     } catch (err: any) {
+      toast.dismiss(waitingToast);
+
       // Logger les détails techniques pour le debugging
       const errorDetails = getErrorDetails(err);
       console.error("Registration error:", errorDetails);
