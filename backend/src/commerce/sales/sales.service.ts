@@ -145,9 +145,9 @@ export class SalesService {
     // 4. Générer un numéro de reçu (timestamp + random — collision quasi impossible)
     const receiptNumber = this.generateReceiptNumber();
 
-    // 5. Tout dans une transaction atomique
+    // 5. Tout dans une transaction atomique — minimisé à 3-4 roundtrips
     const sale = await this.prisma.$transaction(async (tx) => {
-      // Créer la vente
+      // Requête 1 : créer la vente + tous ses articles en une seule fois
       const newSale = await tx.sale.create({
         data: {
           tenantId,
@@ -179,29 +179,35 @@ export class SalesService {
         },
       });
 
-      // Décrémenter le stock + créer les mouvements — en parallèle
-      await Promise.all(
-        dto.items.map((item) =>
-          Promise.all([
-            tx.product.update({
-              where: { id: item.productId },
-              data: { stockQty: { decrement: item.quantity } },
-            }),
-            tx.stockMovement.create({
-              data: {
-                tenantId,
-                productId: item.productId,
-                userId: cashierId,
-                type: 'OUT',
-                quantity: item.quantity,
-                reason: `Vente ${receiptNumber}`,
-              },
-            }),
-          ])
-        )
+      // Requête 2 : décrémenter tous les stocks en une seule requête SQL
+      const stockCases = dto.items
+        .map((_, i) => `WHEN $${i * 2 + 1}::uuid THEN $${i * 2 + 2}::int`)
+        .join(' ');
+      const stockParams: any[] = dto.items.flatMap((item) => [
+        item.productId,
+        item.quantity,
+      ]);
+      const productIdList = dto.items.map((_, i) => `$${i * 2 + 1}::uuid`).join(', ');
+      await tx.$executeRawUnsafe(
+        `UPDATE "Product" SET "stockQty" = "stockQty" - CASE id ${stockCases} END
+         WHERE id IN (${productIdList}) AND "tenantId" = $${stockParams.length + 1}`,
+        ...stockParams,
+        tenantId,
       );
 
-      // Mettre à jour la dette du client si applicable
+      // Requête 3 : créer tous les mouvements de stock en une seule fois
+      await tx.stockMovement.createMany({
+        data: dto.items.map((item) => ({
+          tenantId,
+          productId: item.productId,
+          userId: cashierId,
+          type: 'OUT',
+          quantity: item.quantity,
+          reason: `Vente ${receiptNumber}`,
+        })),
+      });
+
+      // Requête 4 (optionnelle) : dette client
       if (dto.customerId && remainingDebt > 0) {
         await tx.commerceCustomer.update({
           where: { id: dto.customerId },
