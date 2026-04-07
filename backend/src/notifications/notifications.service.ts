@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
 import * as webpush from 'web-push';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly cache: CacheService,
   ) {
     const publicKey  = this.config.get<string>('VAPID_PUBLIC_KEY');
     const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
@@ -70,6 +72,7 @@ export class NotificationsService {
     await this.prisma.notification.create({
       data: { userId, tenantId, type, title, body, url },
     });
+    this.invalidateNotifCache(userId);
 
     // 2. Envoyer push sur tous les appareils de l'utilisateur
     await this.sendPushToUser(userId, title, body, url);
@@ -121,38 +124,65 @@ export class NotificationsService {
 
   // ─── Récupérer notifications d'un utilisateur ─────────────────────────────
 
+  private notifKey(userId: string) { return `notif:list:${userId}`; }
+  private unreadKey(userId: string) { return `notif:unread:${userId}`; }
+  private invalidateNotifCache(userId: string) {
+    Promise.all([
+      this.cache.del(this.notifKey(userId)),
+      this.cache.del(this.unreadKey(userId)),
+    ]).catch(() => {});
+  }
+
   async getNotifications(userId: string, limit = 30) {
-    return this.prisma.notification.findMany({
+    const key = this.notifKey(userId);
+    const cached = await this.cache.get<any[]>(key);
+    if (cached) return cached;
+
+    const result = await this.prisma.notification.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+    await this.cache.set(key, result, 20); // 20s — polling toutes les 32s
+    return result;
   }
 
   async markAsRead(userId: string, notificationId: string) {
-    return this.prisma.notification.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: { id: notificationId, userId },
       data: { read: true },
     });
+    this.invalidateNotifCache(userId);
+    return result;
   }
 
   async markAllAsRead(userId: string) {
-    return this.prisma.notification.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: { userId, read: false },
       data: { read: true },
     });
+    this.invalidateNotifCache(userId);
+    return result;
   }
 
   async deleteNotification(userId: string, notificationId: string) {
-    return this.prisma.notification.deleteMany({
+    const result = await this.prisma.notification.deleteMany({
       where: { id: notificationId, userId },
     });
+    this.invalidateNotifCache(userId);
+    return result;
   }
 
   async getUnreadCount(userId: string): Promise<number> {
-    return this.prisma.notification.count({
+    const key = this.unreadKey(userId);
+    const cached = await this.cache.get<number>(key);
+    if (cached !== null && cached !== undefined) return cached;
+
+    const count = await this.prisma.notification.count({
       where: { userId, read: false },
     });
+    await this.cache.set(key, count, 20);
+    return count;
   }
 
   // ─── Envoi Web Push bas niveau ────────────────────────────────────────────

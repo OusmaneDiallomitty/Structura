@@ -218,7 +218,8 @@ export class SalesService {
       return newSale;
     });
 
-    this.invalidate(tenantId).catch(() => {});
+    // Attendre l'invalidation avant de répondre → le frontend refetch toujours des données fraîches
+    await this.invalidate(tenantId).catch(() => {});
     return sale;
   }
 
