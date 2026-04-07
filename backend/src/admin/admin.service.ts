@@ -205,6 +205,16 @@ export class AdminService {
    *   INFO     → trials expirant dans 7 jours, écoles FREE depuis 30j
    */
   async getAlerts() {
+    // Cache 2 min — les alertes n'évoluent pas à la seconde
+    const CACHE_KEY = 'admin:alerts:full';
+    const cached = await this.cacheService.get<object>(CACHE_KEY);
+    if (cached) return cached as ReturnType<typeof this._computeAlerts>;
+    const result = await this._computeAlerts();
+    await this.cacheService.set(CACHE_KEY, result, 120);
+    return result;
+  }
+
+  private async _computeAlerts() {
     const now     = new Date();
     const in72h   = new Date(now.getTime() + 72 * 3_600_000);
     const in7days = new Date(now.getTime() +  7 * 86_400_000);
@@ -395,13 +405,19 @@ export class AdminService {
       update: { snoozedUntil, snoozedBy: adminEmail },
       create: { tenantId, alertType, snoozedUntil, snoozedBy: adminEmail },
     });
-    await this.cacheService.del('admin:alerts:count');
+    await Promise.all([
+      this.cacheService.del('admin:alerts:count'),
+      this.cacheService.del('admin:alerts:full'),
+    ]);
     return { message: `Alerte snoozée ${days}j`, snoozedUntil };
   }
 
   async unsnoozeAlert(tenantId: string, alertType: string) {
     await this.prisma.alertSnooze.deleteMany({ where: { tenantId, alertType } });
-    await this.cacheService.del('admin:alerts:count');
+    await Promise.all([
+      this.cacheService.del('admin:alerts:count'),
+      this.cacheService.del('admin:alerts:full'),
+    ]);
     return { message: 'Snooze retiré' };
   }
 
@@ -551,6 +567,7 @@ export class AdminService {
     await Promise.all([
       this.cacheService.del('admin:stats:global'),
       this.cacheService.del('admin:alerts:count'),
+      this.cacheService.del('admin:alerts:full'),
       this.cacheService.del('admin:finance:stats'),
     ]).catch(() => {}); // fail-safe : Redis down ne doit pas bloquer l'action
   }

@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CacheService } from '../cache/cache.service';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
 import { UpdateTeamMemberDto } from './dto/update-team-member.dto';
 import { UpdatePermissionsDto } from './dto/update-permissions.dto';
@@ -40,6 +41,7 @@ export class UsersService {
     private prisma: PrismaService,
     private emailService: EmailService,
     private notificationsService: NotificationsService,
+    private cacheService: CacheService,
   ) {}
 
   // ── Profil personnel ──────────────────────────────────────────────────────
@@ -50,7 +52,11 @@ export class UsersService {
    * frontend (présences, notes) puissent filtrer les classes/matières en temps réel.
    */
   async getOwnProfile(userId: string) {
-    return this.prisma.user.findUnique({
+    const CACHE_KEY = `user:profile:${userId}`;
+    const cached = await this.cacheService.get<object>(CACHE_KEY);
+    if (cached) return cached;
+
+    const profile = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         ...USER_PUBLIC_SELECT,
@@ -59,6 +65,14 @@ export class UsersService {
         },
       },
     });
+
+    if (profile) await this.cacheService.set(CACHE_KEY, profile, 300); // 5 min
+    return profile;
+  }
+
+  /** Invalide le cache profil — appelé après updateOwnProfile et updateTeamMember */
+  private async invalidateProfileCache(userId: string) {
+    await this.cacheService.del(`user:profile:${userId}`).catch(() => {});
   }
 
   /**
@@ -66,7 +80,7 @@ export class UsersService {
    * Ni le rôle ni l'email ne peuvent être modifiés via cet endpoint.
    */
   async updateOwnProfile(userId: string, dto: UpdateProfileDto) {
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         ...(dto.firstName !== undefined && { firstName: dto.firstName }),
@@ -75,6 +89,8 @@ export class UsersService {
       },
       select: USER_PUBLIC_SELECT,
     });
+    await this.invalidateProfileCache(userId);
+    return updated;
   }
 
   // ── Méthodes internes utilisées par Auth ──────────────────────────────────

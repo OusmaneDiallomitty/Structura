@@ -145,6 +145,12 @@ model Tenant {
   supplierPayments      SupplierPayment[]
   cashSessions          CashSession[]
 
+  // Index pour les requêtes admin/alertes (getAlerts — 7 requêtes parallèles sur Tenant)
+  @@index([subscriptionStatus])
+  @@index([subscriptionStatus, trialEndsAt])   // trials expirants / expirés
+  @@index([subscriptionPlan, isActive])         // plan FREE depuis 30j
+  @@index([isActive, createdAt])                // onboarding abandonné
+
   @@map("tenants")
 }
 
@@ -755,6 +761,7 @@ model StockReceipt {
   @@index([tenantId])
   @@index([tenantId, receivedAt])
   @@index([tenantId, status])
+  @@index([tenantId, paymentStatus])  // supplier-debts : filtre UNPAID/PARTIAL
   @@map("stock_receipts")
 }
 

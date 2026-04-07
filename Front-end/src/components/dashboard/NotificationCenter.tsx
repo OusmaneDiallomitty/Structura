@@ -14,7 +14,6 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import {
   getNotifications,
-  getUnreadCount,
   markAsRead,
   markAllAsRead,
   deleteNotification,
@@ -24,7 +23,7 @@ import * as storage from '@/lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 
-const POLL_INTERVAL = 60_000; // 60 secondes
+const POLL_INTERVAL = 120_000; // 2 minutes — réduire la charge serveur
 
 function getIcon(type: string) {
   switch (type) {
@@ -63,21 +62,42 @@ export function NotificationCenter() {
     const token = storage.getAuthItem('structura_token');
     if (!token) return;
     try {
-      const [notifs, count] = await Promise.all([
-        getNotifications(token),
-        getUnreadCount(token),
-      ]);
+      // Un seul appel au lieu de deux — unreadCount dérivé localement
+      const notifs = await getNotifications(token);
       setNotifications(notifs);
-      setUnreadCount(count);
+      setUnreadCount(notifs.filter((n) => !n.read).length);
     } catch { /* silencieux */ }
   }, []);
 
-  // Polling toutes les 60s
+  // Polling toutes les 2 min — stoppé quand l'onglet est en arrière-plan
   useEffect(() => {
     if (!user) return;
+
     fetchNotifications();
-    pollRef.current = setInterval(fetchNotifications, POLL_INTERVAL);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+
+    const startPoll = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(fetchNotifications, POLL_INTERVAL);
+    };
+    const stopPoll = () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPoll();
+      } else {
+        fetchNotifications(); // Rafraîchir immédiatement au retour
+        startPoll();
+      }
+    };
+
+    startPoll();
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      stopPoll();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [user, fetchNotifications]);
 
   // Charger quand on ouvre le popover
