@@ -179,21 +179,13 @@ export class SalesService {
         },
       });
 
-      // Requête 2 : décrémenter tous les stocks en une seule requête SQL
-      const stockCases = dto.items
-        .map((_, i) => `WHEN $${i * 2 + 1}::uuid THEN $${i * 2 + 2}::int`)
-        .join(' ');
-      const stockParams: any[] = dto.items.flatMap((item) => [
-        item.productId,
-        item.quantity,
-      ]);
-      const productIdList = dto.items.map((_, i) => `$${i * 2 + 1}::uuid`).join(', ');
-      await tx.$executeRawUnsafe(
-        `UPDATE "Product" SET "stockQty" = "stockQty" - CASE id ${stockCases} END
-         WHERE id IN (${productIdList}) AND "tenantId" = $${stockParams.length + 1}`,
-        ...stockParams,
-        tenantId,
-      );
+      // Requête 2 : décrémenter chaque stock (séquentiel dans la tx, inévitable)
+      for (const item of dto.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQty: { decrement: item.quantity } },
+        });
+      }
 
       // Requête 3 : créer tous les mouvements de stock en une seule fois
       await tx.stockMovement.createMany({

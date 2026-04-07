@@ -156,7 +156,7 @@ export class SupplierDebtsService {
       }),
     ]);
 
-    await this.invalidate(tenantId);
+    this.invalidate(tenantId).catch(() => {});
 
     return {
       paymentId: supplierPayment.id,
