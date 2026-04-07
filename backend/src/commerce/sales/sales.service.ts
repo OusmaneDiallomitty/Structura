@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheService } from '../../cache/cache.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -179,13 +180,20 @@ export class SalesService {
         },
       });
 
-      // Requête 2 : décrémenter chaque stock individuellement (sûr en transaction)
-      for (const item of dto.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stockQty: { decrement: item.quantity } },
-        });
-      }
+      // Requête 2 : batch update stock — 1 requête quelle que soit la taille du panier
+      // Syntaxe unnest(ids[], qtys[]) — deux tableaux plats, paramétrage sûr
+      const productIds = dto.items.map((i) => i.productId);
+      const quantities = dto.items.map((i) => i.quantity);
+      await tx.$executeRaw`
+        UPDATE "Product" AS p
+        SET    "stockQty" = p."stockQty" - v.qty
+        FROM   unnest(
+                 ${productIds}::uuid[],
+                 ${quantities}::int[]
+               ) AS v(id, qty)
+        WHERE  p.id = v.id
+        AND    p."tenantId" = ${tenantId}
+      `;
 
       // Requête 3 : créer tous les mouvements de stock en une seule fois
       await tx.stockMovement.createMany({
