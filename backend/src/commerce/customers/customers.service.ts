@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CacheService } from '../../cache/cache.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 
-const TTL = 120;
+const TTL = 300; // 5 minutes — invalidé immédiatement à chaque mutation
 
 @Injectable()
 export class CustomersService {

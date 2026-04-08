@@ -247,7 +247,12 @@ export class CommerceDashboardService {
     const [sales, expenses, cogAgg, debtPayments, supplierPayments] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId, status: { not: 'CANCELLED' }, createdAt: { gte: target, lte: end } },
-        include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } }, customer: { select: { id: true, name: true } } },
+        select: {
+          id: true, receiptNumber: true, totalAmount: true, paidAmount: true,
+          remainingDebt: true, paymentMethod: true, status: true, createdAt: true, notes: true,
+          customer: { select: { id: true, name: true } },
+          items: { select: { id: true, quantity: true, unitPrice: true, totalPrice: true, costPrice: true, product: { select: { id: true, name: true, unit: true } } } },
+        },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.commerceExpense.findMany({ where: { tenantId, date: { gte: target, lte: end } }, orderBy: { date: 'asc' } }),

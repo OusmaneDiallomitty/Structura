@@ -5,8 +5,8 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")   // Transaction Pooler 6543 + ?pgbouncer=true (requêtes app)
-  directUrl = env("DIRECT_URL")     // Session Pooler 5432 (migrations uniquement)
+  url       = env("DATABASE_URL") // Transaction Pooler 6543 + ?pgbouncer=true (requêtes app)
+  directUrl = env("DIRECT_URL") // Session Pooler 5432 (migrations uniquement)
 }
 
 // Enums
@@ -22,23 +22,23 @@ enum SaleStatus {
 }
 
 enum StockMovementType {
-  IN         // Entrée : livraison fournisseur
-  OUT        // Sortie : vente (automatique)
+  IN // Entrée : livraison fournisseur
+  OUT // Sortie : vente (automatique)
   ADJUSTMENT // Inventaire manuel (correction)
-  RETURN     // Retour client
+  RETURN // Retour client
 }
 
 enum ReceiptStatus {
-  DRAFT      // Brouillon — en cours de saisie
-  RECEIVED   // Reçu — stock mis à jour
-  VERIFIED   // Vérifié — par un responsable
-  CANCELLED  // Annulé
+  DRAFT // Brouillon — en cours de saisie
+  RECEIVED // Reçu — stock mis à jour
+  VERIFIED // Vérifié — par un responsable
+  CANCELLED // Annulé
 }
 
 enum SupplierPaymentStatus {
-  UNPAID   // Aucun paiement effectué
-  PARTIAL  // Paiement partiel
-  PAID     // Soldé
+  UNPAID // Aucun paiement effectué
+  PARTIAL // Paiement partiel
+  PAID // Soldé
 }
 
 enum StudentStatus {
@@ -71,105 +71,104 @@ enum SubscriptionStatus {
 }
 
 model Tenant {
-  id         String       @id @default(dbgenerated("(gen_random_uuid())::text"))
-  name       String
-  type       String
-  subdomain  String?      @unique
-  country    String       @default("Guinea")
-  city       String?
-  address    String?
-  phone      String?
-  email      String?
-  logo       String?
-  isActive   Boolean      @default(true)
+  id        String  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name      String
+  type      String
+  subdomain String? @unique
+  country   String  @default("Guinea")
+  city      String?
+  address   String?
+  phone     String?
+  email     String?
+  logo      String?
+  isActive  Boolean @default(true)
 
   // Subscription fields
-  subscriptionPlan      SubscriptionPlan   @default(FREE)
-  subscriptionStatus    SubscriptionStatus @default(ACTIVE)
-  trialEndsAt           DateTime?
-  currentPeriodStart    DateTime?
-  currentPeriodEnd      DateTime?
-  djomyCustomerId       String?            @unique
+  subscriptionPlan   SubscriptionPlan   @default(FREE)
+  subscriptionStatus SubscriptionStatus @default(ACTIVE)
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  djomyCustomerId    String?            @unique
 
   // Configuration des frais de scolarité (partagée entre tous les utilisateurs du tenant)
-  feeConfig        Json?   // { mode, globalFee, byLevel: {level: amount}, byClass: {classId: amount} }
+  feeConfig        Json? // { mode, globalFee, byLevel: {level: amount}, byClass: {classId: amount} }
   paymentFrequency String? // "monthly" | "quarterly" | "annual"
-  schoolCalendar   Json?   // { startMonth: string, durationMonths: number }
+  schoolCalendar   Json? // { startMonth: string, durationMonths: number }
   schoolType       String? @default("private") // "private" | "public"
-  feeItems         Json?   // [{ id, name, amount, classIds, academicYear, createdAt }]
-  schoolDays       Json?   // { saturday: boolean, thursdayOff: boolean }
+  feeItems         Json? // [{ id, name, amount, classIds, academicYear, createdAt }]
+  schoolDays       Json? // { saturday: boolean, thursdayOff: boolean }
 
   // Module actif — détermine quel dashboard est affiché
-  moduleType            ModuleType         @default(SCHOOL)
+  moduleType ModuleType @default(SCHOOL)
 
   // Préférences de notifications (email via Resend)
-  notifMonthlyReport    Boolean            @default(true)  // Rapport mensuel des paiements
-  notifOverdueAlert     Boolean            @default(true)  // Alerte élèves en retard de paiement
+  notifMonthlyReport Boolean @default(true) // Rapport mensuel des paiements
+  notifOverdueAlert  Boolean @default(true) // Alerte élèves en retard de paiement
 
   // Cached counters for performance (updated by triggers/cron)
-  currentStudentCount   Int                @default(0)
-  currentClassCount     Int                @default(0)
-  currentUserCount      Int                @default(1)
+  currentStudentCount Int @default(0)
+  currentClassCount   Int @default(0)
+  currentUserCount    Int @default(1)
 
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  academicYears         AcademicYear[]
-  attendance            Attendance[]
-  classes               Class[]
-  classSubjects         ClassSubject[]
-  evaluations           Evaluation[]
-  compositions          Composition[]
-  subjectCoefficients   SubjectCoefficient[]
-  payments              Payment[]
-  expenses              Expense[]
-  students              Student[]
-  users                 User[]
-  subscriptionHistory   SubscriptionHistory[]
-  subscriptionPayments  SubscriptionPayment[]
-  trimesterLocks        TrimesterLock[]
-  pushSubscriptions     PushSubscription[]
-  notifications         Notification[]
+  academicYears        AcademicYear[]
+  attendance           Attendance[]
+  classes              Class[]
+  classSubjects        ClassSubject[]
+  evaluations          Evaluation[]
+  compositions         Composition[]
+  subjectCoefficients  SubjectCoefficient[]
+  payments             Payment[]
+  expenses             Expense[]
+  students             Student[]
+  users                User[]
+  subscriptionHistory  SubscriptionHistory[]
+  subscriptionPayments SubscriptionPayment[]
+  trimesterLocks       TrimesterLock[]
+  pushSubscriptions    PushSubscription[]
+  notifications        Notification[]
 
   // Commerce — relations isolées (sans lien avec les modèles école)
-  products              Product[]
-  productCategories     ProductCategory[]
-  sales                 Sale[]
-  salesPayments         SalesPayment[]
-  stockMovements        StockMovement[]
-  stockInbounds         StockInbound[]
-  stockReceipts         StockReceipt[]
-  suppliers             Supplier[]
-  commerceCustomers     CommerceCustomer[]
-  commerceExpenses      CommerceExpense[]
-  supplierPayments      SupplierPayment[]
-  cashSessions          CashSession[]
+  products          Product[]
+  productCategories ProductCategory[]
+  sales             Sale[]
+  salesPayments     SalesPayment[]
+  stockMovements    StockMovement[]
+  stockInbounds     StockInbound[]
+  stockReceipts     StockReceipt[]
+  suppliers         Supplier[]
+  commerceCustomers CommerceCustomer[]
+  commerceExpenses  CommerceExpense[]
+  supplierPayments  SupplierPayment[]
+  cashSessions      CashSession[]
 
   // Index pour les requêtes admin/alertes (getAlerts — 7 requêtes parallèles sur Tenant)
   @@index([subscriptionStatus])
-  @@index([subscriptionStatus, trialEndsAt])   // trials expirants / expirés
-  @@index([subscriptionPlan, isActive])         // plan FREE depuis 30j
-  @@index([isActive, createdAt])                // onboarding abandonné
-
+  @@index([subscriptionStatus, trialEndsAt]) // trials expirants / expirés
+  @@index([subscriptionPlan, isActive]) // plan FREE depuis 30j
+  @@index([isActive, createdAt]) // onboarding abandonné
   @@map("tenants")
 }
 
 model AcademicYear {
   id             String    @id @default(dbgenerated("(gen_random_uuid())::text"))
-  name           String    // "2026-2027"
+  name           String // "2026-2027"
   startDate      DateTime? // Optionnel : date exacte d'ouverture
   endDate        DateTime? // Optionnel : date exacte de fermeture
-  startMonth     String?   // "Octobre" — mois de rentrée
-  durationMonths Int?      // 9 — durée en mois (définit T1/T2/T3)
+  startMonth     String? // "Octobre" — mois de rentrée
+  durationMonths Int? // 9 — durée en mois (définit T1/T2/T3)
   isCurrent      Boolean   @default(false)
   isArchived     Boolean   @default(false)
   tenantId       String
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
 
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  classes     Class[]
-  students    Student[]
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classes  Class[]
+  students Student[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isCurrent])
@@ -177,24 +176,24 @@ model AcademicYear {
 }
 
 model User {
-  id                      String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id                      String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   email                   String
   password                String
   firstName               String
   lastName                String
   phone                   String?
   avatar                  String?
-  role                    String    @default("TEACHER")
-  permissions             Json?     // null = utiliser les défauts du rôle
+  role                    String             @default("TEACHER")
+  permissions             Json? // null = utiliser les défauts du rôle
   tenantId                String
-  emailVerified           Boolean   @default(false)
-  emailVerificationToken  String?   @unique
+  emailVerified           Boolean            @default(false)
+  emailVerificationToken  String?            @unique
   emailVerificationExpiry DateTime?
-  passwordResetToken      String?   @unique
+  passwordResetToken      String?            @unique
   passwordResetExpiry     DateTime?
-  onboardingCompleted     Boolean   @default(false)
-  mustChangePassword      Boolean   @default(false)
-  isActive                Boolean   @default(true)
+  onboardingCompleted     Boolean            @default(false)
+  mustChangePassword      Boolean            @default(false)
+  isActive                Boolean            @default(true)
   lastLoginAt             DateTime?
   // Affectation classes+matières pour les professeurs
   // Exemple : [{"classId":"abc","subjects":["Français","Histoire"]}]
@@ -207,38 +206,38 @@ model User {
   pushSubscriptions       PushSubscription[]
   notifications           Notification[]
   // Sécurité session — session unique par appareil
-  currentSessionId        String?   // UUID généré à chaque login; invalide les anciens tokens
-  refreshTokenHash        String?   // SHA-256 du refresh token actif (révocation immédiate possible)
-  lastTrustedDeviceId     String?   // UUID appareil stocké dans localStorage — skip approbation si même appareil
+  currentSessionId        String? // UUID généré à chaque login; invalide les anciens tokens
+  refreshTokenHash        String? // SHA-256 du refresh token actif (révocation immédiate possible)
+  lastTrustedDeviceId     String? // UUID appareil stocké dans localStorage — skip approbation si même appareil
   // Approbation connexion nouvel appareil (Option B — code d'échange)
   // Flux : login → pendingLoginToken en BDD → email → approbation → pendingExchangeCode → /auth/exchange → JWT
   // Aucun token JWT n'est jamais stocké en BDD.
-  pendingLoginToken       String?   @unique // UUID de la demande en attente (10 min)
-  pendingLoginExpiry      DateTime?          // Expiration du pendingLoginToken
-  pendingExchangeCode     String?   @unique  // Code court à usage unique (2 min) — fallback Redis
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @default(now()) @updatedAt
-  tenant                  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  taughtClasses           Class[]   @relation("TeacherClasses")
+  pendingLoginToken       String?            @unique // UUID de la demande en attente (10 min)
+  pendingLoginExpiry      DateTime? // Expiration du pendingLoginToken
+  pendingExchangeCode     String?            @unique // Code court à usage unique (2 min) — fallback Redis
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @default(now()) @updatedAt
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  taughtClasses           Class[]            @relation("TeacherClasses")
 
   // Un même email peut exister dans plusieurs tenants distincts (prof enseignant dans 2 écoles).
   // Au sein d'un même tenant, l'email reste unique.
   @@unique([email, tenantId])
-  @@index([email])                              // index pour la performance du login (recherche par email)
+  @@index([email]) // index pour la performance du login (recherche par email)
   @@index([tenantId], map: "idx_users_tenantId")
   @@map("users")
 }
 
 model Student {
-  id             String         @id @default(dbgenerated("(gen_random_uuid())::text"))
-  matricule      String
-  firstName      String
-  lastName       String
-  dateOfBirth    DateTime?
-  gender         String?
-  photo          String?
-  classId        String
-  academicYearId String?
+  id               String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  matricule        String
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime?
+  gender           String?
+  photo            String?
+  classId          String
+  academicYearId   String?
   parentName       String?
   parentPhone      String?
   parentEmail      String?
@@ -246,62 +245,62 @@ model Student {
   address          String?
   // Mois d'entrée en cours d'année — format "YYYY-MM" (ex : "2025-11")
   // null = élève inscrit depuis le début de l'année scolaire
-  enrollmentMonth String?
-  status         StudentStatus  @default(ACTIVE)
-  paymentStatus  PaymentStatus  @default(PENDING)
-  tenantId       String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @default(now()) @updatedAt
+  enrollmentMonth  String?
+  status           StudentStatus @default(ACTIVE)
+  paymentStatus    PaymentStatus @default(PENDING)
+  tenantId         String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @default(now()) @updatedAt
 
-  attendances    Attendance[]
-  evaluations    Evaluation[]
-  compositions   Composition[]
-  payments       Payment[]
-  class          Class          @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  academicYear   AcademicYear?  @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
-  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  attendances  Attendance[]
+  evaluations  Evaluation[]
+  compositions Composition[]
+  payments     Payment[]
+  class        Class         @relation(fields: [classId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenantId, matricule])
   @@index([classId], map: "idx_students_classId")
   @@index([matricule], map: "idx_students_matricule")
   @@index([tenantId], map: "idx_students_tenantId")
   @@index([tenantId, classId])
-  @@index([tenantId, status])    // Comptage élèves actifs (dashboard)
-  @@index([tenantId, gender])    // Statistiques genre par tenant
+  @@index([tenantId, status]) // Comptage élèves actifs (dashboard)
+  @@index([tenantId, gender]) // Statistiques genre par tenant
   @@index([academicYearId])
   @@map("students")
 }
 
 model Class {
-  id             String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   name           String
   level          String
   section        String?
-  order          Int           @default(0) // Ordre d'affichage (CP1=1, CP2=2, ..., 12ème=12)
-  capacity       Int           @default(30)
-  studentCount   Int           @default(0)
+  order          Int      @default(0) // Ordre d'affichage (CP1=1, CP2=2, ..., 12ème=12)
+  capacity       Int      @default(30)
+  studentCount   Int      @default(0)
   teacherId      String?
   teacherName    String?
   room           String?
-  gradeMode      String        @default("SECONDARY") // PRIMARY (sur 10, compo seule) | SECONDARY (sur 20, eval+compo)
-  academicYear   String        @default("2024-2025") // Deprecated: use academicYearId
+  gradeMode      String   @default("SECONDARY") // PRIMARY (sur 10, compo seule) | SECONDARY (sur 20, eval+compo)
+  academicYear   String   @default("2024-2025") // Deprecated: use academicYearId
   academicYearId String?
   tenantId       String
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @default(now()) @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
 
-  attendances    Attendance[]
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  evaluations    Evaluation[]
-  compositions   Composition[]
+  attendances         Attendance[]
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  evaluations         Evaluation[]
+  compositions        Composition[]
   subjectCoefficients SubjectCoefficient[]
-  students       Student[]
-  subjects       ClassSubject[]
-  academicYearRel AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
-  teacher        User?         @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: SetNull)
+  students            Student[]
+  subjects            ClassSubject[]
+  academicYearRel     AcademicYear?        @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  teacher             User?                @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: SetNull)
 
-  @@index([tenantId])                  // Comptage classes par tenant (dashboard)
-  @@index([tenantId, academicYearId])  // Filtrage classes par année scolaire
+  @@index([tenantId]) // Comptage classes par tenant (dashboard)
+  @@index([tenantId, academicYearId]) // Filtrage classes par année scolaire
   @@index([academicYearId])
   @@index([teacherId])
   @@map("classes")
@@ -313,13 +312,13 @@ model ClassSubject {
   classId     String
   tenantId    String
   name        String
-  coefficient Float    @default(1)   // Décimal autorisé (ex: 1.5) ; 0 = matière sans coefficient
+  coefficient Float    @default(1) // Décimal autorisé (ex: 1.5) ; 0 = matière sans coefficient
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
 
-  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  class  Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([classId, name])
   @@index([classId])
@@ -343,8 +342,8 @@ model Attendance {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([studentId, date])
-  @@index([tenantId, date])    // Requêtes dashboard "présences du jour / du mois"
-  @@index([tenantId, status])  // Filtrage par statut (present/absent)
+  @@index([tenantId, date]) // Requêtes dashboard "présences du jour / du mois"
+  @@index([tenantId, status]) // Filtrage par statut (present/absent)
   @@map("attendances")
 }
 
@@ -369,8 +368,8 @@ model Payment {
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
-  @@index([tenantId, createdAt(sort: Desc)])  // Requêtes revenus mensuels + paiements récents
-  @@index([tenantId, status])                 // Filtrage paiements en attente / payés
+  @@index([tenantId, createdAt(sort: Desc)]) // Requêtes revenus mensuels + paiements récents
+  @@index([tenantId, status]) // Filtrage paiements en attente / payés
   @@map("payments")
 }
 
@@ -380,17 +379,17 @@ model Expense {
   tenantId     String
   amount       Float
   currency     String   @default("GNF")
-  category     String   // PEDAGOGY | INFRASTRUCTURE | HR | ACTIVITIES | GENERAL | OTHER | SALARY
+  category     String // PEDAGOGY | INFRASTRUCTURE | HR | ACTIVITIES | GENERAL | OTHER | SALARY
   description  String
   method       String   @default("CASH") // CASH | MOBILE_MONEY | BANK_TRANSFER | CHECK
   date         DateTime // Date réelle de la dépense
-  academicYear String?  // "2025-2026" — lié à une année scolaire
-  reference    String?  // Numéro de reçu / bon de caisse
-  note         String?  // Commentaire libre
-  recordedBy   String?  // Nom de l'utilisateur qui a enregistré
+  academicYear String? // "2025-2026" — lié à une année scolaire
+  reference    String? // Numéro de reçu / bon de caisse
+  note         String? // Commentaire libre
+  recordedBy   String? // Nom de l'utilisateur qui a enregistré
   // Champs salaire — remplis uniquement si category = SALARY
-  staffId      String?  // ID du membre (User.id)
-  staffName    String?  // Snapshot du nom (en cas de suppression du compte)
+  staffId      String? // ID du membre (User.id)
+  staffName    String? // Snapshot du nom (en cas de suppression du compte)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
@@ -408,20 +407,20 @@ model Evaluation {
   id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   studentId    String
   classId      String
-  subject      String   // "Mathématiques", "Français", etc.
-  term         String   // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  subject      String // "Mathématiques", "Français", etc.
+  term         String // "Trimestre 1", "Trimestre 2", "Trimestre 3"
   academicYear String   @default("2024-2025")
-  month        String   // "Octobre", "Novembre", "Décembre" — dynamique selon schoolCalendar
-  score        Float    // Note du mois (sur /20)
+  month        String // "Octobre", "Novembre", "Décembre" — dynamique selon schoolCalendar
+  score        Float // Note du mois (sur /20)
   teacherName  String?
   notes        String?
   tenantId     String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
-  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  class        Class    @relation(fields: [classId], references: [id], onDelete: NoAction)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   Class   @relation(fields: [classId], references: [id], onDelete: NoAction)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, studentId, classId, subject, term, academicYear, month])
   @@index([tenantId, classId, term])
@@ -431,22 +430,22 @@ model Evaluation {
 
 /// Compositions (examens trimestriels) — secondaire uniquement
 model Composition {
-  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  studentId         String
-  classId           String
-  subject           String   // "Mathématiques", "Français", etc.
-  term              String   // "Trimestre 1", "Trimestre 2", "Trimestre 3"
-  academicYear      String   @default("2024-2025")
-  compositionScore  Float    // Note examen (sur /20)
-  teacherName       String?
-  notes             String?
-  tenantId          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @default(now()) @updatedAt
+  id               String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  studentId        String
+  classId          String
+  subject          String // "Mathématiques", "Français", etc.
+  term             String // "Trimestre 1", "Trimestre 2", "Trimestre 3"
+  academicYear     String   @default("2024-2025")
+  compositionScore Float // Note examen (sur /20)
+  teacherName      String?
+  notes            String?
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
 
-  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  class             Class    @relation(fields: [classId], references: [id], onDelete: NoAction)
-  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   Class   @relation(fields: [classId], references: [id], onDelete: NoAction)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, studentId, classId, subject, term, academicYear])
   @@index([tenantId, classId, term])
@@ -465,8 +464,8 @@ model SubjectCoefficient {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
-  class        Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  class  Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, classId, subject, academicYear])
   @@index([tenantId, classId])
@@ -478,12 +477,12 @@ model TrimesterLock {
   id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   classId      String
   tenantId     String
-  trimester    String   // "Trimestre 1" | "Trimestre 2" | "Trimestre 3"
-  academicYear String   // "2025-2026"
+  trimester    String // "Trimestre 1" | "Trimestre 2" | "Trimestre 3"
+  academicYear String // "2025-2026"
   lockedAt     DateTime @default(now())
-  lockedByName String?  // Nom de l'utilisateur qui a validé
+  lockedByName String? // Nom de l'utilisateur qui a validé
 
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([classId, trimester, academicYear, tenantId])
   @@index([classId])
@@ -495,9 +494,9 @@ model TrimesterLock {
 model AlertSnooze {
   id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId     String
-  alertType    String   // TRIAL_EXPIRING_SOON | TRIAL_EXPIRING_WEEK | TRIAL_EXPIRED | PAST_DUE | INACTIVE_7DAYS | NO_SETUP | LONG_FREE
+  alertType    String // TRIAL_EXPIRING_SOON | TRIAL_EXPIRING_WEEK | TRIAL_EXPIRED | PAST_DUE | INACTIVE_7DAYS | NO_SETUP | LONG_FREE
   snoozedUntil DateTime
-  snoozedBy    String   // email de l'admin
+  snoozedBy    String // email de l'admin
   createdAt    DateTime @default(now())
 
   @@unique([tenantId, alertType])
@@ -522,12 +521,12 @@ model TenantNote {
 /// Journal d'audit immuable — toutes les actions admin et événements plateforme
 model AuditLog {
   id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  action     String   // NEW_TENANT | SUSPEND | ACTIVATE | DELETE | IMPERSONATE | PAYMENT_FAILED | LOGIN_ADMIN
-  actorEmail String?  // Email de l'admin qui a déclenché l'action
-  actorId    String?  // ID de l'admin
-  tenantId   String?  // Tenant concerné (null si action globale)
-  tenantName String?  // Nom du tenant (dénormalisé pour perf lecture)
-  details    Json?    // Métadonnées contextuelles
+  action     String // NEW_TENANT | SUSPEND | ACTIVATE | DELETE | IMPERSONATE | PAYMENT_FAILED | LOGIN_ADMIN
+  actorEmail String? // Email de l'admin qui a déclenché l'action
+  actorId    String? // ID de l'admin
+  tenantId   String? // Tenant concerné (null si action globale)
+  tenantName String? // Nom du tenant (dénormalisé pour perf lecture)
+  details    Json? // Métadonnées contextuelles
   createdAt  DateTime @default(now())
 
   @@index([createdAt(sort: Desc)])
@@ -545,12 +544,12 @@ model SubscriptionHistory {
   amount        Float?
   currency      String             @default("GNF")
   paymentMethod String?
-  paymentId     String?            // ID transaction Djomy
+  paymentId     String? // ID transaction Djomy
   invoiceUrl    String?
   notes         String?
 
-  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdAt     DateTime           @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
   @@index([tenantId], map: "idx_subscription_history_tenantId")
   @@map("subscription_history")
@@ -558,18 +557,18 @@ model SubscriptionHistory {
 
 /// Paiements d'abonnement via Djomy — trace complète de chaque transaction
 model SubscriptionPayment {
-  id                       String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id                       String  @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId                 String
-  djomyTransactionId       String?  @unique   // UUID retourné par Djomy
-  merchantPaymentReference String   @unique   // Notre référence interne (SUB-{tenantId}-{ts})
+  djomyTransactionId       String? @unique // UUID retourné par Djomy
+  merchantPaymentReference String  @unique // Notre référence interne (SUB-{tenantId}-{ts})
   amount                   Float
-  currency                 String   @default("GNF")
-  status                   String   @default("CREATED") // CREATED | PENDING | SUCCESS | FAILED | CANCELLED
-  plan                     String   // PRO | PRO_PLUS
-  period                   String   // monthly | annual
-  paymentMethod            String?  // OM | MOMO | CARD | etc.
-  payerIdentifier          String?  // Numéro Orange Money / MTN du payeur
-  webhookEventId           String?  @unique // eventId Djomy pour dédoublonnage
+  currency                 String  @default("GNF")
+  status                   String  @default("CREATED") // CREATED | PENDING | SUCCESS | FAILED | CANCELLED
+  plan                     String // PRO | PRO_PLUS
+  period                   String // monthly | annual
+  paymentMethod            String? // OM | MOMO | CARD | etc.
+  payerIdentifier          String? // Numéro Orange Money / MTN du payeur
+  webhookEventId           String? @unique // eventId Djomy pour dédoublonnage
 
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
@@ -605,7 +604,7 @@ model Notification {
   id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId  String
   userId    String
-  type      String   // LOGIN_APPROVAL | MEMBER_PENDING | PAYMENT_OVERDUE | ATTENDANCE | SUBSCRIPTION_EXPIRY | TRIMESTER_LOCKED
+  type      String // LOGIN_APPROVAL | MEMBER_PENDING | PAYMENT_OVERDUE | ATTENDANCE | SUBSCRIPTION_EXPIRY | TRIMESTER_LOCKED
   title     String
   body      String
   url       String?
@@ -616,6 +615,7 @@ model Notification {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
+  @@index([userId, createdAt(sort: Desc)]) // getNotifications — pagination par date
   @@index([tenantId])
   @@map("notifications")
 }
@@ -627,15 +627,15 @@ model Notification {
 
 /// Catégories de produits — configurées par le commerçant
 model ProductCategory {
-  id        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId  String
   name      String
-  order     Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  products  Product[]
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -644,35 +644,35 @@ model ProductCategory {
 
 /// Produits du catalogue — stock, prix, alertes
 model Product {
-  id           String           @id @default(dbgenerated("(gen_random_uuid())::text"))
-  tenantId     String
-  categoryId   String?
-  name         String
-  reference    String?          // SKU / code interne
-  barcode      String?          // Code-barre EAN
-  unit         String           @default("pièce") // pièce | kg | litre | boîte | sac | etc
-  buyPrice     Float            @default(0)        // Prix d'achat (unité de vente)
-  sellPrice    Float                               // Prix de vente (unité de vente)
-  stockQty     Float            @default(0)        // Quantité en stock (unité de vente)
-  stockAlert   Float            @default(5)        // Alerte rupture si qty < stockAlert
-  imageUrl     String?
-  expiresAt    DateTime?        // Date de péremption (pharmacie, épicerie)
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId   String
+  categoryId String?
+  name       String
+  reference  String? // SKU / code interne
+  barcode    String? // Code-barre EAN
+  unit       String    @default("pièce") // pièce | kg | litre | boîte | sac | etc
+  buyPrice   Float     @default(0) // Prix d'achat (unité de vente)
+  sellPrice  Float // Prix de vente (unité de vente)
+  stockQty   Float     @default(0) // Quantité en stock (unité de vente)
+  stockAlert Float     @default(5) // Alerte rupture si qty < stockAlert
+  imageUrl   String?
+  expiresAt  DateTime? // Date de péremption (pharmacie, épicerie)
 
   // Unités multiples / Conversion
-  purchaseUnit      String?     // Unité d'achat (tonne, palette, carton, boîte, etc)
-  conversionFactor  Float?      // Ex: 1 tonne = 1000 sacs → factor=1000
-  conversionNote    String?     // Ex: "1 tonne de riz = 1000 sacs"
+  purchaseUnit     String? // Unité d'achat (tonne, palette, carton, boîte, etc)
+  conversionFactor Float? // Ex: 1 tonne = 1000 sacs → factor=1000
+  conversionNote   String? // Ex: "1 tonne de riz = 1000 sacs"
 
-  isActive     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @default(now()) @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category            ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  saleItems           SaleItem[]
-  stockMovements      StockMovement[]
-  stockInbounds       StockInbound[]
-  receiptLines        StockReceiptLine[]
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category       ProductCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  saleItems      SaleItem[]
+  stockMovements StockMovement[]
+  stockInbounds  StockInbound[]
+  receiptLines   StockReceiptLine[]
 
   @@unique([tenantId, reference])
   @@index([tenantId])
@@ -683,28 +683,28 @@ model Product {
 
 /// Réception stock — traçabilité des arrivages (fournisseur + conversion)
 model StockInbound {
-  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
-  tenantId        String
-  productId       String
+  id        String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  productId String
 
   // Ce qui arrive
-  receivedQty     Float     // Quantité reçue (en purchaseUnit)
-  receivedUnit    String    // Unité reçue (tonne, palette, etc)
+  receivedQty  Float // Quantité reçue (en purchaseUnit)
+  receivedUnit String // Unité reçue (tonne, palette, etc)
 
   // Conversion automatique en unité de vente
-  convertedQty    Float     // Quantité convertie (en unit produit)
-  conversionFactor Float    // Facteur utilisé pour la conversion
+  convertedQty     Float // Quantité convertie (en unit produit)
+  conversionFactor Float // Facteur utilisé pour la conversion
 
   // Métadonnées
-  supplierId      String?
-  reference       String?   // Numéro bon de commande, facture, etc
-  notes           String?
+  supplierId String?
+  reference  String? // Numéro bon de commande, facture, etc
+  notes      String?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
   @@index([tenantId, productId])
@@ -713,103 +713,103 @@ model StockInbound {
 
 /// Bon de Réception — Traçabilité complète des arrivages (jour, heure, fournisseur, produits, etc)
 model StockReceipt {
-  id                String    @id @default(dbgenerated("(gen_random_uuid())::text"))
-  tenantId          String
+  id       String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId String
 
   // Numérotation
-  receiptNumber     String    // REC-001, REC-002, etc
-  referenceNumber   String?   // Numéro BC, facture, etc du fournisseur
+  receiptNumber   String // REC-001, REC-002, etc
+  referenceNumber String? // Numéro BC, facture, etc du fournisseur
 
   // Fournisseur
-  supplierId        String?
-  supplierName      String    // Nom fournisseur (peut être différent si pas dans BDD)
+  supplierId   String?
+  supplierName String // Nom fournisseur (peut être différent si pas dans BDD)
 
   // Traçabilité temporelle
-  receivedAt        DateTime  @default(now()) // Date + heure réception
+  receivedAt DateTime @default(now()) // Date + heure réception
 
   // Qui a enregistré
-  receivedByUserId  String
-  receivedByName    String    // Nom utilisateur qui a enregistré
+  receivedByUserId String
+  receivedByName   String // Nom utilisateur qui a enregistré
 
   // Vérification
-  verifiedByUserId  String?
-  verifiedAt        DateTime?
+  verifiedByUserId String?
+  verifiedAt       DateTime?
 
   // État
-  status            ReceiptStatus @default(RECEIVED)
+  status ReceiptStatus @default(RECEIVED)
 
   // Remarques
-  notes             String?
+  notes String?
 
   // Totaux
-  totalItems        Int       @default(0) // Nombre de lignes
+  totalItems Int @default(0) // Nombre de lignes
 
   // Paiement fournisseur
-  amountDue         Float?                         // Montant total dû au fournisseur (snapshot à la réception)
-  amountPaid        Float                @default(0) // Montant déjà payé
-  paymentStatus     SupplierPaymentStatus @default(UNPAID)
+  amountDue     Float? // Montant total dû au fournisseur (snapshot à la réception)
+  amountPaid    Float                 @default(0) // Montant déjà payé
+  paymentStatus SupplierPaymentStatus @default(UNPAID)
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  supplier  Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  lines     StockReceiptLine[]
-  supplierPayments  SupplierPayment[]
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier         Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  lines            StockReceiptLine[]
+  supplierPayments SupplierPayment[]
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
   @@index([tenantId, receivedAt])
   @@index([tenantId, status])
-  @@index([tenantId, paymentStatus])             // supplier-debts : filtre UNPAID/PARTIAL
+  @@index([tenantId, paymentStatus]) // supplier-debts : filtre UNPAID/PARTIAL
   @@index([tenantId, supplierId, paymentStatus]) // Dettes par fournisseur
   @@map("stock_receipts")
 }
 
 /// Lignes du Bon de Réception — Produits reçus
 model StockReceiptLine {
-  id                String    @id @default(dbgenerated("(gen_random_uuid())::text"))
-  receiptId         String
-  productId         String
+  id        String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  receiptId String
+  productId String
 
   // Quantité reçue
-  quantity          Float     // Quantité (directement en unité finale du produit)
-  unit              String    // Unité (sac, kg, litre, pièce, etc)
+  quantity Float // Quantité (directement en unité finale du produit)
+  unit     String // Unité (sac, kg, litre, pièce, etc)
 
   // Montant (optionnel)
-  unitPrice         Float?
-  totalPrice        Float?    // quantity × unitPrice
+  unitPrice  Float?
+  totalPrice Float? // quantity × unitPrice
 
   // Notes par produit
-  notes             String?
+  notes String?
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  receipt   StockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  product   Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  receipt StockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([receiptId])
   @@index([productId])
   @@map("stock_receipt_lines")
 }
 
-
 /// Clients commerce — pour le suivi crédit (≠ Student)
 model CommerceCustomer {
-  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  tenantId   String
-  name       String
-  phone      String?
-  address    String?
-  totalDebt  Float    @default(0) // Solde dû (mis à jour à chaque vente/paiement)
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  tenantId  String
+  name      String
+  phone     String?
+  address   String?
+  totalDebt Float    @default(0) // Solde dû (mis à jour à chaque vente/paiement)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sales      Sale[]
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales  Sale[]
 
   @@index([tenantId])
+  @@index([tenantId, isActive]) // customers.service filtre toujours isActive: true
   @@index([tenantId, name])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("commerce_customers")
@@ -827,60 +827,62 @@ model Supplier {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  receipts  StockReceipt[]
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipts StockReceipt[]
 
   @@index([tenantId])
+  @@index([tenantId, isActive]) // suppliers.service filtre toujours isActive: true
   @@map("suppliers")
 }
 
 /// Ventes (caisse / PDV) — chaque passage en caisse
 model Sale {
-  id            String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id            String     @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId      String
-  receiptNumber String           // Numéro de reçu unique par tenant
-  cashierId     String           // User.id du caissier
-  customerId    String?          // CommerceCustomer.id (optionnel — vente anonyme possible)
-  totalAmount   Float            // Total de la vente
-  paidAmount    Float            // Montant réellement encaissé
-  changeAmount  Float            @default(0)  // Monnaie rendue
-  remainingDebt Float            @default(0)  // Reste dû (si paiement partiel)
-  paymentMethod String           @default("CASH") // CASH | MOBILE_MONEY | CREDIT
-  status        SaleStatus       @default(COMPLETED)
+  receiptNumber String // Numéro de reçu unique par tenant
+  cashierId     String // User.id du caissier
+  customerId    String? // CommerceCustomer.id (optionnel — vente anonyme possible)
+  totalAmount   Float // Total de la vente
+  paidAmount    Float // Montant réellement encaissé
+  changeAmount  Float      @default(0) // Monnaie rendue
+  remainingDebt Float      @default(0) // Reste dû (si paiement partiel)
+  paymentMethod String     @default("CASH") // CASH | MOBILE_MONEY | CREDIT
+  status        SaleStatus @default(COMPLETED)
   notes         String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @default(now()) @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @default(now()) @updatedAt
 
-  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer      CommerceCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  items         SaleItem[]
-  payments      SalesPayment[]
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer CommerceCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    SaleItem[]
+  payments SalesPayment[]
 
   @@unique([tenantId, receiptNumber])
   @@index([tenantId])
-  @@index([tenantId, createdAt(sort: Desc)])           // Ventes récentes + rapports journaliers
+  @@index([tenantId, createdAt(sort: Desc)]) // Ventes récentes + rapports journaliers
   @@index([tenantId, status])
   @@index([tenantId, cashierId])
-  @@index([tenantId, customerId])                      // Historique ventes par client
-  @@index([tenantId, status, createdAt(sort: Desc)])   // Filtrage statut + tri date
+  @@index([tenantId, customerId]) // Historique ventes par client
+  @@index([tenantId, status, createdAt(sort: Desc)]) // Filtrage statut + tri date
   @@map("sales")
 }
 
 /// Lignes d'une vente — chaque produit vendu
 model SaleItem {
-  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id         String @id @default(dbgenerated("(gen_random_uuid())::text"))
   saleId     String
   productId  String
-  quantity   Float    // Peut être décimal (ex : 0.5 kg)
-  unitPrice  Float    // Prix de vente unitaire au moment de la vente (snapshot)
-  costPrice  Float    @default(0) // Prix d'achat au moment de la vente (snapshot pour bénéfice)
-  totalPrice Float    // quantity × unitPrice
+  quantity   Float // Peut être décimal (ex : 0.5 kg)
+  unitPrice  Float // Prix de vente unitaire au moment de la vente (snapshot)
+  costPrice  Float  @default(0) // Prix d'achat au moment de la vente (snapshot pour bénéfice)
+  totalPrice Float // quantity × unitPrice
 
-  sale       Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product    Product  @relation(fields: [productId], references: [id], onDelete: NoAction)
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: NoAction)
 
   @@index([saleId])
   @@index([productId])
+  @@index([saleId, productId]) // dashboard groupBy + analytics joins
   @@map("sale_items")
 }
 
@@ -889,17 +891,17 @@ model CommerceExpense {
   id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId    String
   amount      Float
-  category    String   // loyer | salaire | transport | achat_divers | autre
+  category    String // loyer | salaire | transport | achat_divers | autre
   description String?
   date        DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([tenantId, date])
-  @@index([tenantId, category, date(sort: Desc)])  // Filtre catégorie + tri date
+  @@index([tenantId, category, date(sort: Desc)]) // Filtre catégorie + tri date
   @@map("commerce_expenses")
 }
 
@@ -908,17 +910,19 @@ model StockMovement {
   id        String            @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId  String
   productId String
-  userId    String            // Qui a effectué le mouvement
+  userId    String // Qui a effectué le mouvement
   type      StockMovementType
-  quantity  Float             // Quantité du mouvement (toujours positive)
-  reason    String?           // Commentaire libre (ex: "Livraison Orange Fournisseur")
+  quantity  Float // Quantité du mouvement (toujours positive)
+  reason    String? // Commentaire libre (ex: "Livraison Orange Fournisseur")
   createdAt DateTime          @default(now())
 
-  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([productId])
+  @@index([tenantId, productId]) // filtrage mouvements par produit
+  @@index([tenantId, type]) // filtrage par type (OUT/IN/ADJUSTMENT)
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("stock_movements")
 }
@@ -928,13 +932,13 @@ model SalesPayment {
   id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId  String
   saleId    String
-  amount    Float    // Montant payé
+  amount    Float // Montant payé
   method    String   @default("CASH") // CASH | MOBILE_MONEY | TRANSFER | etc.
   notes     String?
   createdAt DateTime @default(now())
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([saleId])
@@ -947,13 +951,13 @@ model SupplierPayment {
   id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   tenantId      String
   receiptId     String
-  supplierId    String?  // Peut être null si fournisseur non enregistré en BDD
-  supplierName  String   // Snapshot nom fournisseur au moment du paiement
-  amount        Float    // Montant payé
+  supplierId    String? // Peut être null si fournisseur non enregistré en BDD
+  supplierName  String // Snapshot nom fournisseur au moment du paiement
+  amount        Float // Montant payé
   paymentMethod String   @default("CASH") // CASH | MOBILE_MONEY | BANK_TRANSFER
   notes         String?
   paidByUserId  String
-  paidByName    String   // Snapshot nom utilisateur
+  paidByName    String // Snapshot nom utilisateur
   createdAt     DateTime @default(now())
 
   tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)

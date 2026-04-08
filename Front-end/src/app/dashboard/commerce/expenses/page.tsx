@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Trash2, TrendingDown, Calendar, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -178,7 +179,18 @@ export default function ExpensesPage() {
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="p-8 text-center text-muted-foreground text-sm">Chargement…</div>
+              <div className="divide-y">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-4 py-3">
+                    <Skeleton className="h-8 w-20 rounded-full" />
+                    <div className="flex-1 space-y-1">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                    <Skeleton className="h-5 w-24" />
+                  </div>
+                ))}
+              </div>
             ) : expenses.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">Aucune dépense ce mois</div>
             ) : (

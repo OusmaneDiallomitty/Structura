@@ -12,7 +12,7 @@ import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { ConfigureConversionDto } from './dtos/configure-conversion.dto';
 import { ReceiveStockDto } from './dtos/receive-stock.dto';
 
-const TTL = 120; // 2 minutes
+const TTL = 300; // 5 minutes — invalidé immédiatement à chaque mutation
 
 @Injectable()
 export class ProductsService {
