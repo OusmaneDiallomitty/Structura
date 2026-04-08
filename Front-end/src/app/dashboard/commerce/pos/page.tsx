@@ -813,35 +813,33 @@ export default function POSPage() {
 
                     {/* Ligne 2 : Qty | Prix | Sous-total */}
                     <div className="flex items-center gap-1 text-xs">
-                      {/* Qty contrôls */}
-                      <div className="flex items-center gap-0.5 bg-muted rounded px-1">
-                        <button onClick={() => updateQty(item.product.id, -1)} className="p-0.5 hover:bg-white">−</button>
-                        {editingQtyId === item.product.id ? (
-                          <input
-                            ref={qtyInputRef}
-                            type="number"
-                            min={0}
-                            max={isBulk ? Math.floor(item.product.stockQty / factor) : item.product.stockQty}
-                            value={editingQtyVal}
-                            onChange={(e) => setEditingQtyVal(e.target.value)}
-                            onBlur={() => commitQty(item.product.id, item.product.stockQty)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitQty(item.product.id, item.product.stockQty);
-                              if (e.key === "Escape") setEditingQtyId(null);
-                            }}
-                            className="w-10 h-5 text-center rounded border border-indigo-400 bg-background text-xs px-0.5"
-                            autoFocus
-                          />
-                        ) : (
-                          <button
-                            onClick={() => startEditQty(item)}
-                            className="w-7 text-center font-bold hover:bg-white rounded px-0.5"
-                            title="Cliquer pour modifier la quantité"
-                          >
-                            {item.quantity}
-                          </button>
-                        )}
-                        <button onClick={() => updateQty(item.product.id, 1)} className="p-0.5 hover:bg-white">+</button>
+                      {/* Qty contrôls — input toujours visible pour que l'utilisateur sache qu'il peut taper */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updateQty(item.product.id, -1)}
+                          className="h-7 w-7 flex items-center justify-center rounded-md bg-muted hover:bg-muted/80 border text-base font-bold leading-none select-none"
+                        >−</button>
+                        <input
+                          ref={editingQtyId === item.product.id ? qtyInputRef : undefined}
+                          type="number"
+                          min={1}
+                          max={isBulk ? Math.floor(item.product.stockQty / factor) : item.product.stockQty}
+                          value={editingQtyId === item.product.id ? editingQtyVal : item.quantity}
+                          onFocus={() => startEditQty(item)}
+                          onChange={(e) => setEditingQtyVal(e.target.value)}
+                          onBlur={() => {
+                            if (editingQtyId === item.product.id) commitQty(item.product.id, item.product.stockQty);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
+                            if (e.key === "Escape") setEditingQtyId(null);
+                          }}
+                          className="w-12 h-7 text-center rounded-md border-2 border-orange-300 bg-white font-bold text-sm focus:border-orange-500 focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        />
+                        <button
+                          onClick={() => updateQty(item.product.id, 1)}
+                          className="h-7 w-7 flex items-center justify-center rounded-md bg-muted hover:bg-muted/80 border text-base font-bold leading-none select-none"
+                        >+</button>
                       </div>
 
                       {/* Prix cliquable */}
