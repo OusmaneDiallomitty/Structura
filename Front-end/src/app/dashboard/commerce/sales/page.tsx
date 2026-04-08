@@ -322,6 +322,7 @@ export default function SalesPage() {
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice: item.totalPrice,
+              unit: item.product?.unit,
             })),
             totalAmount: selectedSale.totalAmount,
             paidAmount: selectedSale.paidAmount,

@@ -1422,6 +1422,7 @@ export interface CommerceSalesReceiptData {
   items: Array<{
     name: string;                  // Nom du produit
     quantity: number;              // Quantité achetée
+    unit?: string;                 // Unité (sac, kg, pièce…)
     unitPrice: number;             // Prix unitaire
     totalPrice: number;            // quantity * unitPrice
   }>;
@@ -1521,49 +1522,75 @@ export async function generateCommerceSalesReceipt(
   doc.line(margin, y, W - margin, y); // Ligne séparatrice
   y += 3;
 
-  // ── Tableau produits (compact) ───────────────────────────────────────────────
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(COLORS.dark);
-
-  // En-têtes
+  // ── Tableau produits — 4 colonnes : Désignation | Qté | P.U. | Total ──────────
+  // Largeurs : Désignation=45%, Qté=15%, P.U.=20%, Total=20%
   const col = {
-    name: margin,
-    qty: margin + contentW * 0.55,
-    total: margin + contentW * 0.78,
+    name:  margin,
+    qty:   margin + contentW * 0.45,
+    pu:    margin + contentW * 0.60,
+    total: W - margin,
   };
 
-  doc.text("Article", col.name, y);
-  doc.text("Qté", col.qty, y);
-  doc.text("Montant", col.total, y, { align: "right" });
+  // Fond gris sur en-tête
+  doc.setFillColor(240, 240, 240);
+  doc.rect(margin, y - 3, contentW, 6, "F");
+
+  doc.setFontSize(6.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(COLORS.dark);
+  doc.text("DÉSIGNATION", col.name, y);
+  doc.text("QTÉ", col.qty, y);
+  doc.text("P.U.", col.pu, y);
+  doc.text("TOTAL", col.total, y, { align: "right" });
+  y += 4;
+
+  doc.setDrawColor(180, 180, 180);
+  doc.line(margin, y, W - margin, y);
   y += 3;
 
-  doc.setDrawColor(220, 220, 220);
-  doc.line(margin, y, W - margin, y);
-  y += 2;
-
-  // Produits
+  // Lignes produits
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(COLORS.dark);
+  doc.setFontSize(7);
 
-  data.items.forEach((item) => {
-    // Nom produit
-    doc.setFontSize(7);
-    doc.text(item.name, col.name, y);
-    doc.text(item.quantity.toString(), col.qty, y);
-    doc.text(fmtAmount(item.totalPrice, ""), col.total, y, { align: "right" });
-    y += 4;
+  data.items.forEach((item, idx) => {
+    // Fond alterné très léger
+    if (idx % 2 === 0) {
+      doc.setFillColor(251, 251, 251);
+      doc.rect(margin, y - 2.5, contentW, 9, "F");
+    }
 
-    // Sous-ligne: prix unitaire
-    doc.setFontSize(6);
-    doc.setTextColor(COLORS.secondary);
-    doc.text(`${item.quantity} × ${fmtAmount(item.unitPrice, "")}`, col.name + 2, y);
-    y += 3;
     doc.setTextColor(COLORS.dark);
+
+    // Nom du produit — tronqué si trop long
+    const maxNameWidth = contentW * 0.43;
+    const nameLines = doc.splitTextToSize(item.name, maxNameWidth);
+    doc.text(nameLines[0], col.name, y);
+    if (nameLines.length > 1) {
+      doc.setFontSize(5.5);
+      doc.setTextColor(COLORS.secondary);
+      doc.text(nameLines[1], col.name, y + 3);
+      doc.setFontSize(7);
+      doc.setTextColor(COLORS.dark);
+    }
+
+    // Quantité avec unité
+    const qtyLabel = item.unit
+      ? `${item.quantity} ${item.unit}`
+      : `${item.quantity}`;
+    doc.text(qtyLabel, col.qty, y);
+
+    // Prix unitaire
+    doc.text(fmtAmount(item.unitPrice, ""), col.pu, y);
+
+    // Total — gras
+    doc.setFont("helvetica", "bold");
+    doc.text(fmtAmount(item.totalPrice, ""), col.total, y, { align: "right" });
+    doc.setFont("helvetica", "normal");
+
+    y += 9;
   });
 
-  y += 1;
-  doc.setDrawColor(200, 200, 200);
+  doc.setDrawColor(180, 180, 180);
   doc.line(margin, y, W - margin, y);
   y += 4;
 

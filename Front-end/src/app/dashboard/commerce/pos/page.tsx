@@ -1111,6 +1111,7 @@ export default function POSPage() {
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice: item.totalPrice,
+              unit: item.product?.unit,
             })),
             totalAmount: lastSale.totalAmount,
             paidAmount: lastSale.paidAmount,
