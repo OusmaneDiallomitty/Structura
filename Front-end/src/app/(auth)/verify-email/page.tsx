@@ -19,12 +19,14 @@ function VerifyEmailContent() {
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setMessage('Token de vérification manquant ou invalide');
+      setMessage('Token de vérification manquant. Utilisez le lien reçu par email.');
       return;
     }
 
     let cancelled = false;
+    // Timeout 60s — Render peut mettre 20-30s à se réveiller sur mobile avec connexion lente
     const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
     (async () => {
       try {
@@ -40,10 +42,6 @@ function VerifyEmailContent() {
         const data = await response.json();
 
         if (response.ok && data.token) {
-          // Sauvegarder le JWT en localStorage (persistant) — indispensable sur mobile
-          // car le lien email s'ouvre dans un Chrome Custom Tab (onglet isolé) qui a
-          // son propre sessionStorage. Si on utilise sessionStorage ici, le token
-          // disparaît quand l'onglet se ferme et l'utilisateur arrive déconnecté.
           localStorage.setItem('structura_token', data.token);
           localStorage.setItem('structura_refresh_token', data.refreshToken);
           localStorage.setItem('structura_user', JSON.stringify(data.user));
@@ -52,25 +50,33 @@ function VerifyEmailContent() {
           setDashboardUrl(target);
           setStatus('success');
           setMessage('Votre email a été vérifié avec succès !');
-          // Utiliser window.location.href (navigation dure) plutôt que router.push
-          // pour forcer le rechargement complet de la page dans le bon contexte d'onglet
           setTimeout(() => {
             if (!cancelled) window.location.href = target;
           }, 2000);
         } else {
+          // Le compte est peut-être déjà activé (double clic, lien cliqué deux fois)
           setStatus('error');
-          setMessage('Le lien de vérification est invalide ou a expiré.');
+          setMessage('already_verified');
         }
       } catch (err: any) {
-        if (err.name === 'AbortError' || cancelled) return;
-        setStatus('error');
-        setMessage('Impossible de contacter le serveur. Vérifiez votre connexion.');
+        if (cancelled) return;
+        if (err.name === 'AbortError') {
+          // Timeout — le serveur a peut-être quand même traité la demande
+          setStatus('error');
+          setMessage('timeout');
+        } else {
+          setStatus('error');
+          setMessage('network');
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
     })();
 
     return () => {
       cancelled = true;
       controller.abort();
+      clearTimeout(timeoutId);
     };
   }, [token]);
 
@@ -93,11 +99,18 @@ function VerifyEmailContent() {
           <CardTitle className="text-2xl">
             {status === 'loading' && 'Vérification en cours...'}
             {status === 'success' && 'Email vérifié !'}
-            {status === 'error' && 'Erreur de vérification'}
+            {status === 'error' && (message === 'timeout' || message === 'network')
+              ? 'Connexion lente'
+              : status === 'error' && 'Lien déjà utilisé'}
           </CardTitle>
 
           <CardDescription className="text-base mt-2">
-            {message}
+            {status === 'loading' && 'Veuillez patienter, cela peut prendre quelques secondes…'}
+            {status === 'success' && 'Votre email a été vérifié avec succès !'}
+            {status === 'error' && message === 'timeout' && 'La connexion a pris trop de temps.'}
+            {status === 'error' && message === 'network' && 'Impossible de contacter le serveur.'}
+            {status === 'error' && message === 'already_verified' && 'Ce lien a déjà été utilisé.'}
+            {status === 'error' && !['timeout','network','already_verified'].includes(message) && message}
           </CardDescription>
         </CardHeader>
 
@@ -107,7 +120,7 @@ function VerifyEmailContent() {
               <p className="text-sm text-gray-600">
                 Votre compte a été activé. Redirection vers votre tableau de bord...
               </p>
-              <Button onClick={() => router.push(dashboardUrl)} className="w-full">
+              <Button onClick={() => window.location.href = dashboardUrl} className="w-full">
                 Accéder au tableau de bord
               </Button>
             </div>
@@ -115,14 +128,25 @@ function VerifyEmailContent() {
 
           {status === 'error' && (
             <div className="text-center space-y-4">
-              <p className="text-sm text-gray-600">
-                Le lien de vérification est invalide ou a expiré.
-              </p>
+              {/* Message rassurant dans tous les cas d'erreur */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                {message === 'timeout' || message === 'network' ? (
+                  <>
+                    <p className="font-medium mb-1">Votre compte est probablement activé.</p>
+                    <p>La connexion était lente mais la vérification a peut-être réussi. Essayez de vous connecter directement.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium mb-1">Déjà vérifié ?</p>
+                    <p>Si vous venez de créer votre compte, il est peut-être déjà activé. Essayez de vous connecter.</p>
+                  </>
+                )}
+              </div>
               <div className="flex flex-col gap-2">
-                <Button onClick={() => router.push('/login')} variant="outline" className="w-full">
-                  Retour à la connexion
+                <Button onClick={() => router.push('/login')} className="w-full">
+                  Se connecter
                 </Button>
-                <Button onClick={() => router.push('/register')} className="w-full">
+                <Button onClick={() => router.push('/register')} variant="outline" className="w-full">
                   Créer un nouveau compte
                 </Button>
               </div>
