@@ -574,25 +574,27 @@ export default function ProductsPage() {
       : null;
 
   return (
-    <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-4 md:p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Produits</h1>
           <p className="text-muted-foreground text-sm mt-1">
             {products.length} produit{products.length > 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/commerce/setup-catalog">
-            <Button variant="outline" className="gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/dashboard/commerce/setup-catalog" className="flex-1 sm:flex-none">
+            <Button variant="outline" className="gap-2 w-full sm:w-auto">
               <Sparkles className="h-4 w-4 text-orange-500" />
-              Importer un catalogue
+              <span className="hidden sm:inline">Importer un catalogue</span>
+              <span className="sm:hidden">Importer</span>
             </Button>
           </Link>
-          <Button onClick={openCreate} className="bg-orange-600 hover:bg-orange-700 text-white">
+          <Button onClick={openCreate} className="bg-orange-600 hover:bg-orange-700 text-white flex-1 sm:flex-none">
             <Plus className="h-4 w-4 mr-2" />
-            Ajouter un produit
+            <span className="hidden sm:inline">Ajouter un produit</span>
+            <span className="sm:hidden">Ajouter</span>
           </Button>
         </div>
       </div>
@@ -842,7 +844,7 @@ export default function ProductsPage() {
               <Label>Nom *</Label>
               <Input placeholder="Coca-Cola 33cl" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Référence</Label>
                 <Input placeholder="SKU-001" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />
@@ -872,7 +874,7 @@ export default function ProductsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Prix d&apos;achat (GNF) *</Label>
                 <Input type="number" placeholder="0" value={form.buyPrice} onChange={(e) => setForm({ ...form, buyPrice: e.target.value })} />
@@ -882,7 +884,7 @@ export default function ProductsPage() {
                 <Input type="number" placeholder="0" value={form.sellPrice} onChange={(e) => setForm({ ...form, sellPrice: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Stock initial</Label>
                 <Input type="number" placeholder="0" value={form.stockQty} onChange={(e) => setForm({ ...form, stockQty: e.target.value })} />

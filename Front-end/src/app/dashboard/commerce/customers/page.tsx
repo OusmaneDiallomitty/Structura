@@ -208,14 +208,14 @@ export default function CustomersPage() {
   // ─── Rendu ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
 
       {/* En-tête */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
-              <UserRound className="h-6 w-6 text-blue-600" />
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+              <UserRound className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
             </div>
             Clients
           </h1>
@@ -223,10 +223,11 @@ export default function CustomersPage() {
         </div>
         <Button
           onClick={openCreate}
-          className="h-11 px-4 rounded-xl gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+          className="h-11 px-4 rounded-xl gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shrink-0 self-start sm:self-auto"
         >
           <Plus className="h-5 w-5" />
-          Ajouter un client
+          <span className="hidden sm:inline">Ajouter un client</span>
+          <span className="sm:hidden">Ajouter</span>
         </Button>
       </div>
 

@@ -139,9 +139,9 @@ export default function SalesPage() {
     .reduce((sum, s) => sum + s.totalAmount, 0);
 
   return (
-    <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-4 md:p-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Ventes</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -151,7 +151,7 @@ export default function SalesPage() {
         </div>
         <Input
           type="date"
-          className="w-auto"
+          className="w-full sm:w-auto"
           value={date}
           onChange={(e) => setDate(e.target.value)}
         />
@@ -206,10 +206,10 @@ export default function SalesPage() {
                       {format(new Date(sale.createdAt), "HH:mm")}
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-bold">{formatGNF(sale.totalAmount)}</p>
+                  <div className="text-right shrink-0 min-w-0">
+                    <p className="font-bold text-sm sm:text-base">{formatGNF(sale.totalAmount)}</p>
                     {sale.remainingDebt > 0 && (
-                      <p className="text-xs text-amber-600">
+                      <p className="text-[10px] sm:text-xs text-amber-600">
                         Reste : {formatGNF(sale.remainingDebt)}
                       </p>
                     )}
@@ -234,7 +234,7 @@ export default function SalesPage() {
                         </div>
                       ))}
                     </div>
-                    <div className="border-t pt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div className="border-t pt-2 grid grid-cols-3 gap-1 text-xs">
                       <div>
                         <p className="text-muted-foreground">Encaissé</p>
                         <p className="font-semibold">{formatGNF(sale.paidAmount)}</p>

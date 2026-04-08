@@ -198,20 +198,20 @@ export default function ExpensesPage() {
                 {expenses.map((exp) => {
                   const info = getCatInfo(exp.category);
                   return (
-                    <div key={exp.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                    <div key={exp.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className={`text-xs ${info.color} border-0`}>{info.label}</Badge>
+                          <Badge className={`text-xs shrink-0 ${info.color} border-0`}>{info.label}</Badge>
                           {exp.description && (
-                            <span className="text-sm text-muted-foreground truncate">{exp.description}</span>
+                            <span className="text-sm text-muted-foreground truncate max-w-40 sm:max-w-none">{exp.description}</span>
                           )}
                         </div>
                         <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          {format(new Date(exp.date), "d MMMM yyyy", { locale: fr })}
+                          <Calendar className="h-3 w-3 shrink-0" />
+                          {format(new Date(exp.date), "d MMM yyyy", { locale: fr })}
                         </div>
                       </div>
-                      <p className="font-bold text-red-600 shrink-0">{fmt(exp.amount)}</p>
+                      <p className="font-bold text-red-600 shrink-0 text-sm sm:text-base">{fmt(exp.amount)}</p>
                       <Button
                         variant="ghost" size="icon"
                         className="shrink-0 text-muted-foreground hover:text-destructive"
