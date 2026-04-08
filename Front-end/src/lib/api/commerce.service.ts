@@ -242,6 +242,12 @@ export const adjustStock = (
 export const deleteProduct = (token: string, id: string) =>
   request<void>(`/commerce/products/${id}`, token, { method: 'DELETE' });
 
+export const bulkDeleteProducts = (token: string, ids: string[]) =>
+  request<{ deleted: number }>('/commerce/products/bulk', token, {
+    method: 'DELETE',
+    body: JSON.stringify({ ids }),
+  });
+
 // ─── Clients ──────────────────────────────────────────────────────────────────
 
 export const getCustomers = (token: string, search?: string) => {

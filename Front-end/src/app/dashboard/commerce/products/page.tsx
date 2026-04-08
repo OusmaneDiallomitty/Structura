@@ -13,6 +13,7 @@ import {
   adjustStock,
   getStockMovements,
   configureConversion,
+  bulkDeleteProducts,
   type CommerceProduct,
   type CommerceCategory,
   type StockMovement,
@@ -317,23 +318,38 @@ export default function ProductsPage() {
     }
   };
 
-  const handleBulkDelete = async () => {
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => bulkDeleteProducts(token(), ids),
+    onMutate: async (ids: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ["commerce-products", tid] });
+      const previous = queryClient.getQueryData(["commerce-products", tid, "", "all"]);
+      // Retrait immédiat des N produits en une seule mise à jour du cache
+      queryClient.setQueryData(["commerce-products", tid, "", "all"], (old: any) => {
+        if (!old) return old;
+        const idSet = new Set(ids);
+        const list: CommerceProduct[] = old?.data ?? old ?? [];
+        const updated = list.filter((p) => !idSet.has(p.id));
+        const newData = old?.data !== undefined ? { ...old, data: updated, total: (old.total ?? list.length) - ids.length } : updated;
+        try { localStorage.setItem(CACHE_PRODUCTS(tid), JSON.stringify(newData)); } catch { /* quota */ }
+        return newData;
+      });
+      return { previous };
+    },
+    onSuccess: (_result, ids) => {
+      toast.success(`${ids.length} produit(s) supprimé(s)`);
+      setSelected(new Set());
+      // Invalider uniquement la caisse (données différentes)
+      queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
+    },
+    onError: (_e, _ids, ctx: any) => {
+      toast.error("Erreur lors de la suppression");
+      if (ctx?.previous) queryClient.setQueryData(["commerce-products", tid, "", "all"], ctx.previous);
+    },
+  });
+
+  const handleBulkDelete = () => {
     if (!window.confirm(`Supprimer ${selected.size} produit(s) ?`)) return;
-
-    const ids = Array.from(selected);
-    setDeleting(null);
-
-    for (const id of ids) {
-      try {
-        await deleteProduct(token(), id);
-      } catch (e) {
-        console.error("Erreur suppression:", e);
-      }
-    }
-
-    toast.success(`${ids.length} produit(s) supprimé(s)`);
-    setSelected(new Set());
-    queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+    bulkDeleteMutation.mutate(Array.from(selected));
   };
 
   // ── Mutation : créer / modifier — optimistic update ───────────────────────
@@ -354,12 +370,46 @@ export default function ProductsPage() {
         : createProduct(token(), values);
     },
     onMutate: async () => {
-      // Annuler les requêtes en vol pour éviter les conflits
       await queryClient.cancelQueries({ queryKey: ["commerce-products", tid] });
+      const previous = queryClient.getQueryData(["commerce-products", tid, "", "all"]);
+
+      if (!editing) {
+        // Optimistic : afficher le produit instantanément avec un id temporaire
+        const tempProduct: CommerceProduct = {
+          id: `__tmp_${Date.now()}`,
+          tenantId: tid as string,
+          name: form.name,
+          reference: form.reference || null,
+          categoryId: form.categoryId || null,
+          category: null,
+          unit: form.unit,
+          buyPrice: parseFloat(form.buyPrice) || 0,
+          sellPrice: parseFloat(form.sellPrice) || 0,
+          stockQty: parseInt(form.stockQty) || 0,
+          stockAlert: parseInt(form.stockAlert) || 5,
+          barcode: null,
+          isActive: true,
+          expiresAt: null,
+          purchaseUnit: null,
+          conversionFactor: null,
+          conversionNote: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as any;
+        queryClient.setQueryData(["commerce-products", tid, "", "all"], (old: any) => {
+          if (!old) return old;
+          const list: CommerceProduct[] = old?.data ?? old ?? [];
+          const newData = old?.data !== undefined
+            ? { ...old, data: [tempProduct, ...list], total: (old.total ?? list.length) + 1 }
+            : [tempProduct, ...list];
+          return newData;
+        });
+      }
+      return { previous };
     },
     onSuccess: (result) => {
       toast.success(editing ? "Produit mis à jour" : "Produit créé");
-      // Mise à jour chirurgicale du cache — pas de refetch réseau
+      // Remplacer le temp par le vrai produit (ou mettre à jour si édition)
       queryClient.setQueryData(
         ["commerce-products", tid, "", "all"],
         (old: any) => {
@@ -367,21 +417,21 @@ export default function ProductsPage() {
           const list: CommerceProduct[] = old?.data ?? old ?? [];
           const updated = editing
             ? list.map((p) => (p.id === editing.id ? result : p))
-            : [result, ...list];
+            : list.map((p) => (p.id.startsWith("__tmp_") ? result : p));
           const newData = old?.data !== undefined ? { ...old, data: updated } : updated;
           try { localStorage.setItem(CACHE_PRODUCTS(tid), JSON.stringify(newData)); } catch { /* quota */ }
           return newData;
         }
       );
-      // Mettre à jour la caisse aussi
       queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
       setShowDialog(false);
       setEditing(null);
       setForm(EMPTY_FORM);
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _vars, ctx: any) => {
       toast.error(e.message);
-      queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      // Rollback : restaurer l'état avant l'optimistic
+      if (ctx?.previous) queryClient.setQueryData(["commerce-products", tid, "", "all"], ctx.previous);
     },
   });
 
@@ -414,7 +464,8 @@ export default function ProductsPage() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["commerce-products", tid] });
+      // Pas de refetch de la liste — l'optimistic update est déjà correct.
+      // On invalide uniquement la caisse qui a sa propre structure de cache.
       queryClient.invalidateQueries({ queryKey: ["commerce-products-pos"] });
     },
   });

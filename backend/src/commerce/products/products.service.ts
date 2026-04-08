@@ -262,6 +262,19 @@ export class ProductsService {
     await this.invalidate(tenantId);
   }
 
+  async bulkRemove(tenantId: string, ids: string[]) {
+    if (!ids.length) return { deleted: 0 };
+
+    // Une seule requête pour tous les produits du tenant
+    const result = await this.prisma.product.updateMany({
+      where: { id: { in: ids }, tenantId, isActive: true },
+      data: { isActive: false },
+    });
+
+    await this.invalidate(tenantId);
+    return { deleted: result.count };
+  }
+
   async setupCatalog(tenantId: string, items: import('./dto/setup-catalog.dto').CatalogItemDto[]) {
     if (!items.length) return { categories: 0, products: 0 };
 

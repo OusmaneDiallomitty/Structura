@@ -155,15 +155,25 @@ export default function CustomersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteCustomer(token(), deleting!.id),
-    onSuccess: () => {
-      const result = queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["commerce-customers", tid] });
+      const prev = queryClient.getQueryData<CommerceCustomer[]>(["commerce-customers", tid]);
+      // Retrait immédiat sans attendre le serveur
+      queryClient.setQueryData<CommerceCustomer[]>(["commerce-customers", tid], (old = []) =>
         old.filter((c) => c.id !== deleting!.id)
       );
+      return { prev };
+    },
+    onSuccess: () => {
+      const result = queryClient.getQueryData<CommerceCustomer[]>(["commerce-customers", tid]);
       toast.success("Client supprimé");
       setDeleting(null);
       if (result) writeCache(tid, result);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _v, ctx: any) => {
+      toast.error(e.message);
+      if (ctx?.prev) queryClient.setQueryData(["commerce-customers", tid], ctx.prev);
+    },
   });
 
   // ─── Handlers ────────────────────────────────────────────────────────────────

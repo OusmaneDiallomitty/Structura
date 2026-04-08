@@ -18,6 +18,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { SetupCatalogDto } from './dto/setup-catalog.dto';
+import { BulkDeleteDto } from './dto/bulk-delete.dto';
 import { ConfigureConversionDto } from './dtos/configure-conversion.dto';
 import { ReceiveStockDto } from './dtos/receive-stock.dto';
 
@@ -80,6 +81,13 @@ export class ProductsController {
     @Body() dto: AdjustStockDto,
   ) {
     return this.productsService.adjustStock(user.tenantId, id, user.id, dto);
+  }
+
+  // IMPORTANT : @Delete('bulk') doit être AVANT @Delete(':id') pour éviter le conflit de routing
+  @Delete('bulk')
+  @HttpCode(200)
+  bulkRemove(@CurrentUser() user: any, @Body() dto: BulkDeleteDto) {
+    return this.productsService.bulkRemove(user.tenantId, dto.ids);
   }
 
   @Delete(':id')
