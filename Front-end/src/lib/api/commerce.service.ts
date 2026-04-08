@@ -1,3 +1,5 @@
+import { checkAndDispatchSessionInvalidated } from '@/lib/fetch-with-timeout';
+
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -156,12 +158,16 @@ async function request<T>(
   });
   const text = await res.text();
   if (!res.ok) {
+    let message = res.statusText || 'Erreur API';
     try {
       const err = JSON.parse(text);
-      throw new Error(err.message || 'Erreur API');
-    } catch {
-      throw new Error(text || res.statusText || 'Erreur API');
+      message = err.message || message;
+    } catch { /* texte brut */ }
+    // Détection session invalidée sur n'importe quel service commerce
+    if (res.status === 401) {
+      checkAndDispatchSessionInvalidated(message);
     }
+    throw new Error(message);
   }
   if (!text) return undefined as unknown as T;
   return JSON.parse(text) as T;

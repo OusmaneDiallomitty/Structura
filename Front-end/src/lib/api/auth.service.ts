@@ -8,6 +8,7 @@
  */
 
 import { User } from "@/types/index";
+import { checkAndDispatchSessionInvalidated } from '@/lib/fetch-with-timeout';
 
 // Configuration API
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"; // Backend séparé
@@ -273,7 +274,9 @@ async function apiPost<T>(url: string, token: string, body: object): Promise<T> 
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Erreur ${res.status}`);
+    const message = err.message || `Erreur ${res.status}`;
+    if (res.status === 401) checkAndDispatchSessionInvalidated(message);
+    throw new Error(message);
   }
   return res.json();
 }
@@ -286,7 +289,9 @@ async function apiPatch<T>(url: string, token: string, body: object): Promise<T>
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Erreur ${res.status}`);
+    const message = err.message || `Erreur ${res.status}`;
+    if (res.status === 401) checkAndDispatchSessionInvalidated(message);
+    throw new Error(message);
   }
   return res.json();
 }

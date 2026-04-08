@@ -176,17 +176,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Déconnexion automatique si une autre session prend la place (détectée par fetchWithTimeout)
+  // Déconnexion automatique si une autre session prend la place
+  // Déclenché par checkAndDispatchSessionInvalidated() dans tous les services API
   useEffect(() => {
+    let handled = false; // Évite les doublons si plusieurs requêtes simultanées reçoivent 401
     const handleSessionInvalidated = () => {
+      if (handled) return;
+      handled = true;
+
       const staleToken = storage.getAuthItem(TOKEN_KEY);
       if (staleToken) logoutUser(staleToken).catch(() => {});
       clearAuth();
-      // Hard reload — vide tout le cache React en mémoire (évite les fuites inter-modules)
-      window.location.href = '/login';
+
+      // Afficher le toast AVANT la redirection pour que l'utilisateur comprenne
+      toast.warning(
+        'Votre compte a été connecté sur un autre appareil. Vous avez été déconnecté.',
+        { duration: 6000, id: 'session-invalidated' }
+      );
+
+      // Laisser le toast s'afficher 1.5s avant le hard reload
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 1500);
     };
     window.addEventListener('auth:session-invalidated', handleSessionInvalidated);
-    return () => window.removeEventListener('auth:session-invalidated', handleSessionInvalidated);
+    return () => {
+      window.removeEventListener('auth:session-invalidated', handleSessionInvalidated);
+      handled = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -508,8 +525,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       storage.setAuthItem(USER_KEY, JSON.stringify(updatedUser), storage.isPersistent());
       setUser(updatedUser);
-    } catch {
-      // Silencieux — ne pas bloquer si offline ou token expiré
+    } catch (err: any) {
+      // SESSION_INVALIDATED est déjà dispatché par handleResponse() dans users.service.ts
+      // Ne pas bloquer l'UI pour les erreurs réseau normales (offline, Render cold start…)
+      if (err?.message && ['SESSION_INVALIDATED', 'Compte invalide ou désactivé', 'Organisation désactivée'].includes(err.message)) {
+        return; // Déjà géré par l'event listener
+      }
+      // Autres erreurs (réseau, timeout) : silencieux
     }
   };
 

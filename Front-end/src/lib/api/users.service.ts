@@ -4,6 +4,7 @@
  */
 
 import { UserPermissions } from "@/types/permissions";
+import { checkAndDispatchSessionInvalidated } from '@/lib/fetch-with-timeout';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -78,7 +79,11 @@ export type BackendUserProfile = Omit<BackendTeamMember, 'taughtClasses'> & {
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: `Erreur ${res.status}` }));
-    throw new Error(err.message || `Erreur ${res.status}`);
+    const message = err.message || `Erreur ${res.status}`;
+    if (res.status === 401) {
+      checkAndDispatchSessionInvalidated(message);
+    }
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }
