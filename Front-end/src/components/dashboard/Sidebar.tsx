@@ -466,80 +466,83 @@ export function Sidebar() {
             })}
           </nav>
 
-          {/* Footer */}
-          <div className="p-4 border-t space-y-2">
-            {/* Indicateur sync offline */}
-            {pendingSync > 0 && (
-              <div className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium",
-                isOnline ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
-              )}>
-                <span className={cn(
-                  "h-2 w-2 rounded-full shrink-0",
-                  isOnline ? "bg-blue-500 animate-pulse" : "bg-amber-500"
-                )} />
-                {isOnline
-                  ? `${pendingSync} action${pendingSync > 1 ? "s" : ""} en attente de sync`
-                  : `${pendingSync} action${pendingSync > 1 ? "s" : ""} hors ligne`
-                }
-              </div>
-            )}
-            {/* Indicateur online/offline */}
-            <div className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium",
-              isOnline ? "text-emerald-600" : "text-gray-400"
-            )}>
-              {isOnline
-                ? <Wifi className="h-3.5 w-3.5 shrink-0" />
-                : <WifiOff className="h-3.5 w-3.5 shrink-0" />
-              }
-              {isOnline ? "En ligne" : "Hors ligne"}
-            </div>
-
-            <Link
-              href="/dashboard/profile"
-              onClick={closeSidebar}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-            >
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={`${user.firstName} ${user.lastName}`}
-                  className="h-8 w-8 rounded-full object-cover shrink-0"
-                />
-              ) : (
+          {/* Footer — scrollable pour éviter que déconnexion sorte de l'écran sur petits mobiles */}
+          <div className="border-t flex flex-col min-h-0 shrink-0" style={{ maxHeight: '45vh' }}>
+            <div className="overflow-y-auto p-4 space-y-2">
+              {/* Indicateur sync offline */}
+              {pendingSync > 0 && (
                 <div className={cn(
-                  "h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0",
-                  isDirectorLevel(user)       ? "bg-blue-600"   :
-                  user?.role === "teacher"   ? "bg-emerald-600" :
-                  user?.role === "secretary" ? "bg-violet-600" :
-                  "bg-gray-500"
+                  "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium",
+                  isOnline ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
                 )}>
-                  {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+                  <span className={cn(
+                    "h-2 w-2 rounded-full shrink-0",
+                    isOnline ? "bg-blue-500 animate-pulse" : "bg-amber-500"
+                  )} />
+                  {isOnline
+                    ? `${pendingSync} action${pendingSync > 1 ? "s" : ""} en attente de sync`
+                    : `${pendingSync} action${pendingSync > 1 ? "s" : ""} hors ligne`
+                  }
                 </div>
               )}
-              <div className="flex-1 min-w-0">
-                <p
-                  className="text-sm font-medium truncate"
-                  title={`${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim()}
-                >
-                  {user?.firstName} {user?.lastName}
-                </p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {getRoleLabel(user)}
-                </p>
+              {/* Indicateur online/offline */}
+              <div className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium",
+                isOnline ? "text-emerald-600" : "text-gray-400"
+              )}>
+                {isOnline
+                  ? <Wifi className="h-3.5 w-3.5 shrink-0" />
+                  : <WifiOff className="h-3.5 w-3.5 shrink-0" />
+                }
+                {isOnline ? "En ligne" : "Hors ligne"}
               </div>
-            </Link>
-            <AccountSwitcher />
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive transition-all duration-200 hover:scale-[1.02]"
-              size="sm"
-              onClick={handleLogout}
-            >
-              <LogOut className="h-4 w-4" />
-              Déconnexion
-            </Button>
+
+              <Link
+                href="/dashboard/profile"
+                onClick={closeSidebar}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+              >
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={`${user.firstName} ${user.lastName}`}
+                    className="h-8 w-8 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className={cn(
+                    "h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0",
+                    isDirectorLevel(user)       ? "bg-blue-600"   :
+                    user?.role === "teacher"   ? "bg-emerald-600" :
+                    user?.role === "secretary" ? "bg-violet-600" :
+                    "bg-gray-500"
+                  )}>
+                    {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-sm font-medium truncate"
+                    title={`${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim()}
+                  >
+                    {user?.firstName} {user?.lastName}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {getRoleLabel(user)}
+                  </p>
+                </div>
+              </Link>
+              <AccountSwitcher />
+              {/* Déconnexion — toujours visible en dernier */}
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive transition-all duration-200 hover:scale-[1.02]"
+                size="sm"
+                onClick={handleLogout}
+              >
+                <LogOut className="h-4 w-4" />
+                Déconnexion
+              </Button>
+            </div>
           </div>
         </div>
       </aside>

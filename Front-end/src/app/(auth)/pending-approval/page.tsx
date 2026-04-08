@@ -68,6 +68,16 @@ export default function PendingApprovalPage() {
     if (exchanging.current) return;
     if (phaseRef.current !== "waiting") return;
 
+    // Si le token est déjà en localStorage (échangé par approve-login sur même appareil)
+    // → ne pas tenter un 2e échange, juste rediriger
+    const existingToken = localStorage.getItem("structura_token");
+    if (existingToken) {
+      clearInterval(pollRef.current!);
+      clearInterval(intervalRef.current!);
+      window.location.href = "/dashboard";
+      return;
+    }
+
     try {
       const result = await checkApproval(pendingToken.current);
 
