@@ -15,6 +15,7 @@ export const metadata: Metadata = {
     description:
       "Plan gratuit disponible. Pro à 50 000 GNF/mois. Gérez votre école ou votre commerce depuis n'importe quel appareil.",
     url: "https://www.structurasaas.com/tarifs",
+    images: [{ url: "/logo.png", width: 192, height: 192 }],
   },
   alternates: {
     canonical: "https://www.structurasaas.com/tarifs",

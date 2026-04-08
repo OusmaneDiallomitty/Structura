@@ -72,19 +72,19 @@ export const metadata: Metadata = {
       "Gérez votre école facilement depuis n'importe quel appareil : élèves, paiements de scolarité, présences, notes et bulletins. Essai gratuit disponible.",
     images: [
       {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
+        url: "/logo.png",
+        width: 192,
+        height: 192,
         alt: "Structura — Logiciel de Gestion Scolaire",
       },
     ],
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "Structura — Logiciel de Gestion Scolaire en Guinée",
     description:
       "Gérez votre école facilement : élèves, paiements, présences, notes et bulletins. Essai gratuit disponible.",
-    images: ["/og-image.png"],
+    images: ["/logo.png"],
   },
   alternates: {
     canonical: "https://www.structurasaas.com",
